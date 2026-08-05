@@ -2908,6 +2908,7 @@ name = "godgame-data"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.1",
+ "serde_json",
 ]
 
 [[package]]

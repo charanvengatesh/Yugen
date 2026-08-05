@@ -1,3 +1,5 @@
+# Bevy 0.19 requires 1.95; pinned rather than floating so a toolchain update
+# never silently changes what this repo compiles as.
 [toolchain]
-channel = "1.93"
+channel = "1.97"
 components = ["rustfmt", "clippy"]
