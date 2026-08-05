@@ -2,6 +2,7 @@
 //! generator that fills it.
 
 pub mod biomes;
+pub mod decor;
 pub mod materials;
 pub mod noise;
 pub mod worldgen;

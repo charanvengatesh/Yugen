@@ -11,7 +11,11 @@
 //! keyword in Rust 2024.)
 
 pub mod caves;
+pub mod containers;
+pub mod features;
 pub mod fields;
 pub mod heightmap;
 pub mod layers;
+pub mod loot;
 pub mod spline;
+pub mod structs;
