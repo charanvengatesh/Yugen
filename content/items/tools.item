@@ -1,0 +1,102 @@
+# Pickaxes — the progression ladder.
+#
+# TUNING. `digPower` is compared against MAT_HARDNESS as a HARD GATE, not a speed
+# penalty: over the line the cell does not break at all. So each rung is set just
+# past exactly one ore in content/blocks/ores.block and just short of the next,
+# which makes every upgrade a specific door rather than a vague number going up.
+#
+#   hardness:  stone 3 · basalt 3.5 · coal 4 · copper 4.5 · iron 5 · crystal 5
+#              gold 5.5 · gem 6 · obsidian 9 · liquids and gases Infinity
+#
+#   traveler 4.6  -> copper is the deepest thing you own, iron is the wall
+#   copper   5.2  -> iron and crystal open
+#   iron     5.8  -> gold opens
+#   gold     6.4  -> gem opens
+#   gem      10   -> obsidian opens; nothing left but the unbreakables
+#
+# The starter clears copper on purpose. A ladder whose first rung needs copper to
+# craft and copper to mine is not a ladder, and bare hands (digPower 0.5 — see
+# HANDS in src/tools/BuildTool.ts) only get you leaves, moss, ash, snow and sand.
+#
+# digSpeed / reach / brushMax rise together so a late pick FEELS different even
+# on stone you could already break: ~3x the cadence, twice the reach, and a bite
+# of 49 cells instead of 5.
+
+@item pick_traveler
+name      Traveler's Pick
+category  tool
+color     134 118 96
+icon      icon_pick_traveler
+stack     1
+tier      0
+value     20
+desc      Worn handle, chipped head. It was somebody else's first, too.
+tags      pickaxe
+tool.digPower  4.6
+tool.digSpeed  1.0
+tool.reach     5
+tool.brushMax  1
+
+@item pick_copper
+name      Copper Pickaxe
+category  tool
+color     196 124 76
+icon      icon_pick_copper
+stack     1
+tier      1
+value     120
+desc      Soft metal, but it bites iron. Barely.
+tags      pickaxe
+tool.digPower  5.2
+tool.digSpeed  1.35
+tool.reach     6
+tool.brushMax  2
+craft     in="copper_bar wood_log" n="3 2" out=1 station=workbench
+
+@item pick_iron
+name      Iron Pickaxe
+category  tool
+color     176 172 168
+icon      icon_pick_iron
+stack     1
+tier      2
+value     260
+desc      The first pick that does not flinch at a gold seam.
+tags      pickaxe
+tool.digPower  5.8
+tool.digSpeed  1.75
+tool.reach     7
+tool.brushMax  2
+craft     in="iron_bar wood_log" n="3 2" out=1 station=anvil
+
+@item pick_gold
+name      Gold Pickaxe
+category  tool
+color     224 194 96
+icon      icon_pick_gold
+stack     1
+tier      3
+value     620
+desc      Gold conducts the strike instead of absorbing it. Nobody knows why.
+tags      pickaxe
+tool.digPower  6.4
+tool.digSpeed  2.2
+tool.reach     8
+tool.brushMax  3
+craft     in="gold_bar iron_bar wood_log" n="3 1 2" out=1 station=anvil
+
+@item pick_gem
+name      Gem Pickaxe
+category  tool
+color     190 72 132
+icon      icon_pick_gem
+stack     1
+tier      4
+value     1800
+desc      Cuts obsidian. After this there is only the unbreakable.
+tags      pickaxe gem
+tool.digPower  10
+tool.digSpeed  3.0
+tool.reach     10
+tool.brushMax  4
+craft     in="gem gold_bar wood_log" n="4 2 2" out=1 station=anvil

@@ -1,0 +1,299 @@
+# The player, transcribed verbatim out of src/entities/PlayerSprite.ts.
+#
+# Nothing about the art changed in the move — same grid, same palette, same
+# frames, same modes, same rates. What changed is who owns it: the poses were
+# module constants in a .ts file, so redrawing the character meant editing
+# TypeScript, and `AnimState` was a hand-written union that could drift from the
+# sequence table sitting twenty lines below it. Both are generated from this file
+# now, so the twelve states the movement code can produce and the twelve
+# sequences that exist are the same list by construction.
+#
+# ---- ONE ART PIXEL IS ONE WORLD CELL ---------------------------------------
+# 2x3 cells = 10x15px at CELL_SIZE 5, which is exactly the collision box: no
+# overhang, every pixel a pose uses is inside the hitbox. The art used to be a
+# 16x16 grid squeezed into that box — a sprite pixel was 1.25 x 1.5 world px,
+# four times finer than the sim cell and not even square, so the character read
+# as a smooth hi-res figure pasted onto a chunky cellular world. The grid is the
+# cell grid now, and this file cannot express anything else.
+#
+# ---- THE CHARACTER, AT SIX PIXELS ------------------------------------------
+# There is no silhouette to design at 2x3 and no room for a profile, so the
+# character is carried by three things and nothing else:
+#
+#   row 0   HEAD — a single ember pixel. Empty on one side, which is what makes
+#           the figure read as facing somewhere rather than as a block.
+#   row 1   BODY — two pixels, lit (2) on the leading side and shade (3) on the
+#           trailing side. Swapping those two tones flips the read of which way
+#           the body's weight is going, which is the only "lean" available.
+#   row 2   FEET — ink. Both lit = planted, one lit = mid-stride, both empty =
+#           airborne.
+#
+# Authored facing RIGHT; left is a horizontal flip at draw time. Transparency
+# does most of the acting: dropping row 2 lifts the figure off the ground,
+# dropping column 0 flattens it against a wall, dropping row 0 and pushing
+# everything down squashes it on impact.
+#
+# ---- SHARED POSES ARE REPEATED, NOT NAMED ----------------------------------
+# Several states legitimately land on the same drawing — run's passing pose is
+# the idle exhale, jump's apex is the doubleJump tuck, land's and punch's
+# recovery are both the neutral stand. Those frames are written out again here
+# rather than hoisted into a named intermediate: the runtime's bake cache is
+# keyed on the frame text, so identical frames still share ONE baked canvas, and
+# the file stays readable as a filmstrip instead of as a symbol table.
+
+@sprite player
+name      Player
+
+cellsW    2
+cellsH    3
+
+# Six pixels leave no room for shading, so every colour has to do a job on its
+# own: two body tones that encode facing, one hot head pixel, one alarm colour,
+# one spark, one ink for the feet. Nothing here is decorative. Teal body + gold
+# head is the identity — the loudest thing against a world of sand, dirt and
+# stone, and an ember survives being one pixel where a face never could.
+#
+#   0 .        transparent          4 #ffcf5c  ember head — the bloom pass takes it
+#   1 #1b1220  ink, planted feet    5 #ff6b57  ember blown red — hurt only
+#   2 #3ec8b4  body lit (leading)   6 #fff3c4  spark — dash, punch, swim bubble
+#   3 #21877e  body shade (trailing)
+pal       . #1b1220 #3ec8b4 #21877e #ffcf5c #ff6b57 #fff3c4
+
+variants  1
+
+# Every sequence below sets its own rate, so the sprite-wide `fps` is never
+# consulted; it is left at the schema default rather than authored to a lie.
+
+# --- idle -------------------------------------------------------------------
+# Ambient, not a loop: a slow breath with an occasional blink on top. The first
+# two frames alternate at `fps` (exhale/inhale), and the LAST frame is the
+# interrupt — held for blinkFor every blinkEvery. The ember dropping to body
+# tone IS the blink; there is no eye to close.
+#
+# fps is written as the reciprocal of the authored beat, 1/0.62, and the exact
+# double for it rather than a rounded 1.613. The runtime computes
+# `beat = 1/fps` and then `floor(t / beat)`, and 1/(1/0.62) === 0.62 exactly in
+# IEEE754, so the reciprocal round-trips bit-for-bit to the original
+# IDLE_BREATH constant. 1.613 does not: it disagrees with the old
+# PlayerSprite.idleFrame() on 91 of 600,000 samples over 60s.
+seq  state=idle mode=ambient fps=1.6129032258064517 blinkEvery=4.6 blinkFor=0.1 |
+  .4
+  22
+  11
+
+  .4
+  32
+  11
+
+  .3
+  32
+  11
+
+# --- run --------------------------------------------------------------------
+# Indexed by the run phase the Player advances from real horizontal speed, so
+# contacts land on phase 0.0 and 0.5 — which is where the footstep particles are
+# emitted. Cadence is the whole cycle: the planted foot alternates between the
+# trailing and leading pixel, with both down on the passing beat.
+#
+# THE TWO PASSING BEATS ARE NOT THE SAME DRAWING ANY MORE, and that is the only
+# change to this sequence. They used to be byte-identical, which meant the cycle
+# really only had three distinct frames and read as A-B-C-B — a shuffle. Frame 1
+# now lifts the body onto BOTH lit pixels: at this size a tone change is the
+# only "rise" available, and `22` already means an extended, bright body
+# everywhere else in this file (it is the jump launch). Frame 3 keeps the
+# shaded `32`, so the near-side pass rides high and the far-side pass rides low
+# — which is what a run seen from one side actually does. The tones are NOT
+# swapped to `23` on either beat: that reversal is reserved for `skid`, where it
+# means the weight is going the other way, and reusing it here would make every
+# other stride read as a turnaround.
+seq  state=run mode=phase |
+  .4
+  32
+  1.
+
+  .4
+  22
+  11
+
+  .4
+  32
+  .1
+
+  .4
+  32
+  11
+
+# --- skid -------------------------------------------------------------------
+# The body tones are SWAPPED, so the lit side trails the facing: the figure
+# faces the new direction while its weight still goes the old way, which is
+# exactly what a turnaround is. At this size a tone swap is a legible event.
+#
+# Now a two-frame loop rather than a single held pose: a spark (6) flickers
+# under the LEADING foot, which is the one actually scraping when the weight is
+# still travelling the other way. Nothing else about the drawing changes between
+# the frames, so the state still reads as one fixed posture — it just stops
+# being the only sustained state in the set that is completely static, which at
+# ten frames a second is the difference between braking and being paused.
+seq  state=skid mode=loop fps=10 |
+  .4
+  23
+  11
+
+  .4
+  23
+  16
+
+# --- jump -------------------------------------------------------------------
+# Launch (body extended and bright, trailing foot already gone) into the tuck.
+seq  state=jump mode=once fps=9 |
+  .4
+  22
+  .1
+
+  .4
+  32
+  ..
+
+# --- doubleJump -------------------------------------------------------------
+# The one move with a real animation left: the ember travels top -> leading side
+# -> bottom across three beats, which reads as a forward roll. Nothing else in
+# the set moves the head pixel, so it cannot be confused with the first jump.
+# Recovers onto a run contact.
+seq  state=doubleJump mode=once fps=12 |
+  .4
+  32
+  ..
+
+  34
+  3.
+  ..
+
+  33
+  .4
+  ..
+
+  .4
+  32
+  .1
+
+# --- fall -------------------------------------------------------------------
+# A dim, loose body (both tones shaded) with a foot swinging underneath. Three
+# frames on a slow loop so it flails rather than vibrates — the middle frame
+# drops BOTH feet, so the leg swings through empty air between the two contacts
+# instead of teleporting from one side to the other. Two frames made the fall
+# read as a metronome; the odd frame count is what makes it read as loose.
+seq  state=fall mode=loop fps=6 |
+  .4
+  33
+  1.
+
+  .4
+  33
+  ..
+
+  .4
+  33
+  .1
+
+# --- land -------------------------------------------------------------------
+# Impact: the figure loses its top row entirely — the ember drops into the
+# middle and the body squashes onto the feet. A third of the height gone in one
+# frame is the most violent thing available here.
+#
+# Three beats now, not two: squash, RISE, neutral. The rise recovers the full
+# height but keeps the body on the dim `33` it had while falling, so the figure
+# comes back up before it comes back to strength. Cutting straight from the
+# squash to the neutral stand made the recovery instantaneous, which threw away
+# most of what the squash frame had just paid for.
+seq  state=land mode=once fps=14 |
+  ..
+  .4
+  32
+
+  .4
+  33
+  11
+
+  .4
+  32
+  11
+
+# --- dash -------------------------------------------------------------------
+# Sparks trail from the BACK column (behind the facing) and shift between the
+# frames, so at 18fps the dash reads as a streak rather than a pose. Three
+# frames rather than two: an even count at this rate gives a 9Hz alternation
+# that the eye locks onto as a flicker, where an odd one keeps re-landing on a
+# different beat and stays a streak. The third frame is the only one with a
+# spark on two rows at once — the trail briefly doubling is what sells speed.
+seq  state=dash mode=loop fps=18 |
+  64
+  32
+  ..
+
+  .4
+  62
+  6.
+
+  64
+  62
+  ..
+
+# --- wallSlide --------------------------------------------------------------
+# Column 0 is dropped entirely: the figure squeezes into a one-pixel-wide column
+# pressed against the wall it faces. A 1x3 silhouette is unlike anything else in
+# the set, so this state is never ambiguous.
+seq  state=wallSlide mode=loop fps=6 |
+  .4
+  .2
+  .1
+
+  .4
+  .2
+  ..
+
+# --- swim -------------------------------------------------------------------
+# The ember moves into the MIDDLE row with the body behind it — a prone,
+# horizontal figure — and a bubble drifts across the top row. Feet never plant.
+# Three beats (reach, gather, kick) played [A, B, C, B], so the gather frame
+# appears twice and the stroke has a returning half.
+seq  state=swim mode=loop fps=6 |
+  6.
+  34
+  3.
+
+  ..
+  34
+  .3
+
+  .6
+  34
+  33
+
+  ..
+  34
+  .3
+
+# --- punch ------------------------------------------------------------------
+# Wind-up (the body dims and coils, feet set), contact (a spark punched out of
+# the leading body pixel), recovery to neutral.
+seq  state=punch mode=once fps=14 |
+  .4
+  33
+  11
+
+  .4
+  36
+  11
+
+  .4
+  32
+  11
+
+# --- hurt -------------------------------------------------------------------
+# The ember blows red AND snaps to the trailing column, the body tones reverse,
+# and a foot leaves the floor. Three changes at once — the most distinct frame
+# in the set, which is right for the state you most need to read instantly.
+seq  state=hurt mode=hold |
+  5.
+  23
+  1.

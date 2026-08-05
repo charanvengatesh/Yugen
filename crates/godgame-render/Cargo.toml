@@ -1,0 +1,13 @@
+[package]
+name = "godgame-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Every draw pass: the cell material, light, sky, weather, particles, sprite atlas, bitmap font."
+
+[dependencies]
+godgame-core.workspace = true
+godgame-data.workspace = true
+bevy.workspace = true
+bitflags.workspace = true

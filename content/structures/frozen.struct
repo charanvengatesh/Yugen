@@ -1,0 +1,46 @@
+# Tundra and glacier. Both tolerate rougher ground than a timber building does
+# (`flatness` 8): the point of a cairn is that somebody piled it on a ridge.
+
+@struct frozen_cairn
+name      "Frozen Cairn"
+place     surface
+rarity    0.6
+weight    2.0
+biomes    tundra glacier
+anchor    bottom_center
+flatness  8
+mirror    false
+legend    c=P  block=packedIce
+legend    c=I  block=ice
+legend    c=L  block=goldOre|ironOre|coalOre  mark=loot
+body |
+  ___P___
+  __PPP__
+  __P.P__
+  __PPP__
+  _PP.PP_
+  _P...P_
+  _P.L.P_
+  _PPPPP_
+  _IIIII_
+
+@struct ice_shelter
+name      "Ice Shelter"
+place     surface
+rarity    0.45
+weight    1.2
+biomes    tundra glacier
+anchor    bottom_center
+flatness  6
+mirror    true
+legend    c=P  block=packedIce
+legend    c=I  block=ice
+legend    c=L  block=ironOre|coalOre  mark=loot
+legend    c=X  mark=spawn
+body |
+  __PPPPP__
+  _PPIIIPP_
+  _P.....P_
+  _P..L..P_
+  _...X..P_
+  _PPPPPPP_

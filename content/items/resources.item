@@ -1,0 +1,202 @@
+# Resources — what the ground gives you.
+#
+# Every id a `drop` line in content/blocks/*.block already names lives here, plus
+# the four "the block itself, in your hand" items (dirt, sand, wood, ice) that
+# blocks with no explicit `drop` fall back to via the block -> item reverse index
+# in src/items/registry.ts. That fallback is why these carry `places`: digging
+# dirt has to give you something you can put back, or the loop is a shredder.
+#
+# Colours deliberately match the block colours in content/blocks/, so a hotbar
+# swatch reads as "the thing you are about to place".
+
+# --- Diggable ground, round-trippable -------------------------------------
+
+@item stone_chunk
+name      Stone Chunk
+category  placeable
+color     96 92 84
+icon      icon_block_cube
+places    stone
+stack     99
+value     1
+desc      Grey, heavy, and everywhere. The floor of every plan.
+tags      stone buildable
+
+@item dirt_clod
+name      Dirt Clod
+category  placeable
+color     120 82 48
+icon      icon_block_cube
+places    dirt
+stack     99
+value     1
+desc      Soft enough to move with your hands.
+tags      soil buildable
+
+@item sand_pile
+name      Sand
+category  placeable
+color     222 196 120
+icon      icon_block_cube
+places    sand
+stack     99
+value     1
+desc      Runs the moment you stop holding it up.
+tags      soil buildable
+
+@item wood_log
+name      Wood Log
+category  placeable
+color     150 100 55
+icon      icon_block_cube
+places    wood
+stack     99
+value     2
+desc      Burns, floats, and makes a handle for anything.
+tags      wood fuel buildable
+
+@item ice_shard
+name      Ice Shard
+category  placeable
+color     120 170 240
+icon      icon_block_cube
+places    ice
+stack     99
+value     1
+desc      Melts in the warm bands. Keep it deep or keep it moving.
+tags      ice buildable
+
+# --- Named by block drop tables -------------------------------------------
+
+@item crystal_shard
+name      Crystal Shard
+category  material
+color     152 112 232
+icon      icon_crystal_shard
+stack     99
+value     14
+desc      Hums faintly when a light source passes.
+tags      gem
+
+@item flint
+name      Flint
+category  material
+color     80 78 84
+icon      icon_flint
+stack     99
+value     3
+desc      Chips off gravel about one time in ten. Sharp on every edge.
+tags      stone
+
+@item sapling
+name      Sapling
+category  material
+color     96 156 74
+icon      icon_sapling
+stack     99
+value     4
+desc      A whole forest, currently the size of your thumb.
+tags      plant
+
+@item pine_cone
+name      Pine Cone
+category  material
+color     122 88 52
+icon      icon_sapling
+stack     99
+value     4
+desc      Rattles. Full of seeds and, apparently, resin.
+tags      plant fuel
+
+@item coal
+name      Coal
+category  material
+color     40 38 40
+icon      icon_coal
+stack     99
+value     5
+desc      The first thing worth swinging a pick at.
+tags      fuel
+
+@item copper_ore
+name      Copper Ore
+category  material
+color     156 104 66
+icon      icon_ore_copper
+stack     99
+value     8
+desc      Streaks of green-brown metal in the stone.
+tags      ore
+
+@item iron_ore
+name      Iron Ore
+category  material
+color     146 128 118
+icon      icon_ore_iron
+stack     99
+value     14
+desc      Dull, dense, and worth the trip down.
+tags      ore
+
+@item gold_ore
+name      Gold Ore
+category  material
+color     206 170 66
+icon      icon_ore_gold
+stack     99
+value     30
+desc      Too soft to trust in a fight. Perfect for everything else.
+tags      ore
+
+@item gem
+name      Gem
+category  material
+color     190 72 132
+icon      icon_gem
+stack     99
+value     70
+desc      One clean facet, and a light that does not come from outside it.
+tags      gem
+
+# --- Smelted bars ----------------------------------------------------------
+#
+# Three ore to one bar across the board, so the ratio never has to be looked up,
+# and one coal per smelt so the coal seams you pass on the way down stay useful
+# instead of becoming clutter.
+
+@item copper_bar
+name      Copper Bar
+category  material
+color     196 124 76
+icon      icon_bar_copper
+stack     99
+value     28
+desc      Soft metal, honest tools.
+tags      bar
+craft     in="copper_ore coal" n="3 1" out=1 station=furnace
+
+@item iron_bar
+name      Iron Bar
+category  material
+color     176 172 168
+icon      icon_bar_iron
+stack     99
+value     50
+desc      Holds an edge long enough to matter.
+tags      bar
+craft     in="iron_ore coal" n="3 1" out=1 station=furnace
+# The salvage route. Two scrap for one bar against three ore for one is the
+# better ratio on purpose: killing a bladeframe should be worth more than the
+# seam you walked past, or nobody will ever fight one twice.
+craft     in="machine_scrap coal" n="2 1" out=1 station=furnace
+
+@item gold_bar
+name      Gold Bar
+category  material
+color     224 194 96
+icon      icon_bar_gold
+stack     99
+value     102
+desc      Heavy, bright, and far better at carrying a charge than a blow.
+tags      bar
+craft     in="gold_ore coal" n="3 1" out=1 station=furnace

@@ -1,0 +1,68 @@
+# Liquids. `density` orders buoyancy (oil floats on water, water floats on lava)
+# and `liquidSpread` is the horizontal reach per tick, which is what makes water
+# level out fast and lava crawl. None of them collide, and none are dig targets,
+# hence the Infinity hardness.
+
+@block water
+name          Water
+state         liquid
+color         55 110 220
+colorVar      14
+edge          40
+density       1
+liquidSpread  5
+hardness      Infinity
+tags          liquid
+heat.conduct  56
+heat.cool     3
+heat.meltAt   40
+heat.meltInto steam
+
+@block lava
+name          Lava
+state         liquid
+color         235 110 35
+colorVar      22
+texture       molten
+shimmer       220
+edge          20
+emissive      1
+density       3
+liquidSpread  2
+damage        220
+lightEmit     13
+hardness      Infinity
+tags          liquid hazard
+heat.emit     255
+heat.conduct  56
+heat.cool     0
+
+@block oil
+name          Oil
+state         liquid
+color         60 52 42
+colorVar      12
+edge          30
+density       0.8
+liquidSpread  4
+hardness      Infinity
+tags          liquid hazard
+flammable.igniteChance 0.3
+flammable.burnTime     40
+flammable.burnsInto    smoke
+heat.conduct  24
+heat.igniteAt 30
+
+@block acid
+name          Acid
+state         liquid
+color         132 240 82
+colorVar      14
+edge          35
+density       0.9
+liquidSpread  4
+damage        60
+hardness      Infinity
+tags          liquid hazard
+heat.conduct  46
+heat.cool     2

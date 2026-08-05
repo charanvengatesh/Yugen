@@ -1,0 +1,55 @@
+# Consumables — heals and the one buff the README already promised.
+#
+# Heals are quoted in HEARTS (25 hp each, MAX_HEALTH 100 over four) so the
+# numbers stay legible next to the King's Sword: a bandage is half a heart, stew
+# is a full one. Both are made from things you trip over on the surface, which is
+# the point — the deep tiers should be spent on picks, not on staying alive.
+#
+# "Abilities: ... fire damage protection" — that is the Emberward Draught. It
+# carries no heal at all, only `use.effect fireward`, which is the contract name
+# the buff system will look for.
+
+@item bandage
+name      Bandage
+category  consumable
+color     226 220 206
+icon      icon_bandage
+stack     20
+tier      0
+value     12
+desc      Moss packed under cloth. Half a heart, no ceremony.
+tags      food
+use.heal  12
+craft     in="sapling moss_clump" n="2 1" out=2 station=hand
+
+@item mushroom_stew
+name      Mushroom Stew
+category  consumable
+color     150 108 74
+icon      icon_stew
+stack     20
+tier      1
+value     34
+desc      Boiled until the glow stops. A full heart, and it tastes of the caves.
+tags      food
+use.heal  25
+craft     in="mushroom_cap sapling" n="2 1" out=1 station=furnace
+
+@item emberward_draught
+name      Emberward Draught
+category  consumable
+color     236 138 66
+icon      icon_flask_fire
+stack     10
+tier      3
+value     180
+desc      Drink before the volcano, not during it.
+tags      relic
+use.heal      0
+use.effect    fireward
+use.duration  25
+craft     in="gem crystal_shard ash_pile" n="1 2 2" out=1 station=workbench
+# Repeating `craft` declares an ALTERNATE route, which is the whole reason the
+# field is a record[]. An emberling's core is the cheap way in — if you can kill
+# one, which is the trade.
+craft     in="ember_core crystal_shard" n="1 2" out=2 station=workbench

@@ -1,0 +1,195 @@
+# Flora: things that grow, spread, or make up a canopy.
+#
+# Canopy blocks. Trees previously built their canopy out of WOOD, so a forest
+# read as a field of brown lollipops. All are flammable with a high colorVar so a
+# canopy dithers into a mass rather than a flat slab, and all burn to smoke — a
+# lightning strike or a lava flow should take a wood out. They collide: a canopy
+# you can stand on is worth more than one you fall through, and it gives the
+# platforming something to use.
+
+@block moss
+name         Moss
+state        solid
+color        72 122 56
+colorVar     18
+texture      fibrous
+edge         35
+hardness     0.3
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.08
+flammable.burnTime     70
+flammable.burnsInto    smoke
+heat.conduct 22
+heat.igniteAt 40
+# Creeps over bare rock/soil, but only a few cells out from any seed so the
+# spread is finite and the chunk goes back to sleep.
+growth.chance 0.012
+growth.onto   dirt stone sandstone basalt clay mud
+growth.maxGen 4
+
+# Vines trail downward through open air; passable, and they burn well.
+#
+# Climbable, which is the whole reason a jungle reads differently from a plain:
+# the world generates its own ladders there, and they were already `collides
+# false` (see content/blocks/fixtures.block on why climbable and collidable are
+# mutually exclusive), so this is one bit rather than a retune. A vine that has
+# grown down a shaft is now a route, and burning one out from under yourself is
+# a consequence that was always implied by `igniteChance 0.12`.
+@block vine
+name         Vine
+state        solid
+color        58 132 62
+colorVar     16
+texture      fibrous
+edge         30
+collides     false
+climb        true
+hardness     0.2
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.12
+flammable.burnTime     45
+flammable.burnsInto    smoke
+heat.conduct 22
+heat.igniteAt 38
+growth.chance    0.04
+growth.onto      empty
+growth.downward  true
+growth.maxGen    12
+
+@block leaves
+name         Leaves
+state        solid
+color        74 132 58
+colorVar     30
+texture      fibrous
+edge         40
+density      0.5
+collides     true
+hardness     0.2
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.16
+flammable.burnTime     40
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 78
+drop         item=sapling count=1 chance=5%
+
+@block leavesPine
+name         Pine Needles
+state        solid
+color        42 92 66
+colorVar     22
+texture      fibrous
+edge         45
+density      0.5
+collides     true
+hardness     0.2
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.2
+flammable.burnTime     34
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 72
+drop         item=pine_cone count=1 chance=5%
+
+@block leavesJungle
+name         Jungle Canopy
+state        solid
+color        58 150 62
+colorVar     34
+texture      fibrous
+edge         40
+density      0.5
+collides     true
+hardness     0.2
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.12
+flammable.burnTime     46
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 88
+
+@block leavesAutumn
+name         Autumn Leaves
+state        solid
+color        176 108 44
+colorVar     32
+texture      fibrous
+edge         40
+density      0.5
+collides     true
+hardness     0.2
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.22
+flammable.burnTime     36
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 70
+
+# Cactus pricks like a spike but far more gently — it is scenery that punishes
+# carelessness, not a hazard you must route around.
+@block cactus
+name         Cactus
+state        solid
+color        76 132 82
+colorVar     16
+texture      fibrous
+edge         60
+density      0.9
+collides     true
+damage       12
+hardness     0.4
+blastResist  0.2
+tags         flora diggable
+flammable.igniteChance 0.05
+flammable.burnTime     60
+flammable.burnsInto    ash
+heat.conduct 22
+heat.igniteAt 96
+
+@block mushroomStem
+name         Mushroom Stem
+state        solid
+color        198 186 158
+colorVar     14
+texture      fibrous
+edge         40
+density      0.7
+collides     true
+hardness     0.3
+blastResist  0.2
+tags         flora diggable
+flammable.igniteChance 0.1
+flammable.burnTime     44
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 84
+
+# The cap is the light source of a mushroom cavern, so its lightEmit is raised
+# well past what `emissive` (a renderer bloom knob) would derive.
+@block mushroomCap
+name         Mushroom Cap
+state        solid
+color        126 78 156
+colorVar     26
+texture      fibrous
+shimmer      110
+edge         50
+density      0.7
+collides     true
+emissive     0.34
+lightEmit    6
+hardness     0.3
+blastResist  0.2
+tags         flora foliage diggable
+flammable.igniteChance 0.1
+flammable.burnTime     44
+flammable.burnsInto    smoke
+heat.conduct 20
+heat.igniteAt 84

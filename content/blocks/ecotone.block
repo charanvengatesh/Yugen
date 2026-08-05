@@ -1,0 +1,83 @@
+# Ecotone blocks: transitional ground painted at specific biome adjacencies.
+# Each is resolved BY STRING ID through a pick(...) fallback chain in biomes.ts,
+# so adding these records is what promotes a seam off its fallback material.
+# Every one is deliberately off-hue from the fallback it replaces, otherwise the
+# seam stays invisible and the whole exercise is a no-op.
+
+# desert|plains, plains|savanna, desert|savanna — dusty hardpan.
+# Was falling back to sandstone [200,175,120]; grey pebbles read as a scree band
+# between the tan desert and the green plain. A powder, like sand/ash: loose
+# rubble slumps. Heavier than sand so it sinks through it, and it does not melt —
+# these are rock chips, not silica.
+@block gravel
+name         Gravel
+state        powder
+color        138 130 118
+colorVar     26
+texture      grain
+edge         45
+density      2.6
+hardness     0.8
+blastResist  0.5
+tags         rock diggable buildable
+heat.conduct 50
+drop         item=flint count=1 chance=10%
+
+# jungle|plains, savanna|swamp — sun-baked clay pan.
+# Was falling back to sticky/dirt; a red-ochre, low-variance solid so it reads as
+# a smooth pan rather than more brown soil. Solid and cohesive (clay holds a
+# bank; it does not pour). Fires hard in enough heat, like a kiln.
+@block clay
+name          Clay
+state         solid
+color         156 96 74
+colorVar      10
+texture       grain
+edge          55
+density       1.5
+hardness      1.2
+tags          soil diggable buildable
+heat.conduct  30
+heat.meltAt   64
+heat.meltInto sandstone
+
+# plains|tundra, swamp|tundra, glacier|plains — frozen ground.
+# Was collapsing onto the same sticky fallback as the wet ecotones; a cold
+# blue-grey solid separates it from them on sight. Frozen soil, so it is a heat
+# sink (cool) and it DOES thaw through the heat field — above 34 it becomes mud,
+# which is the material below. No `ice` surface tag: the ground is frozen
+# through, not glazed, and a slippery tundra would be miserable.
+@block permafrost
+name          Permafrost
+state         solid
+color         104 116 124
+colorVar      14
+texture       grain
+edge          90
+density       1.6
+hardness      2
+tags          soil ice diggable
+heat.conduct  30
+heat.cool     5
+heat.meltAt   34
+heat.meltInto mud
+
+# plains|swamp, jungle|swamp — churned mud. Also biomes' `veinSoft`.
+# Distinctly darker and wetter than the `sticky` gadget [110,80,50] so the two
+# never read as the same block. Solid, matching dirt/clay/sticky, and notably NOT
+# sticky-surfaced: that behaviour stays the gadget's identity. Bakes back to
+# dirt, mirroring sticky->dirt and wetSand->sand.
+@block mud
+name          Mud
+state         solid
+color         68 54 40
+colorVar      20
+texture       grain
+edge          20
+density       1.4
+hardness      0.8
+tags          soil diggable
+heat.conduct  34
+heat.cool     2
+heat.meltAt   45
+heat.meltInto dirt

@@ -1,0 +1,375 @@
+# Surface and near-surface creatures: what you meet before you start digging.
+#
+# READ THE NUMBERS IN THE PLAYER'S FRAME. speed/jumpSpeed/gravityScale are
+# authored as if this creature were the 24px reference character the player's
+# physics were tuned against; src/entities/mobs/MobDefs.ts multiplies them by
+# PHYS_SCALE * (bodyCellsH * CELL / PLAYER_H) at load. So `speed 110` here means
+# "about a third of the player's MAX_RUN_SPEED 360, relative to its own body",
+# and it stays true if movement is ever retuned. Radii (aggroPx, fleePx,
+# ranged.range) are NOT scaled — they are about how far away something notices
+# you on screen, which is a property of the camera, not of its legs.
+# Full rationale: tools/contentc/schema/mob.ts.
+#
+# ART: one character is one WORLD CELL. A pose is one `art.seq` record whose
+# heredoc body holds every frame of that loop, frames separated by a blank line.
+# Sizes run 2x2 to 4x3 cells (10x10 to 20x15 px) against a 2x3 player — the
+# range where a creature reads as a creature at a 5px cell.
+#
+# BODY vs ART. bodyCellsW/bodyCellsH are the collision box and the body-scale
+# anchor; art.cellsW/art.cellsH are only how big the picture is. No bodyCells*
+# value was touched by the art pass, which is what `npm run verify:mobs` asserts.
+#
+# The pads have since landed: MobDefs.ts derives `wPx`/`hPx` from bodyCells* and
+# `artWPx`/`artHPx`/`artPadXPx`/`artPadTopPx` from the sprite, so art may now
+# overhang the body — horns, wings, a plume — without widening the hitbox. Every
+# creature here still keeps the two EQUAL, because the redraw predated the pads
+# and staying square was the conservative choice; growing one is now a pure art
+# edit. Two rules the facade enforces at load: art may never be SMALLER than the
+# body in either axis (that is a hole in the hitbox), and artCellsW - bodyCellsW
+# must be even, or the centred pad puts sprite pixels half a cell off the grid.
+#
+# ---- WHAT THE PLAY MODES BOUGHT --------------------------------------------
+# Every pose used to be `loop`, so an idle was a two-frame twitch and a jump was
+# the same two frames going round forever. The vocabulary is now:
+#
+#   ambient  IDLE. frames[0..n-2] alternate as a breath; the LAST frame is an
+#            interrupt held for `blinkFor` every `blinkEvery`. That last frame
+#            is used as a TELL wherever a creature has one — the sentinel's
+#            optic going red, the bladeframe's edge lighting up, the moth
+#            flaring before it spits. A player who watches the room now gets
+#            warning, and it cost no code.
+#   phase    GROUND LOCOMOTION. Indexed by real horizontal speed instead of by
+#            wall-clock, so a creature that has a chaseSpeed does not keep
+#            patrol-rate legs while it charges. Four frames, contacts on the
+#            first and third, exactly like the player's run.
+#   loop     Anything whose rhythm is genuinely its own and not its feet: wing
+#            beats, a swim undulation, a hopper's shuffle.
+#   once     AIR, on anything that leaves the ground under its own power —
+#            launch, then the apex frame is HELD until it lands.
+#   hold     AIR on things that only ever fall, and any pose that is one frame.
+#
+# NO `fps=` ON AN IDLE, ANYWHERE. The facade halves the idle rate for every
+# creature at once; setting a rate here to compensate would bake that decision
+# into 21 files. `art.fps` is tuned so both the full-rate move and the halved
+# idle read, and that is the only rate knob these files touch.
+
+# --- Grubling ---------------------------------------------------------------
+# Armoured surface crawler. The baseline hostile: slow patrol, real charge,
+# short notice radius, so it is a threat you walk into rather than one that
+# hunts you across a field. Its chitin is the first armour the player meets.
+@mob grubling
+name          Grubling
+brain         walker
+maxHealth     14
+contactDamage 8
+armor         1
+bodyCellsW    2
+bodyCellsH    2
+speed         110
+chaseSpeed    215
+aggroPx       130
+aggroYPx      40
+beat          2.4
+blood         #a9753d
+xp            4
+value         2
+drops         item=chitin count=1..2
+drops         item=grub_meat count=1 chance=35%
+bands         surface shallow
+biomes        plains savanna jungle swamp tundra desert
+weight        26
+
+# Four pixels, so the shell IS the creature: row 0 is plate, row 1 is legs, and
+# every frame differs only in which of those two is doing something. The added
+# ink tone (1) pulls the legs out of the shell colour they used to share, which
+# is what makes the two rows read as two different materials at this size.
+art.cellsW 2
+art.cellsH 2
+art.pal    . #3a2617 #6f4a2a #a9753d #ffd27a
+art.fps    7
+art.seq  state=idle mode=ambient blinkEvery=3.4 blinkFor=0.14 |
+  23
+  11
+
+  22
+  11
+
+  34
+  11
+art.seq  state=move mode=phase |
+  23
+  1.
+
+  23
+  11
+
+  23
+  .1
+
+  23
+  11
+# No jumpSpeed, so this pose only ever means "walked off something".
+art.seq  state=air mode=hold |
+  23
+  ..
+
+# --- Critter ----------------------------------------------------------------
+# Small, bright, harmless, panics. fleePx (not aggroPx) is what flips the walker
+# brain into running away; the very high chaseSpeed is its bolt, not a charge.
+# It exists to make a meadow feel occupied and to be the thing you chase for
+# hide, so it is worth nothing to fight and something to catch.
+@mob critter
+name          Critter
+brain         skitter
+maxHealth     6
+contactDamage 0
+bodyCellsW    2
+bodyCellsH    2
+speed         120
+chaseSpeed    330
+jumpSpeed     560
+fleePx        105
+beat          1.6
+blood         #f2e3c8
+xp            1
+drops         item=hide count=1 chance=60%
+bands         surface
+biomes        plains savanna jungle swamp tundra glacier
+weight        22
+
+# Head high, body low: column 0 of row 0 is EMPTY in most frames, which is the
+# whole silhouette — a small thing with its head up. The ear coming up (frame 1
+# of the idle) and the nose flaring pink (the interrupt) are the only two things
+# a two-by-two prey animal can say, and they are both alarm.
+art.cellsW 2
+art.cellsH 2
+art.pal    . #3a2c22 #c8b7a0 #f2e3c8 #ff9a9a
+art.fps    12
+art.seq  state=idle mode=ambient blinkEvery=2.6 blinkFor=0.12 |
+  .3
+  22
+
+  23
+  22
+
+  .4
+  22
+art.seq  state=move mode=phase |
+  .3
+  12
+
+  .3
+  22
+
+  .3
+  21
+
+  .3
+  22
+# A bound, not a fall: launch with the feet already gone, then the stretched
+# apex is held until it lands.
+art.seq  state=air mode=once fps=14 |
+  .3
+  22
+
+  23
+  .2
+
+# --- Sandworm ---------------------------------------------------------------
+# Travels inside the rock line and erupts. The long beat is the whole design:
+# a burrower that surfaced often would just be a walker with a worse silhouette.
+# Restricted to loose ground (sand, savanna hardpan, snow, ice) because a worm
+# swimming through granite reads as a bug rather than as a creature.
+@mob sandworm
+name          Sandworm
+brain         burrower
+maxHealth     30
+contactDamage 16
+attackCooldown 1
+armor         2
+bodyCellsW    4
+bodyCellsH    2
+speed         150
+chaseSpeed    210
+jumpSpeed     700
+aggroPx       190
+aggroYPx      110
+beat          2.8
+blood         #c39a5a
+xp            12
+value         6
+drops         item=worm_hide count=1..2
+drops         item=chitin count=1..3 chance=50%
+bands         surface shallow
+biomes        desert savanna tundra glacier
+weight        10
+
+# The back is a fixed banded gradient and the BELLY is what animates: a two-cell
+# contact patch travelling head-to-tail down row 1. That is peristalsis, it is
+# the one gait a legless thing has, and it is far more legible at four cells
+# wide than trying to bend the back. The maw (5) appears only on the idle's
+# interrupt and on the eruption, so seeing red means it is about to matter.
+art.cellsW 4
+art.cellsH 2
+art.pal    . #6b4a24 #8a6a3c #c39a5a #e8cf9a #ff6b57
+art.fps    8
+art.seq  state=idle mode=ambient blinkEvery=4.2 blinkFor=0.18 |
+  1231
+  1..1
+
+  1221
+  1..1
+
+  1235
+  1..1
+art.seq  state=move mode=phase |
+  1234
+  11..
+
+  1234
+  .11.
+
+  1234
+  ..11
+
+  1234
+  .11.
+art.seq  state=air mode=once fps=10 |
+  1235
+  ....
+
+  1234
+  ....
+
+# --- Frostmite --------------------------------------------------------------
+# The first pack animal: individually trivial (7hp, 5 damage), but packSize 2..4
+# means a glacier ridge produces a small skittering line of them and the fight
+# is about spacing rather than about any one of them. Immune to ice so it can
+# live in the material it is made of — walking over packed ice is not supposed
+# to be what kills it. Held to the top 40 cells so it stays a surface-weather
+# creature and does not leak into the cavern band via `shallow`.
+@mob frostmite
+name          Frostmite
+brain         walker
+maxHealth     7
+contactDamage 5
+attackCooldown 0.6
+bodyCellsW    2
+bodyCellsH    2
+speed         140
+chaseSpeed    260
+jumpSpeed     480
+aggroPx       120
+aggroYPx      45
+beat          1.2
+immune        ice
+blood         #7fd4e8
+xp            2
+drops         item=ice_shard count=1..2 chance=45%
+bands         surface shallow
+maxDepth      40
+biomes        glacier tundra
+packSize      2..4
+weight        18
+
+# A frost spike over a low body. The spike dulls and brightens on the breath and
+# flares across both columns on the interrupt, so a LINE of these twinkles out
+# of step with itself — which is what makes a pack read as several animals
+# rather than as one animal drawn four times.
+art.cellsW 2
+art.cellsH 2
+art.pal    . #2a5570 #3c6f8a #7fd4e8 #eaffff
+art.fps    11
+art.seq  state=idle mode=ambient blinkEvery=2.2 blinkFor=0.1 |
+  .4
+  32
+
+  .3
+  32
+
+  44
+  32
+art.seq  state=move mode=phase |
+  .4
+  31
+
+  .4
+  32
+
+  .4
+  13
+
+  .4
+  32
+art.seq  state=air mode=once fps=12 |
+  .4
+  33
+
+  44
+  .3
+
+# --- Thornhopper ------------------------------------------------------------
+# A hopper for the wet biomes, and the counterweight to the slime: same brain,
+# but it fires spores instead of closing, so the danger is standing still in the
+# open rather than letting it touch you. Its own spore does not hurt it
+# (immune poison), which is the joke and also the reason two of them in one
+# clearing is survivable.
+@mob thornhopper
+name          Thornhopper
+brain         hopper
+maxHealth     18
+contactDamage 7
+bodyCellsW    3
+bodyCellsH    2
+speed         170
+jumpSpeed     600
+aggroPx       150
+aggroYPx      80
+beat          1.3
+immune        poison
+blood         #7a4f9a
+ranged.projectile spore
+ranged.cooldown   1.9
+ranged.range      165
+ranged.damage     6
+xp            7
+value         3
+drops         item=spore_sac count=1..2 chance=70%
+bands         surface shallow
+biomes        jungle swamp
+packSize      1..2
+weight        14
+
+# The spore sac is the top-centre pixel, and it is the only thing in the sprite
+# that ever changes colour: pale on the interrupt means charged. `move` is a
+# three-frame shuffle rather than a phase cycle because a hopper on the ground
+# is not walking, it is waiting; the real locomotion is the `air` pose, which
+# tucks at launch and SPREADS at the apex and holds there for the whole arc.
+art.cellsW 3
+art.cellsH 2
+art.pal    . #2a1b38 #3a2a4a #7a4f9a #c8ff7a #e8ffb4
+art.fps    7
+art.seq  state=idle mode=ambient blinkEvery=2.8 blinkFor=0.22 |
+  .4.
+  131
+
+  .4.
+  133
+
+  .5.
+  131
+art.seq  state=move mode=loop |
+  .4.
+  131
+
+  ...
+  331
+
+  .4.
+  133
+art.seq  state=air mode=once fps=10 |
+  .4.
+  .3.
+
+  4.4
+  333

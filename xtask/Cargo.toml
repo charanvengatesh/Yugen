@@ -1,0 +1,12 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Repo gates: the tuning index, the mob regression check, and the aggregate `check`."
+publish = false
+
+[dependencies]
+godgame-core.workspace = true
+godgame-data.workspace = true

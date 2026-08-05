@@ -1,0 +1,56 @@
+# Gases rise, never collide, and are never dug. Fire and ember hold themselves at
+# a temperature floor (heat.emit) with heat.cool 0 — they are heat sources, not
+# things that happen to be hot, so they must not shed toward ambient.
+
+@block fire
+name         Fire
+state        gas
+color        255 150 40
+colorVar     40
+shimmer      255
+emissive     1
+density      0.1
+lightEmit    12
+hardness     Infinity
+tags         gas hazard
+heat.emit    235
+heat.conduct 56
+heat.cool    0
+
+# Ember is fire's dying tail: dimmer, cooler, and it lingers after the flame.
+@block ember
+name         Ember
+state        gas
+color        255 122 42
+colorVar     40
+shimmer      200
+emissive     0.9
+density      0.1
+lightEmit    11
+hardness     Infinity
+tags         gas hazard
+heat.emit    200
+heat.conduct 56
+heat.cool    0
+
+@block smoke
+name         Smoke
+state        gas
+color        70 70 76
+colorVar     24
+density      0.05
+hardness     Infinity
+tags         gas
+heat.conduct 18
+heat.cool    3
+
+@block steam
+name         Steam
+state        gas
+color        200 210 220
+colorVar     22
+density      0.05
+hardness     Infinity
+tags         gas
+heat.conduct 28
+heat.cool    3

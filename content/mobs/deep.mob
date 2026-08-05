@@ -1,0 +1,631 @@
+# The cavern and deep bands: 110 cells below the local surface and down, where
+# the world stops being a cave system and starts being the endless deep.
+# Nothing here carries a `biomes` list — the surface biome overhead is
+# irrelevant this far down. Depth, predicates and immunities do the placing; see
+# the note in content/mobs/cavern.mob on how each creature is fitted to one of
+# the five underground layers in src/sim/biomes.ts without a `layers` field.
+#
+# Authoring rules: content/mobs/surface.mob. Rationale: tools/contentc/schema/mob.ts.
+
+# --- Bloat ------------------------------------------------------------------
+# The deep, heavy slime. A WHOLE-CELL size step up from the slime (4x3 against
+# 3x2), never a scaled draw rect — see the MobSprite.ts header for why. Because
+# the stats are body-scaled, being physically bigger already makes it hit harder
+# and move further per hop; the authored numbers only have to say that it is
+# also slower and meaner than a slime, relative to itself.
+@mob bloat
+name          Bloat
+brain         hopper
+maxHealth     46
+contactDamage 18
+attackCooldown 1.1
+bodyCellsW    4
+bodyCellsH    3
+speed         150
+jumpSpeed     560
+aggroPx       165
+aggroYPx      90
+beat          1.7
+blood         #6b4fa0
+xp            14
+value         6
+drops         item=slime_gel count=2..4
+drops         item=crystal_shard count=1 chance=20%
+bands         cavern deep
+weight        8
+
+# Twelve cells of nothing but mass, so the whole animation budget goes into
+# volume: the idle swells and settles, and the air pose compresses to a column
+# on the launch and fills the entire grid at the apex. Being able to HOLD that
+# apex frame (mode=once) for the length of the arc is what turns a hop from a
+# flicker into a weight being thrown.
+art.cellsW 4
+art.cellsH 3
+art.pal    . #241a3c #3b2a5c #6b4fa0 #a688e0 #c9a6ff
+art.fps    5
+art.seq  state=idle mode=ambient blinkEvery=3.4 blinkFor=0.18 |
+  .44.
+  3333
+  2332
+
+  ....
+  3443
+  2332
+
+  .55.
+  3443
+  2332
+art.seq  state=move mode=loop |
+  ....
+  3443
+  2332
+
+  .44.
+  3333
+  3333
+
+  .4..
+  3433
+  2332
+art.seq  state=air mode=once fps=8 |
+  .44.
+  .33.
+  .22.
+
+  4444
+  3333
+  .33.
+
+# --- Driftling --------------------------------------------------------------
+# A luminous spore-mote. Harmless, flees, and exists to be the thing that lights
+# a cavern for a second before it drifts off — the glow is the point, so it is
+# the only passive with a real drop.
+@mob driftling
+name          Driftling
+brain         flyer
+maxHealth     5
+contactDamage 0
+bodyCellsW    2
+bodyCellsH    2
+speed         70
+gravityScale  0
+fleePx        70
+beat          2.2
+glow          0.55
+blood         #9ef2ff
+xp            2
+drops         item=crystal_shard count=1 chance=50%
+bands         cavern deep
+weight        12
+
+# Four cells and never more than two lit at once: the mote WANDERS around the
+# grid on the move loop instead of flapping in place, which at 4fps is a drift
+# rather than a walk cycle. The interrupt lights all four — the pulse that makes
+# it briefly the brightest thing in the room, which is its entire job.
+art.cellsW 2
+art.cellsH 2
+art.pal    . #2c6070 #3f7f8c #9ef2ff #e6ffff
+art.fps    4
+art.seq  state=idle mode=ambient blinkEvery=2.7 blinkFor=0.22 |
+  .4
+  3.
+
+  .3
+  2.
+
+  44
+  33
+art.seq  state=move mode=loop |
+  .4
+  3.
+
+  4.
+  .3
+
+  .3
+  4.
+
+  3.
+  .4
+art.seq  state=air mode=hold |
+  .4
+  .3
+
+# --- Emberling --------------------------------------------------------------
+# Molten, lava-dwelling, and the most dangerous SMALL thing down here.
+# `needsLava` gates it on lava within a short radius of the spawn point, so it
+# appears where the world has already told you to be careful rather than as a
+# surprise in a dry tunnel. `lavaImmune` is the blunt version of `immune fire`:
+# nothing the world is MADE of can hurt it, which is what living in a lava lake
+# requires. Fitted to the Magma Chambers layer, alongside the slagworm below.
+@mob emberling
+name          Emberling
+brain         walker
+maxHealth     26
+contactDamage 22
+attackCooldown 0.9
+armor         2
+bodyCellsW    2
+bodyCellsH    3
+speed         130
+chaseSpeed    250
+jumpSpeed     640
+aggroPx       175
+aggroYPx      80
+beat          1.4
+glow          0.45
+lavaImmune    yes
+immune        fire
+blood         #ff8a3c
+xp            16
+value         8
+drops         item=ember_core count=1
+drops         item=ash_pile count=1..3
+bands         shallow cavern deep
+needsLava     yes
+weight        14
+
+# Two columns and three rows: a head of flame over a charred torso over char
+# legs. Only the head burns — the body tones never brighten in the walk — so
+# the eye is dragged to the top of the sprite, which is where the fifth palette
+# tone (a white-hot flare) lands on the idle interrupt and on the leap.
+art.cellsW 2
+art.cellsH 3
+art.pal    . #2b1a18 #7a3320 #ff8a3c #ffe08a #fff6d0
+art.fps    9
+art.seq  state=idle mode=ambient blinkEvery=2.5 blinkFor=0.12 |
+  .4
+  32
+  11
+
+  .3
+  32
+  11
+
+  .5
+  43
+  11
+art.seq  state=move mode=phase |
+  .4
+  32
+  1.
+
+  .4
+  32
+  11
+
+  .4
+  32
+  .1
+
+  .4
+  32
+  11
+art.seq  state=air mode=once fps=11 |
+  .4
+  33
+  .1
+
+  .5
+  43
+  ..
+
+# --- Sentinel ---------------------------------------------------------------
+# The README's ice-throwing automaton, finally expressible: `ranged` gives it a
+# projectile that slows instead of a body that closes, so it is fought at
+# distance and behind cover rather than by trading contact hits. Armoured (5)
+# and immune to both the ice it fires and to impact, which is the fiction — it
+# is a machine — and mechanically it means punching one is the wrong plan.
+# Held below 150 cells so it reads as something built and left down there.
+@mob sentinel
+name          Sentinel
+brain         walker
+maxHealth     40
+contactDamage 9
+attackCooldown 1
+armor         5
+immune        ice impact
+bodyCellsW    3
+bodyCellsH    3
+speed         95
+chaseSpeed    150
+aggroPx       210
+aggroYPx      100
+beat          2.6
+glow          0.2
+blood         #9fe8ff
+ranged.projectile ice_shard
+ranged.cooldown   1.6
+ranged.range      230
+ranged.damage     11
+xp            26
+value         18
+drops         item=iron_bar count=1..2
+drops         item=copper_bar count=1 chance=60%
+drops         item=machine_scrap count=1..2
+drops         item=frozen_core count=1 chance=25%
+bands         cavern deep
+minDepth      150
+weight        7
+
+# THE OPTIC IS THE ANIMATION. A machine should not breathe, so the idle's two
+# cycling frames differ ONLY in the brightness of the single head pixel — a
+# scan, not a lung — and the interrupt swaps that pixel to red. Against a
+# ranged.range of 230 that red flash is genuinely actionable: it is visible
+# before the ice is, and it is the same grammar the skeleton uses.
+art.cellsW 3
+art.cellsH 3
+art.pal    . #2a2f38 #3a3f4a #6b7488 #9fe8ff #ff5a4a
+art.fps    6
+art.seq  state=idle mode=ambient blinkEvery=2.1 blinkFor=0.16 |
+  .4.
+  232
+  2.2
+
+  .3.
+  232
+  2.2
+
+  .5.
+  232
+  2.2
+art.seq  state=move mode=phase |
+  .4.
+  232
+  2..
+
+  .4.
+  232
+  2.2
+
+  .4.
+  232
+  ..2
+
+  .4.
+  232
+  2.2
+art.seq  state=air mode=hold |
+  .4.
+  232
+  ...
+
+# --- Sporeling --------------------------------------------------------------
+# The fungal deep, in packs of two or three. Individually the weakest ranged
+# attacker in the game; the design is that a pack of them saturates the air with
+# spores and the answer is to break line of sight, not to out-trade them. Immune
+# to its own poison, and to the acid the Fungal Depths layer pools. minDepth 240
+# keeps it below the top of the deep band, so the first thing you meet down
+# there is still an emberling.
+@mob sporeling
+name          Sporeling
+brain         hopper
+maxHealth     11
+contactDamage 4
+bodyCellsW    2
+bodyCellsH    3
+speed         150
+jumpSpeed     520
+aggroPx       160
+aggroYPx      85
+beat          1.5
+glow          0.15
+immune        poison acid
+blood         #7fb04a
+ranged.projectile spore
+ranged.cooldown   2.4
+ranged.range      175
+ranged.damage     5
+xp            6
+value         3
+drops         item=spore_sac count=1..2
+drops         item=mushroom_cap count=1 chance=55%
+bands         deep
+minDepth      240
+packSize      2..3
+weight        13
+
+# The cap swelling to fill both columns on the interrupt is the charge tell, and
+# because these arrive in threes the tells go off out of step with each other —
+# a pack visibly winding up in sequence is a much clearer "leave" than three
+# identical sprites all flashing at once.
+art.cellsW 2
+art.cellsH 3
+art.pal    . #1e3418 #2f4a2a #7fb04a #d8ff9a #f2ffd8
+art.fps    7
+art.seq  state=idle mode=ambient blinkEvery=2.3 blinkFor=0.14 |
+  .4
+  33
+  22
+
+  .3
+  33
+  22
+
+  44
+  33
+  22
+art.seq  state=move mode=loop |
+  .4
+  33
+  22
+
+  .4
+  33
+  2.
+
+  .4
+  33
+  .2
+art.seq  state=air mode=once fps=10 |
+  .4
+  33
+  ..
+
+  44
+  33
+  ..
+
+# --- Bladeframe -------------------------------------------------------------
+# NEW, and the other half of the README's robot pair: "Robotic Melee Fighter:
+# Sword Fighter" had no creature, so every automaton in the game was a shooter.
+# The sentinel is fought from behind cover; the bladeframe is what happens when
+# there is no cover — 24 contact damage on a 0.75s cooldown is 32 dps against a
+# 100hp player, the highest sustained contact threat in the bestiary, and it has
+# the jump to follow you off a ledge.
+#
+# Armour 7 with `immune impact` is the same statement the stoneback makes one
+# band up: bring the weapon, not the fists. Everything else about it is a
+# COMMITMENT: it is slower than you (105 patrol, 230 charge against your 360),
+# so it can be outrun on open ground and only becomes lethal in a corridor.
+# minDepth 200 and weight 6 keep it rare enough to stay an event.
+@mob bladeframe
+name          Bladeframe
+brain         walker
+maxHealth     52
+contactDamage 24
+attackCooldown 0.75
+armor         7
+immune        ice impact
+bodyCellsW    3
+bodyCellsH    3
+speed         105
+chaseSpeed    230
+jumpSpeed     520
+aggroPx       190
+aggroYPx      95
+beat          1.8
+glow          0.15
+blood         #b4c0d0
+xp            30
+value         22
+drops         item=machine_scrap count=1..3
+drops         item=iron_bar count=1 chance=40%
+drops         item=gem count=1 chance=10%
+bands         deep
+minDepth      200
+weight        6
+
+# The blade is COLUMN 2, held bright down the full height of the sprite, and it
+# is what tells this apart from the sentinel at a glance: same 3x3 machine
+# palette, but one of them is symmetrical and one of them is carrying something
+# on its leading edge. The interrupt lights the blade along its length rather
+# than changing the optic — the sentinel's tell means "it is aiming", this one
+# means "it is winding up", and the difference is legible.
+art.cellsW 3
+art.cellsH 3
+art.pal    . #24282f #4a5260 #8a94a6 #d8e0ec #ff5a4a
+art.fps    6
+art.seq  state=idle mode=ambient blinkEvery=2.6 blinkFor=0.18 |
+  254
+  334
+  1.1
+
+  234
+  334
+  1.1
+
+  254
+  344
+  1.1
+art.seq  state=move mode=phase |
+  254
+  334
+  1..
+
+  254
+  334
+  1.1
+
+  254
+  334
+  ..1
+
+  254
+  334
+  1.1
+# A leaping overhead: the blade sweeps from the leading edge across the top of
+# the body and HOLDS there for the whole arc, so a bladeframe in the air is
+# already showing you where the hit lands.
+art.seq  state=air mode=once fps=10 |
+  254
+  334
+  .1.
+
+  244
+  444
+  ...
+
+# --- Slagworm ---------------------------------------------------------------
+# NEW. The Magma Chambers layer had exactly one resident (the emberling, a
+# 26hp walker) guarding the deepest and most hostile terrain the generator
+# makes — basalt rock, lava pockets, a NEGATIVE pocketBias that raises the lava
+# table. This is what that layer is actually for.
+#
+# It deliberately breaks the old 55hp ceiling: 78 health, 5 armour and 30
+# contact damage make it the largest creature in the game, and every one of
+# those numbers is bought back with the same knob the sandworm uses — `beat 3.4`
+# is nearly three and a half seconds between surfacings. It is a hazard with a
+# rhythm, not a chase; you fight it by learning when the ground is safe. weight
+# 4 is the lowest in the bestiary, so meeting one is an event.
+@mob slagworm
+name          Slagworm
+brain         burrower
+maxHealth     78
+contactDamage 30
+attackCooldown 1.3
+armor         5
+immune        fire
+bodyCellsW    4
+bodyCellsH    3
+speed         120
+chaseSpeed    190
+jumpSpeed     760
+aggroPx       210
+aggroYPx      140
+beat          3.4
+glow          0.5
+lavaImmune    yes
+blood         #ff6a20
+xp            44
+value         30
+drops         item=ember_core count=1..2
+drops         item=ash_pile count=2..4
+drops         item=obsidian_block count=1..3 chance=60%
+drops         item=gem count=1 chance=15%
+bands         deep
+minDepth      200
+needsLava     yes
+weight        4
+
+# Cooled crust on top (row 0), molten body under it (row 1), and the same
+# travelling belly contact the sandworm uses on row 2 — the peristalsis is the
+# family resemblance between the game's two burrowers, and the colour is the
+# difference. The interrupt cracks the crust open and shows the core, and the
+# eruption's second frame lights every cell it has: `glow 0.5` puts that frame
+# through the post-light overlay, so a slagworm coming out of the floor is the
+# brightest event in the deep.
+art.cellsW 4
+art.cellsH 3
+art.pal    . #2a120a #6b2410 #d84a14 #ff9a34 #ffe27a
+art.fps    6
+art.seq  state=idle mode=ambient blinkEvery=4.6 blinkFor=0.24 |
+  2112
+  3443
+  .22.
+
+  2112
+  3343
+  .22.
+
+  2552
+  4554
+  .22.
+art.seq  state=move mode=phase |
+  1221
+  3443
+  22..
+
+  1221
+  3443
+  .22.
+
+  1221
+  3443
+  ..22
+
+  1221
+  3443
+  .22.
+art.seq  state=air mode=once fps=9 |
+  1221
+  3443
+  ....
+
+  5445
+  4554
+  ....
+
+# --- Mycelith ---------------------------------------------------------------
+# NEW. The Fungal Depths anchor. That layer is dirt rock with acid pockets and
+# moss veins, and its only resident was the sporeling — an 11hp pack skirmisher,
+# which meant the softest terrain in the deep was also the safest. This is the
+# thing the sporelings live around.
+#
+# Armour 3 and 44 health against only 10 contact damage: it is not trying to
+# touch you. The whole threat is the spore at range 200 on a 2.8s cooldown, and
+# the counter is the same as for a pack of sporelings — break line of sight —
+# except that this one has the health to still be there when you come back.
+# Immune to poison and acid, which is simply what the layer is made of.
+@mob mycelith
+name          Mycelith
+brain         walker
+maxHealth     44
+contactDamage 10
+attackCooldown 1
+armor         3
+immune        poison acid
+bodyCellsW    3
+bodyCellsH    3
+speed         85
+chaseSpeed    130
+aggroPx       175
+aggroYPx      100
+beat          2.6
+glow          0.3
+blood         #a8d86a
+ranged.projectile spore
+ranged.cooldown   2.8
+ranged.range      200
+ranged.damage     9
+xp            24
+value         12
+drops         item=spore_sac count=2..4
+drops         item=mushroom_cap count=1..2
+drops         item=mushroom_stem count=1 chance=50%
+bands         deep
+minDepth      220
+packSize      1..2
+weight        7
+
+# Cap, stalk, roots — the same three-row division as the mushroom blocks it
+# grows among (content/blocks/flora.block), and the palette is lifted from the
+# same family so a mycelith standing still in a fungal chamber is genuinely hard
+# to pick out. The interrupt is the cap going pale and the stalk lifting: it is
+# the spore charge, and it is the only frame in which the silhouette grows.
+art.cellsW 3
+art.cellsH 3
+art.pal    . #223018 #46603a #8fbe58 #d8ff9a #f4ffd8
+art.fps    5
+art.seq  state=idle mode=ambient blinkEvery=3 blinkFor=0.2 |
+  343
+  .2.
+  1.1
+
+  233
+  .2.
+  1.1
+
+  454
+  .3.
+  1.1
+art.seq  state=move mode=phase |
+  343
+  .2.
+  1..
+
+  343
+  .2.
+  1.1
+
+  343
+  .2.
+  ..1
+
+  343
+  .2.
+  1.1
+art.seq  state=air mode=hold |
+  343
+  .2.
+  ...

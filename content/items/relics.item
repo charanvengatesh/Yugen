@@ -1,0 +1,36 @@
+# Relics — the README's endgame, made craftable.
+#
+# "Each level is fighting off major enemies... After u survive, u get part of the
+#  pearl. Combined pearl = key aka THE MAP to find the princess."
+#
+# There is no boss loot table yet, so the shards are the gem tier's sink instead:
+# two gems and a gold bar each, three shards to a Pearl. That prices a finished
+# Pearl at six gems and three gold bars, which is roughly the same investment as
+# the Gem Pickaxe — deliberately, so the last stretch of the game is a choice
+# between digging further and finishing the thing you came for.
+#
+# `accessory` items are never consumed and never placed; they exist to be held.
+
+@item pearl_shard
+name      Pearl Shard
+category  accessory
+color     236 232 244
+icon      icon_pearl_shard
+stack     9
+tier      5
+value     620
+desc      A piece of something that remembers being whole.
+tags      relic gem
+craft     in="gem gold_bar" n="2 1" out=1 station=anvil
+
+@item pearl
+name      The Pearl
+category  accessory
+color     252 248 255
+icon      icon_pearl
+stack     1
+tier      6
+value     4000
+desc      Three shards, one map. It is warm, and it is not warm from your hand.
+tags      relic gem
+craft     in="pearl_shard" n="3" out=1 station=anvil

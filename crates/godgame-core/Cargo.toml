@@ -1,0 +1,15 @@
+[package]
+name = "godgame-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The engine: config, cell sim, worldgen, entities, physics, items. No Bevy, no wgpu, no windowing."
+
+[dependencies]
+godgame-data.workspace = true
+bitflags.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true

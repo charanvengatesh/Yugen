@@ -1,0 +1,18 @@
+[package]
+name = "contentc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Compiler for the GodGame content DSL: .block/.item/.mob/.sprite/.struct/.feature into Rust tables"
+
+[dependencies]
+thiserror.workspace = true
+
+[lib]
+name = "contentc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "contentc"
+path = "src/main.rs"

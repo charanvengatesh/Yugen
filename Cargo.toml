@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/contentc",
+    "crates/godgame-data",
+    "crates/godgame-core",
+    "crates/godgame-render",
+    "crates/godgame",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+
+[workspace.dependencies]
+godgame-data = { path = "crates/godgame-data" }
+godgame-core = { path = "crates/godgame-core" }
+godgame-render = { path = "crates/godgame-render" }
+
+bevy = "0.19"
+bitflags = "2"
+rayon = "1"
+thiserror = "2"
+criterion = "0.7"
+
+# Release profile: this is a simulation-bound game. The sim tick is the frame
+# budget, so optimise it hard and accept longer link times.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+# Dependencies stay optimised even in a debug build. Without this, Bevy and the
+# noise-heavy worldgen crawl badly enough that `cargo run` is not usable for
+# iteration.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Our own worldgen and sim are also unusable at opt-level 0 — a chunk generate
+# takes seconds instead of microseconds. Debug info is kept.
+[profile.dev]
+opt-level = 1

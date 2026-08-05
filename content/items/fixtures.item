@@ -1,0 +1,123 @@
+# Fixtures — the light, the ladders and the box, as things you carry.
+#
+# Same invariant as content/items/blocks.item: one item per buildable block,
+# `places` is the whole behaviour, everything else is presentation. What is
+# different about this file is that every recipe in it is deliberately CHEAP and
+# deliberately EARLY, because these seven items are the ones that decide whether
+# the underground is playable at all.
+#
+# THE TORCH IS THE GATE. Caves are unlit. Until you can make light, "go
+# underground" means "go somewhere you cannot see the floor", and every other
+# system down there — ore, mobs, structures — is gated behind a problem the
+# player has no tool for. So the torch is one log and one coal, at `hand`, for
+# four of them: both halves are things you trip over in the first five minutes
+# (wood from any tree, coal from the shallowest ore seam), it needs no station,
+# and the yield is high enough that you light a shaft rather than rationing.
+# Everything else in this file is priced ABOVE that on purpose — the torch is
+# the floor of the progression, not a rung on it.
+
+# --- Light -----------------------------------------------------------------
+
+@item torch
+name      Torch
+category  placeable
+color     232 162 74
+places    torch
+icon      icon_torch
+stack     99
+tier      0
+value     3
+desc      One log, one coal, and the dark stops being an argument.
+tags      buildable light
+craft     in="wood_log coal" n="1 1" out=4 station=hand
+
+@item lantern
+name      Lantern
+category  placeable
+color     238 198 108
+places    lantern
+icon      icon_lantern
+stack     99
+tier      1
+value     34
+desc      Brighter than a torch and it stays lit. Costs a bar to find that out.
+tags      buildable light
+# Glass, metal and a fuel: a workbench recipe rather than a hand one, and the
+# first thing the player is likely to spend a copper bar on that is not a pick.
+craft     in="glass_pane copper_bar coal" n="2 1 1" out=1 station=workbench
+
+@item campfire
+name      Campfire
+category  placeable
+color     236 130 48
+places    campfire
+icon      icon_campfire
+stack     20
+tier      0
+value     16
+desc      The brightest thing you can build, and it will burn you for it.
+tags      buildable light
+# Five logs and three stone: expensive in bulk, trivial in kind. The point of
+# the price is that you place ONE, at a camp, and leave it — not that it is hard
+# to get. Nothing in it is deeper than the surface.
+craft     in="wood_log stone_chunk" n="5 3" out=1 station=hand
+
+# --- Traversal ---------------------------------------------------------------
+
+@item ladder
+name      Ladder
+category  placeable
+color     162 120 64
+places    ladder
+icon      icon_ladder
+stack     99
+tier      0
+value     2
+desc      The difference between a hole and a shaft.
+tags      buildable
+craft     in="wood_log" n="1" out=3 station=hand
+
+@item rope
+name      Rope
+category  placeable
+color     190 168 120
+places    rope
+icon      icon_rope
+stack     99
+tier      0
+value     3
+desc      Faster to make than a ladder and far easier to regret.
+tags      buildable
+# Two routes because vine is a jungle-and-swamp block, and a player who spawned
+# in a desert should not be locked out of the cheap climbable. Hide is the
+# tundra/plains answer — you get it off critters anywhere there is grass.
+craft     in="vine_coil" n="2" out=3 station=hand
+craft     in="hide" n="2" out=3 station=workbench
+
+@item platform
+name      Platform
+category  placeable
+color     172 130 78
+places    platform
+icon      icon_platform
+stack     99
+tier      0
+value     2
+desc      Stand on it going down, walk through it going up.
+tags      buildable
+craft     in="wood_log" n="1" out=2 station=hand
+
+# --- Storage -----------------------------------------------------------------
+
+@item chest
+name      Chest
+category  placeable
+color     142 98 54
+places    chest
+icon      icon_chest
+stack     20
+tier      1
+value     26
+desc      Eight logs and a lid. The first thing you build that is not for today.
+tags      buildable
+craft     in="wood_log" n="8" out=1 station=workbench

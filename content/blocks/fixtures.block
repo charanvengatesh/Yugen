@@ -1,0 +1,190 @@
+# Fixtures: the blocks the player BUILDS INTO the world rather than digs out of
+# it. Light, traversal, storage. Everything else in content/blocks/ describes
+# terrain the generator lays down; nothing here is ever generated, so every one
+# of these arrives in a cell because somebody chose to put it there.
+#
+# ---- WHY THESE ARE NOT `collides` -------------------------------------------
+# `collides` is consumed as ONE flat truth: `MAT_COLLIDE[c] === 1` is the whole
+# of `solid()` in src/physics/collision.ts, and the AABB resolver ejects the
+# player from any such cell on all four sides. So a ladder authored
+# `collides true` would be a wall the player is pushed out of before any climb
+# code ever runs, and a platform would be a ceiling as well as a floor. The
+# climbable and one-way materials below therefore turn collision OFF and re-add
+# the exact interaction they want through MAT_CLIMB / MAT_ONEWAY. `chest` is the
+# opposite case and keeps the state-derived default of `true`: it is furniture,
+# and bumping into it is correct.
+#
+# ---- LIGHT ------------------------------------------------------------------
+# `lightEmit` is 0..15, and the reference points already in content are lava 13,
+# fire 12, ember 11, crystal 7, mushroomCap 6, gemOre 3. The three sources below
+# are spaced against those rather than against each other:
+#
+#   torch     10  dimmer than open fire, because it is a burning stick
+#   lantern   13  a shuttered flame, level with lava — the "I am staying here"
+#                 light, and the first thing worth spending a bar on
+#   campfire  15  the ceiling. There is nothing brighter, and there should not be
+#
+# HEAT IS DELIBERATELY NOT PART OF LIGHT. `heat.emit` is a temperature floor the
+# cell holds itself at, and wood autoignites at 35 — so a torch that emitted any
+# meaningful heat would burn down the timber structure it was nailed to. Torches
+# and lanterns emit none at all. The campfire emits 30, which is under wood's 35
+# and under leaf litter's 70..96, and over oil's 30. It warms a room, it will not
+# take the roof off, and it WILL light an oil slick, which is the one case where
+# putting a fire on the floor should have consequences.
+
+@block torch
+name         Torch
+state        solid
+color        232 162 74
+colorVar     18
+texture      fibrous
+# The flicker is `shimmer` (animated) rather than `emissive` (constant): a torch
+# that glowed steadily reads as a painted-on light, and shimmer costs the
+# renderer nothing extra on a cell it is already drawing.
+shimmer      190
+edge         60
+collides     false
+emissive     0.7
+lightEmit    10
+# Cheap in every sense — you place these by the dozen and never think about
+# picking one back up. Bare hands (digPower 0.5) clear it.
+hardness     0.1
+blastResist  0.1
+tags         diggable buildable
+heat.conduct 16
+
+@block lantern
+name         Lantern
+state        solid
+color        238 198 108
+colorVar     10
+# Glass over a flame, so `glassy` (hard, crisp) rather than the torch's fibrous
+# grain, and a high `edge` — the metal frame is the thing that catches the light.
+texture      glassy
+shimmer      110
+edge         150
+collides     false
+emissive     0.85
+lightEmit    13
+hardness     0.4
+blastResist  0.3
+tags         diggable buildable
+heat.conduct 30
+
+@block campfire
+name         Campfire
+state        solid
+color        236 130 48
+colorVar     26
+texture      molten
+shimmer      235
+edge         30
+collides     false
+emissive     1
+lightEmit    15
+# Standing in a campfire hurts, and that is the whole reason it is a `hazard`
+# and not just a bright torch: it is the light you build a camp AROUND. 20 hp/s
+# sits between the cactus (12, a scratch) and acid (60, a mistake).
+damage       20
+hardness     0.3
+blastResist  0.2
+tags         hazard diggable buildable
+heat.emit    30
+heat.conduct 48
+heat.cool    0
+
+# ---- TRAVERSAL --------------------------------------------------------------
+# A cave you can only leave the way you came in is a cave you do not go into.
+# These three are what make vertical shafts a route rather than a commitment.
+
+@block ladder
+name         Ladder
+state        solid
+color        162 120 64
+colorVar     14
+# `layered` for the rungs: the same look sandstone and strata use, which at one
+# cell per pixel is what a repeating horizontal element reads as.
+texture      layered
+edge          70
+collides     false
+climb        true
+hardness     0.3
+blastResist  0.2
+tags         diggable buildable
+# Timber, so it burns — but harder to light than raw wood (igniteAt 45 against
+# wood's 35). A ladder is the escape route; it should not go up because a stray
+# ember drifted past it, only because the shaft is genuinely on fire.
+flammable.igniteChance 0.1
+flammable.burnTime     55
+flammable.burnsInto    smoke
+heat.conduct  18
+heat.igniteAt 45
+
+@block rope
+name         Rope
+state        solid
+color        190 168 120
+colorVar     12
+texture      fibrous
+edge          25
+collides     false
+climb        true
+density      0.4
+# The cheap climbable: faster to make than a ladder and far more fragile, both
+# in the hand (hardness 0.15) and in a fire (0.2 ignite chance, 26 ticks to
+# burn through). Dropping a rope down a hole you have not looked into is
+# supposed to be the impulsive option.
+hardness     0.15
+blastResist  0.1
+tags         diggable buildable
+flammable.igniteChance 0.2
+flammable.burnTime     26
+flammable.burnsInto    smoke
+heat.conduct  16
+heat.igniteAt 40
+
+@block platform
+name         Platform
+state        solid
+color        172 130 78
+colorVar     16
+texture      layered
+edge          95
+# `collides false` + `oneWay true`: the one-way pass adds a floor when the
+# player is descending onto it and adds nothing at all otherwise, so a stack of
+# these is a staircase upward and a series of landings downward. If this were
+# `collides true` the resolver would treat it as a ceiling first and the one-way
+# test would never be reached.
+collides     false
+oneWay       true
+density      0.6
+hardness     0.4
+blastResist  0.3
+tags         diggable buildable
+flammable.igniteChance 0.08
+flammable.burnTime     60
+flammable.burnsInto    smoke
+heat.conduct  18
+heat.igniteAt 42
+
+# ---- STORAGE ----------------------------------------------------------------
+
+@block chest
+name         Chest
+state        solid
+color        142 98 54
+colorVar     12
+texture      layered
+edge         140
+# No `collides` line: the solid default is right here. A chest you can walk
+# through is scenery, and the bump is half of how you find one in the dark.
+container    true
+# Deliberately NOT flammable, and that is a gameplay decision rather than a
+# physical one: everything else made of wood in this file burns, but a container
+# that burns takes the contents with it, and losing an hour of ore to a lava
+# drip two rooms away is not a lesson, it is a reload. Its blastResist is high
+# for the same reason.
+hardness     0.8
+blastResist  1.5
+tags         diggable buildable
+heat.conduct 20

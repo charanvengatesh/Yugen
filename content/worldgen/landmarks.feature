@@ -1,0 +1,176 @@
+# The large procedural features. Each record is a set of knobs for one generator
+# in src/sim/gen/features.ts — the shape is code, the tuning is content.
+#
+# HOW TO READ THE SPACING NUMBERS
+#   `cellW`/`cellH` are the placement grid: the world is divided into cells of
+#   that size and each is hashed once to decide whether it hosts an instance.
+#   Expected spacing is therefore cellW / rarity columns. A mineshaft at
+#   320 / 0.34 is one per ~940 columns; a floating island at 512 / 0.5 is one
+#   per ~1000. That is the "rare enough to be a find, common enough to meet"
+#   line: a player walking a screen (~200 cells) a minute meets one every few
+#   minutes and never two at once.
+#
+#   `reachX`/`reachY` are a CONTRACT with the chunk-independence rule. The
+#   generator clamps its own arithmetic to them and the decorator scans that far
+#   past every chunk edge, so a feature straddling four chunks is recomputed
+#   identically by all four. Raising a `size` without raising the matching reach
+#   is the one edit here that can produce a seam.
+
+# ---------------------------------------------------------------------------
+# Sky
+# ---------------------------------------------------------------------------
+# Terraria's "look up". The origin is the island's TOP row, `clearance` above
+# the ground line, so an island hangs at a constant height over whatever the
+# terrain below it is doing and never intersects it.
+@feature floating_island
+name       "Floating Island"
+kind       island
+place      sky
+cellW      512
+rarity     0.5
+size       13..30
+height     9..19
+clearance  44..96
+reachX     32
+reachY     26
+density    0.3
+mat.shell  stone
+mat.fill   dirt
+mat.accent crystal
+mat.frame  vine
+mat.liquid water
+
+# ---------------------------------------------------------------------------
+# Surface
+# ---------------------------------------------------------------------------
+# The heightmap only fills BELOW sea level, so every basin above it is dry rock.
+# This is the pass that puts water back in the hills: it excavates a bowl, lines
+# the rim and fills to a level it chooses itself.
+@feature highland_lake
+name       "Highland Lake"
+kind       lake
+place      surface
+cellW      420
+rarity     0.55
+size       11..25
+height     5..13
+reachX     27
+reachY     17
+density    0.4
+mat.shell  gravel
+mat.fill   sand
+mat.accent clay
+mat.liquid water
+biomes     plains savanna jungle swamp tundra glacier
+
+# ---------------------------------------------------------------------------
+# Underground
+# ---------------------------------------------------------------------------
+# Long horizontal corridors with timber sets, deliberately carved as AIR so the
+# natural tunnel field opens into them wherever the two cross — which is what
+# makes a mineshaft a route rather than a room.
+@feature mineshaft
+name       "Abandoned Mineshaft"
+kind       mineshaft
+place      underground
+cellW      320
+cellH      224
+rarity     0.34
+size       84..168
+height     3..4
+reachX     88
+reachY     28
+density    0.55
+minDepth   44
+maxDepth   250
+mat.shell  stone
+mat.frame  wood
+mat.fill   gravel
+mat.accent ironOre|coalOre
+mat.liquid water
+
+# Multi-room, walled, and worth the walk. Rare and big: one per ~2200 columns,
+# up to 5 rooms across and 3 down.
+@feature vault_dungeon
+name       "Vault Dungeon"
+kind       dungeon
+place      underground
+cellW      896
+cellH      416
+rarity     0.4
+size       3..5
+height     2..3
+reachX     44
+reachY     28
+density    0.45
+minDepth   96
+maxDepth   360
+mat.shell  clay
+mat.frame  stone
+mat.fill   gravel
+mat.accent goldOre|ironOre
+mat.liquid water
+
+# A hollow pocket, crystal-lined. Distinct from the small SOLID geode the ore
+# pass promotes: that one you break into for the gems, this one you fall into.
+@feature crystal_geode
+name       "Crystal Geode"
+kind       geode
+place      underground
+cellW      248
+cellH      208
+rarity     0.28
+size       8..16
+height     6..12
+reachX     19
+reachY     15
+density    0.35
+minDepth   180
+maxDepth   620
+mat.shell  obsidian
+mat.accent crystal
+mat.fill   gemOre
+mat.liquid water
+
+# A lit chamber: mud floor, glowing caps, crystal on the ceiling. The one place
+# underground with its own light, which is what makes it read as a biome rather
+# than a cave.
+@feature glowing_grove
+name       "Mushroom Grove"
+kind       grove
+place      underground
+cellW      368
+cellH      288
+rarity     0.36
+size       15..29
+height     7..14
+reachX     31
+reachY     17
+density    0.5
+minDepth   62
+maxDepth   300
+layers     fungal grottos caverns
+mat.shell  moss
+mat.fill   mud
+mat.accent mushroomCap
+mat.frame  mushroomStem
+mat.liquid water
+
+# Richer than anything the vein noise makes, and clustered tightly enough to be
+# worth digging toward once you have seen an edge of it.
+@feature rich_ore_cluster
+name       "Rich Ore Cluster"
+kind       oreblob
+place      underground
+cellW      152
+cellH      128
+rarity     0.3
+size       4..9
+height     3..7
+reachX     11
+reachY     9
+density    0.72
+minDepth   56
+mat.fill   ironOre
+mat.accent gemOre|goldOre
+mat.shell  gravel

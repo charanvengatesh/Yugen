@@ -1,0 +1,515 @@
+# The shallow and cavern bands: the first real underground, 8..210 cells below
+# the local surface row. Authoring rules are in content/mobs/surface.mob and the
+# full rationale in tools/contentc/schema/mob.ts.
+#
+# HABITAT MODEL. A creature is eligible at a candidate cell when its depth band
+# matches, the depth is inside any explicit minDepth/maxDepth window, the
+# dominant biome is in its list (absent = anywhere), and any extra predicate
+# (needsLava) holds. Eligible defs are then picked by weight — population
+# composition follows the terrain, and there is no per-biome spawn table to keep
+# in sync with the world generator.
+#
+# ---- ADDRESSING THE UNDERGROUND LAYERS -------------------------------------
+# `biomes` names a SURFACE biome, and the five underground layers in
+# src/sim/biomes.ts (caverns, grottos, magma, geode, fungal) are chosen from
+# their own climate field at their own frequency — so a Desert can sit on top of
+# flooded grottos and nothing in a `biomes` list can express "down there".
+# Until the spawn picker learns about layers, a creature is fitted to one by the
+# predicates that already exist and that the layer's own definition implies:
+#
+#   magma    `needsLava` + `lavaImmune` — the layer whose pocket liquid IS lava
+#   grottos  a depth window in the flooded band, `gravityScale 0` to swim it
+#   geode    a deep window, and immunities that match a body made of crystal
+#   fungal   a deep window and `immune poison acid` — the layer pools acid
+#
+# That is a fit, not a gate: a slagworm can in principle surface in a dry deep
+# tunnel that happens to have lava nearby. Making it exact needs a `layers`
+# field on this schema AND a read of the layer id in the spawner, which is one
+# change across two owners rather than one, and is called out as such rather
+# than half-built here.
+
+# --- Slime ------------------------------------------------------------------
+# A wobbling blob that hops. No biome list: it is the one creature that belongs
+# everywhere underground, and the band pair (not the biome) is what places it.
+# The short beat makes it a rhythm to time rather than a chase to outrun.
+@mob slime
+name          Slime
+brain         hopper
+maxHealth     20
+contactDamage 10
+bodyCellsW    3
+bodyCellsH    2
+speed         190
+jumpSpeed     640
+aggroPx       145
+aggroYPx      70
+beat          1.05
+blood         #49b077
+xp            5
+value         2
+drops         item=slime_gel count=1..2
+bands         shallow cavern
+weight        20
+
+# A blob has no limbs, so every frame is a change of VOLUME: the idle squashes
+# and rises, and the air pose compresses at launch and stretches at the apex.
+# Two extra palette tones (a dark base, a surface sheen) give it a bottom and a
+# top, which is the only thing that stopped the old two-frame version reading as
+# a green rectangle blinking.
+art.cellsW 3
+art.cellsH 2
+art.pal    . #1e4a34 #2c6f4a #49b077 #a8f0c4
+art.fps    6
+art.seq  state=idle mode=ambient blinkEvery=3.1 blinkFor=0.16 |
+  .4.
+  232
+
+  ...
+  333
+
+  434
+  333
+art.seq  state=move mode=loop |
+  ...
+  333
+
+  .4.
+  232
+
+  .3.
+  333
+art.seq  state=air mode=once fps=9 |
+  .4.
+  .3.
+
+  434
+  333
+
+# --- Cave bat ---------------------------------------------------------------
+# The only species eligible in every band, so its weight is held down to stop
+# caves reading as nothing but bats. Nocturnal, which at the surface multiplies
+# its weight by darkness — underground the multiplier is 1, because a cave is
+# dark at noon.
+@mob bat
+name          Cave Bat
+brain         flyer
+maxHealth     10
+contactDamage 6
+attackCooldown 0.7
+bodyCellsW    3
+bodyCellsH    2
+speed         200
+chaseSpeed    360
+gravityScale  0
+aggroPx       170
+aggroYPx      130
+beat          0.9
+blood         #4a3d5c
+xp            3
+drops         item=bat_wing count=1 chance=40%
+bands         surface shallow cavern deep
+nocturnal     yes
+weight        12
+
+# A FOUR-frame wingbeat, which is the whole reason this redraw exists: the old
+# two-frame version was up/down with nothing between, so at 14fps it strobed.
+# Up, mid, down, mid gives the beat a direction, and the mid frames use the
+# darker wing tone so the wing reads as edge-on rather than as half-erased.
+# `air` is the dive: wings gone entirely, which is unmistakable against a pose
+# whose whole identity is wings.
+art.cellsW 3
+art.cellsH 2
+art.pal    . #1a1424 #2a2233 #4a3d5c #ff9a6b
+art.fps    14
+art.seq  state=idle mode=ambient blinkEvery=3.6 blinkFor=0.12 |
+  3.3
+  .4.
+
+  ...
+  343
+
+  3.3
+  .2.
+art.seq  state=move mode=loop |
+  3.3
+  .4.
+
+  2.2
+  343
+
+  ...
+  343
+
+  2.2
+  343
+art.seq  state=air mode=hold |
+  ...
+  343
+
+# --- Stoneback --------------------------------------------------------------
+# The armour test. 8 flat reduction against a PUNCH_DAMAGE of 5 means bare fists
+# do the floored minimum of 1 per swing — it is not unkillable, it is a creature
+# that tells you to go and find a pick. Slow, short-sighted and non-committal
+# (no jumpSpeed, so it will not follow you off a ledge); the threat is entirely
+# that it is standing between you and the ore.
+@mob stoneback
+name          Stoneback
+brain         walker
+maxHealth     55
+contactDamage 14
+attackCooldown 1.2
+armor         8
+immune        impact
+bodyCellsW    4
+bodyCellsH    3
+speed         80
+chaseSpeed    130
+aggroPx       110
+aggroYPx      55
+beat          3.2
+blood         #6e6e6e
+xp            18
+value         10
+drops         item=stone_chunk count=2..4
+drops         item=iron_ore count=1..2 chance=45%
+drops         item=gem count=1 chance=8%
+bands         cavern deep
+weight        9
+
+# Twelve cells and four of them are legs, so this is the one creature with room
+# for a real quadruped gait: four distinct footfall patterns on row 2 — planted,
+# front pair, passing, rear pair — under a shell that never moves. A heavy thing
+# should look like its mass is being carried, and the way to say that at this
+# grain is that the top two thirds are completely still.
+art.cellsW 4
+art.cellsH 3
+art.pal    . #262626 #3a3a3a #6e6e6e #8f8f8f #b8b8b8
+art.fps    4
+art.seq  state=idle mode=ambient blinkEvery=5.5 blinkFor=0.2 |
+  .44.
+  3333
+  1..1
+
+  .44.
+  3223
+  .11.
+
+  .54.
+  3333
+  1..1
+art.seq  state=move mode=phase |
+  .44.
+  3333
+  1..1
+
+  .44.
+  3333
+  .1.1
+
+  .44.
+  3333
+  .11.
+
+  .44.
+  3333
+  1.1.
+art.seq  state=air mode=hold |
+  .44.
+  3333
+  ....
+
+# --- Cinder moth ------------------------------------------------------------
+# A flyer for the volcanic surface and the hot shallows: it glows, it is immune
+# to fire (it nests in it), and it spits embers rather than closing, so it is
+# the first creature that punishes you for standing on open ground. Nocturnal,
+# because a moth you can see coming is not a moth.
+@mob cinder_moth
+name          Cinder Moth
+brain         flyer
+maxHealth     12
+contactDamage 5
+attackCooldown 0.8
+bodyCellsW    3
+bodyCellsH    2
+speed         180
+chaseSpeed    300
+gravityScale  0
+aggroPx       185
+aggroYPx      120
+beat          1.1
+glow          0.35
+immune        fire
+blood         #ff7a2c
+ranged.projectile ember
+ranged.cooldown   2.2
+ranged.range      190
+ranged.damage     7
+xp            8
+value         4
+drops         item=ash_pile count=1..2
+drops         item=moth_dust count=1 chance=30%
+bands         surface shallow cavern
+biomes        volcanic desert savanna
+nocturnal     yes
+weight        11
+
+# The interrupt frame is the fifth palette entry and nothing else in the sprite
+# ever uses it: the wings go white-hot for a tenth of a second, which is the
+# tell that an ember is coming. That is the single most useful thing `ambient`
+# bought this file — a ranged attacker that telegraphs, without a line of code.
+art.cellsW 3
+art.cellsH 2
+art.pal    . #3a1408 #4a1e10 #ff7a2c #ffd68a #fff2c8
+art.fps    13
+art.seq  state=idle mode=ambient blinkEvery=2.4 blinkFor=0.1 |
+  4.4
+  .3.
+
+  2.2
+  232
+
+  5.5
+  .3.
+art.seq  state=move mode=loop |
+  4.4
+  .3.
+
+  2.2
+  232
+
+  ...
+  434
+
+  2.2
+  232
+art.seq  state=air mode=hold |
+  ...
+  434
+
+# --- Skeleton ---------------------------------------------------------------
+# NEW, and overdue: the README's whole first sentence about combat is "Defeat
+# army of skeletons", and there were none. Deliberately built as a DARK MIRROR
+# OF THE PLAYER — same 2x3 body, same head/torso/legs rows, same four-frame run
+# cadence — because that is what makes an army of them read as an army rather
+# than as another cave animal. It is a traveler that did not get back out.
+#
+# Packs of two to four, each individually weaker than a stoneback, is the
+# difference between the two encounters: the stoneback asks whether your pick is
+# good enough, the skeletons ask whether you picked the right corridor.
+#
+# `stone` is the projectile because the enum is closed (MobSystem.ts owns what a
+# projectile does), and of the four available it is the only one that can be
+# read as a thrown bone. Immune to poison for the obvious reason.
+@mob skeleton
+name          Skeleton
+brain         walker
+maxHealth     24
+contactDamage 11
+attackCooldown 0.9
+armor         1
+immune        poison
+bodyCellsW    2
+bodyCellsH    3
+speed         120
+chaseSpeed    210
+jumpSpeed     500
+aggroPx       200
+aggroYPx      90
+beat          2
+blood         #e4dcc4
+ranged.projectile stone
+ranged.cooldown   2.1
+ranged.range      200
+ranged.damage     8
+xp            10
+value         5
+# Bone is an arrow shaft (content/items/creatures.item), so the thing shooting
+# at you in the dark is also what restocks your quiver. The stray arrows are the
+# ones it did not get to throw.
+drops         item=bone count=1..3
+drops         item=arrow count=1..3 chance=30%
+bands         cavern deep
+packSize      2..4
+weight        15
+
+art.cellsW 2
+art.cellsH 3
+art.pal    . #6e6a5c #b8b098 #e4dcc4 #ff5a4a
+art.fps    8
+# The eye kindling red is the interrupt, and it is the same event as the
+# sentinel's optic: on the two creatures in the game that shoot at you, the
+# ambient tell means "it has seen you".
+art.seq  state=idle mode=ambient blinkEvery=2.9 blinkFor=0.14 |
+  .3
+  22
+  11
+
+  .3
+  21
+  11
+
+  .4
+  22
+  11
+art.seq  state=move mode=phase |
+  .3
+  22
+  1.
+
+  .3
+  22
+  11
+
+  .3
+  22
+  .1
+
+  .3
+  22
+  11
+art.seq  state=air mode=once fps=10 |
+  .3
+  22
+  .1
+
+  .3
+  23
+  ..
+
+# --- Glimmerback ------------------------------------------------------------
+# NEW. The Geode Hollows creature. That layer is the one with `veinRich` and
+# `veinCommon` both set to crystal and a caveScale of 0.85 — tight, glittering,
+# and the richest thing in the game to mine — and until now it had nobody living
+# in it, so the reward was free.
+#
+# It is built as a TOLL rather than as a threat: armour 6 and immunity to impact
+# mean punching it is pointless and even a copper pick's owner is trading a real
+# amount of time, but it is slow (90), short-sighted (120px) and cannot jump, so
+# it can simply be walked around. The choice it poses is "is this seam worth the
+# fight", which is the only interesting question a guard can ask.
+@mob glimmerback
+name          Glimmerback
+brain         walker
+maxHealth     34
+contactDamage 12
+attackCooldown 1.1
+armor         6
+immune        ice impact
+bodyCellsW    3
+bodyCellsH    2
+speed         90
+chaseSpeed    140
+aggroPx       120
+aggroYPx      50
+beat          2.8
+glow          0.4
+blood         #b48aff
+xp            20
+value         14
+drops         item=crystal_shard count=2..4
+drops         item=gem count=1 chance=30%
+bands         cavern deep
+minDepth      120
+weight        8
+
+# Crystal on top, animal underneath. The spine is the only part that changes in
+# the idle and the body is the only part that changes in the walk, so the two
+# poses never compete — and `glow 0.4` means the spine survives the darkness
+# mask, which is what makes one of these visible across an unlit geode chamber.
+art.cellsW 3
+art.cellsH 2
+art.pal    . #2e2450 #5a4a92 #a888e8 #e8d8ff #ffffff
+art.fps    5
+art.seq  state=idle mode=ambient blinkEvery=3.8 blinkFor=0.16 |
+  .4.
+  323
+
+  .3.
+  323
+
+  454
+  323
+art.seq  state=move mode=phase |
+  .4.
+  123
+
+  .4.
+  323
+
+  .4.
+  321
+
+  .4.
+  323
+art.seq  state=air mode=hold |
+  .4.
+  .3.
+
+# --- Gulper -----------------------------------------------------------------
+# NEW. The Flooded Grottos creature. That layer has caveScale 1.35 and a
+# NEGATIVE pocketBias, which is the generator being told to actually flood it —
+# so it is the one place underground that is mostly liquid, and it was empty.
+#
+# `flyer` with `gravityScale 0` is how a swimmer is spelled with the brains that
+# exist: it holds a height, drifts, and closes fast. The depth window (20..220)
+# is what keeps it in the flooded band instead of turning up in a dry surface
+# cave, and it is the one creature here with no armour at all — it is fast and
+# it hits hard and it dies immediately, which is the right shape for something
+# that ambushes you while you are swimming and cannot swing properly.
+@mob gulper
+name          Gulper
+brain         flyer
+maxHealth     22
+contactDamage 13
+attackCooldown 0.8
+bodyCellsW    4
+bodyCellsH    2
+speed         130
+chaseSpeed    250
+gravityScale  0
+aggroPx       175
+aggroYPx      110
+beat          1.4
+blood         #6fb0c0
+xp            9
+value         5
+drops         item=worm_hide count=1..2
+drops         item=slime_gel count=1 chance=35%
+bands         shallow cavern
+minDepth      20
+maxDepth      220
+weight        10
+
+# The dorsal fin is a single lit pixel that TRAVELS head to tail across the four
+# move frames while the body tones alternate underneath it. That is an
+# undulation rather than a flap, and it is what distinguishes a swimmer from the
+# bat at a glance even though both are flyers holding a height. The maw (5)
+# appears on the idle interrupt and on the lunge, nowhere else.
+art.cellsW 4
+art.cellsH 2
+art.pal    . #1e4450 #3f7f8c #6fb0c0 #bfeaf2 #ff8a6b
+art.fps    9
+art.seq  state=idle mode=ambient blinkEvery=3.2 blinkFor=0.14 |
+  .44.
+  2332
+
+  .34.
+  2332
+
+  .44.
+  2335
+art.seq  state=move mode=loop |
+  4...
+  2332
+
+  .4..
+  3223
+
+  ..4.
+  2332
+
+  ...4
+  3223
+art.seq  state=air mode=hold |
+  .44.
+  2335

@@ -1,0 +1,191 @@
+# Creature drops — the ids named by `drops` in content/mobs/*.mob.
+#
+# The mob schema is another agent's; these exist so its drop tables resolve
+# against a real registry instead of warning, and so killing something is worth
+# as much as breaking something. Everything here feeds back into a recipe that
+# already existed, rather than sitting in the inventory as a trophy:
+#
+#   slime_gel           -> sticky mud, i.e. wall-grip terrain, without a swamp
+#   chitin              -> the only non-metal route to a bounce pad
+#   grub_meat, spore_sac-> field food
+#   moth_dust, bat_wing -> the light and haste draughts
+#   ember_core          -> the fire ward, which the README owes the volcano
+#   frozen_core         -> permafrost by the stack, deep in the warm bands
+#
+# hide and worm_hide have no recipe yet on purpose: they are the armour tier's
+# input, and there is no armour. They still stack, sell and take a slot, which is
+# enough for them to exist honestly rather than as a dead id.
+
+@item slime_gel
+name      Slime Gel
+category  material
+color     104 196 128
+icon      icon_gel
+stack     99
+value     6
+desc      Still faintly warm, and still faintly moving.
+tags      plant
+
+@item chitin
+name      Chitin Plate
+category  material
+color     146 122 84
+icon      icon_chitin
+stack     99
+value     9
+desc      Springy across the grain, rigid along it.
+tags      plant
+
+@item grub_meat
+name      Grub Meat
+category  material
+color     206 158 150
+icon      icon_meat
+stack     99
+value     5
+desc      Better cooked. Considerably better cooked.
+tags      food
+
+@item hide
+name      Hide
+category  material
+color     138 106 74
+icon      icon_hide
+stack     99
+value     11
+desc      Thick enough to turn a glancing blow, if you sew it right.
+tags      plant
+
+@item worm_hide
+name      Worm Hide
+category  material
+color     170 122 128
+icon      icon_hide
+stack     99
+value     13
+desc      Segmented, and unpleasantly damp for hours after.
+tags      plant
+
+@item bat_wing
+name      Bat Wing
+category  material
+color     92 76 96
+icon      icon_wing
+stack     99
+value     10
+desc      Almost weightless. Catches the smallest draught in a cave.
+tags      plant
+
+@item moth_dust
+name      Moth Dust
+category  material
+color     222 206 152
+icon      icon_dust
+stack     99
+value     16
+desc      Glows for about a minute after it leaves the wing.
+tags      plant
+
+@item spore_sac
+name      Spore Sac
+category  material
+color     158 128 190
+icon      icon_sac
+stack     99
+value     12
+desc      Do not squeeze it indoors.
+tags      plant food
+
+@item ember_core
+name      Ember Core
+category  material
+color     244 132 58
+icon      icon_core_ember
+stack     20
+value     70
+desc      Whatever an emberling burns, this is where it keeps it.
+tags      fuel gem
+
+@item frozen_core
+name      Frozen Core
+category  material
+color     150 206 240
+icon      icon_core_frozen
+stack     20
+value     70
+desc      Cold enough that the air around it stays still.
+tags      ice gem
+
+# Bone is the one creature drop that is a RAW MATERIAL rather than a trophy or a
+# reagent: it is an arrow shaft. That is deliberate, and it is why the skeleton
+# packs in content/mobs/cavern.mob are worth fighting rather than avoiding —
+# the thing shooting at you in the dark is also the thing restocking your quiver.
+@item bone
+name      Bone
+category  material
+color     226 220 200
+icon      icon_bone
+stack     99
+value     4
+desc      Dry, light, and straighter than any branch you will find down here.
+tags      ammo
+
+# Salvage off the two automata (sentinel, bladeframe). It is not a trophy: it
+# smelts, and the recipe for that lives on the product in
+# content/items/resources.item — an iron bar from two scrap and a coal, which is
+# what turns a bladeframe from a wall into a shortcut past an iron seam you have
+# not found yet.
+@item machine_scrap
+name      Machine Scrap
+category  material
+color     124 132 146
+icon      icon_scrap
+stack     99
+value     18
+desc      Plate, linkage and a spring that is still under tension.
+tags      bar
+
+# --- What they are actually for -------------------------------------------
+
+@item roast_grub
+name      Roast Grub
+category  consumable
+color     186 128 88
+icon      icon_roast
+stack     20
+tier      0
+value     22
+desc      A full heart from something you were running away from ten minutes ago.
+tags      food
+use.heal  25
+craft     in="grub_meat coal" n="2 1" out=2 station=furnace
+
+@item spore_cake
+name      Spore Cake
+category  consumable
+color     176 148 200
+icon      icon_cake
+stack     20
+tier      1
+value     40
+desc      Half a heart, and the caves stop being quite so dark for a while.
+tags      food
+use.heal      12
+use.effect    light
+use.duration  30
+craft     in="spore_sac moth_dust" n="2 1" out=1 station=furnace
+
+@item swiftwing_draught
+name      Swiftwing Draught
+category  consumable
+color     140 118 168
+icon      icon_flask_haste
+stack     10
+tier      2
+value     95
+desc      Twenty seconds of moving like something that lives down here.
+tags      relic
+use.heal      0
+use.effect    haste
+use.duration  20
+craft     in="bat_wing moth_dust crystal_shard" n="3 1 1" out=1 station=workbench
