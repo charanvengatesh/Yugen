@@ -105,27 +105,762 @@ pub struct StructDef {
 
 /// Authoring ids, index == code.
 pub static STRUCT_IDS: [&str; 14] = [
-    "surface_cabin", "surface_cabin_ruin", "watchtower", "shore_wreck", "desert_pyramid",
-    "desert_obelisk", "frozen_cairn", "ice_shelter", "cave_shrine", "fungal_grotto",
-    "sealed_vault", "underworld_ruin", "underworld_brazier", "sky_perch"
+    "surface_cabin",
+    "surface_cabin_ruin",
+    "watchtower",
+    "shore_wreck",
+    "desert_pyramid",
+    "desert_obelisk",
+    "frozen_cairn",
+    "ice_shelter",
+    "cave_shrine",
+    "fungal_grotto",
+    "sealed_vault",
+    "underworld_ruin",
+    "underworld_brazier",
+    "sky_perch",
 ];
 
 /// Every def, index == code, tombstones included.
 pub static STRUCTS: [StructDef; 14] = [
-    StructDef { id: "surface_cabin", code: 0, name: "Woodcutter's Cabin", place: 0, rarity: 0.4, weight: 1.6, biomes: Some(&["plains", "savanna", "jungle", "swamp"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 4, mirror: true, legend: &[StructGlyph { c: "W", block: Some("wood"), mark: 0, soft: false }, StructGlyph { c: "G", block: Some("glass"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["___WWWWW___", "__WWWWWWW__", "_WWWWWWWWW_", "_W.......W_", "_WGG.L.GGW_", "_W.......W_", "_...X....W_", "_WWWWWWWWW_"], repeat: None },
-    StructDef { id: "surface_cabin_ruin", code: 1, name: "Collapsed Cabin", place: 0, rarity: 0.4, weight: 1.0, biomes: Some(&["plains", "savanna", "jungle", "swamp", "tundra"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 6, mirror: true, legend: &[StructGlyph { c: "W", block: Some("wood"), mark: 0, soft: false }, StructGlyph { c: "M", block: Some("moss"), mark: 0, soft: true }, StructGlyph { c: "L", block: Some("ironOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["___________", "__W.....W__", "_W..W...W._", "_WM......._", "_W..L.....W", "_...X....MW", "_WWW.WWWWW_"], repeat: None },
-    StructDef { id: "watchtower", code: 2, name: "Ruined Watchtower", place: 0, rarity: 0.28, weight: 1.2, biomes: None, bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 5, mirror: true, legend: &[StructGlyph { c: "S", block: Some("stone"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["_SSSSS_", "_S.S.S_", "_SSSSS_", "_S...S_", "_S...S_", "_S.SSS_", "_S...S_", "_S..LS_", "_..X.S_", "_SSSSS_"], repeat: Some(StructRepeat { from: 3, rows: 3, times: [1.0, 5.0] }) },
-    StructDef { id: "shore_wreck", code: 3, name: "Beached Hull", place: 1, rarity: 0.5, weight: 1.0, biomes: None, bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 2, clearance: 0, flatness: 5, mirror: true, legend: &[StructGlyph { c: "W", block: Some("wood"), mark: 0, soft: false }, StructGlyph { c: "D", block: Some("gravel"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["____W_____W____", "____W_____W____", "__WWW.....WWW__", "_WW....X....WW_", "_W....L......W_", "_DWWWWWWWWWWWD_"], repeat: None },
-    StructDef { id: "desert_pyramid", code: 4, name: "Sunken Pyramid", place: 0, rarity: 0.55, weight: 2.0, biomes: Some(&["desert", "savanna"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 4, clearance: 0, flatness: 5, mirror: false, legend: &[StructGlyph { c: "N", block: Some("sandstone"), mark: 0, soft: false }, StructGlyph { c: "K", block: Some("spike"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }], body: &["__________N__________", "_________NNN_________", "________NNNNN________", "_______NNNNNNN_______", "______NNN...NNN______", "_____NNN..K..NNN_____", "____NNN.......NNN____", "___NNNN.NNNNN.NNNN___", "__NNNNNNNNNNNNNNNNN__", "_NNNNNNNNNNNNNNNNNNN_", "NNNNNNNNNNNNNNNNNNNNN", "_NNNNNNNNNNNNNNNNNNN_", "_N.................N_", "_N..K....L....K....N_", "_NNNNNNNNNNNNNNNNNNN_"], repeat: None },
-    StructDef { id: "desert_obelisk", code: 5, name: "Obelisk", place: 0, rarity: 0.4, weight: 1.0, biomes: Some(&["desert", "savanna", "volcanic"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 3, clearance: 0, flatness: 7, mirror: false, legend: &[StructGlyph { c: "N", block: Some("sandstone"), mark: 0, soft: false }, StructGlyph { c: "C", block: Some("crystal"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }], body: &["__C__", "_NNN_", "_NNN_", "_NNN_", "_NNN_", "NNNNN", "N.L.N", "N...N", "NNNNN"], repeat: Some(StructRepeat { from: 2, rows: 2, times: [1.0, 4.0] }) },
-    StructDef { id: "frozen_cairn", code: 6, name: "Frozen Cairn", place: 0, rarity: 0.6, weight: 2.0, biomes: Some(&["tundra", "glacier"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 8, mirror: false, legend: &[StructGlyph { c: "P", block: Some("packedIce"), mark: 0, soft: false }, StructGlyph { c: "I", block: Some("ice"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }], body: &["___P___", "__PPP__", "__P.P__", "__PPP__", "_PP.PP_", "_P...P_", "_P.L.P_", "_PPPPP_", "_IIIII_"], repeat: None },
-    StructDef { id: "ice_shelter", code: 7, name: "Ice Shelter", place: 0, rarity: 0.45, weight: 1.2, biomes: Some(&["tundra", "glacier"]), bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 6, mirror: true, legend: &[StructGlyph { c: "P", block: Some("packedIce"), mark: 0, soft: false }, StructGlyph { c: "I", block: Some("ice"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("ironOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["__PPPPP__", "_PPIIIPP_", "_P.....P_", "_P..L..P_", "_...X..P_", "_PPPPPPP_"], repeat: None },
-    StructDef { id: "cave_shrine", code: 8, name: "Cave Shrine", place: 4, rarity: 0.45, weight: 1.6, biomes: None, bands: &[StructBands::Shallow, StructBands::Cavern], min_depth: 46, max_depth: 190, anchor: 2, sink: 0, clearance: 0, flatness: 6, mirror: true, legend: &[StructGlyph { c: "S", block: Some("stone"), mark: 0, soft: false }, StructGlyph { c: "C", block: Some("crystal"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["_SSSSSSSSSSS_", "_S.........S_", "_S..C...C..S_", "_..........S_", "_S..X.C....S_", "_S..SSSSS..S_", "_S..S.L.S..S_", "_S..SSSSS..S_", "_SSSSSSSSSSS_"], repeat: None },
-    StructDef { id: "fungal_grotto", code: 9, name: "Fungal Grotto Shrine", place: 4, rarity: 0.4, weight: 1.0, biomes: None, bands: &[StructBands::Cavern, StructBands::Deep], min_depth: 70, max_depth: 260, anchor: 2, sink: 0, clearance: 0, flatness: 6, mirror: true, legend: &[StructGlyph { c: "U", block: Some("mud"), mark: 0, soft: false }, StructGlyph { c: "Y", block: Some("mushroomCap"), mark: 0, soft: false }, StructGlyph { c: "Z", block: Some("mushroomStem"), mark: 0, soft: false }, StructGlyph { c: "V", block: Some("vine"), mark: 0, soft: true }, StructGlyph { c: "L", block: Some("gemOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["_UUUUUUUUUUU_", "_UV.......VU_", "_U.Y.....Y.U_", "_U.Z..X..Z.U_", "_U....Y....U_", "_U....Z..L.U_", "_..........U_", "_UUUUUUUUUUU_"], repeat: None },
-    StructDef { id: "sealed_vault", code: 10, name: "Sealed Vault", place: 3, rarity: 0.22, weight: 1.0, biomes: None, bands: &[StructBands::Cavern, StructBands::Deep], min_depth: 120, max_depth: 420, anchor: 2, sink: 0, clearance: 0, flatness: 6, mirror: false, legend: &[StructGlyph { c: "B", block: Some("clay"), mark: 0, soft: false }, StructGlyph { c: "K", block: Some("spike"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("gemOre"), mark: 1, soft: false }], body: &["_BBBBBBBBBBBBB_", "_B...........B_", "_B.BBBBBBBBB.B_", "_B.B.......B.B_", "_B.B..L.L..B.B_", "_B.B...K...B.B_", "_B.BBBBBBBBB.B_", "_B...........B_", "_BBBBBBBBBBBBB_"], repeat: None },
-    StructDef { id: "underworld_ruin", code: 11, name: "Basalt Colonnade", place: 5, rarity: 0.7, weight: 2.0, biomes: None, bands: &[], min_depth: 0, max_depth: 65535, anchor: 2, sink: 0, clearance: 0, flatness: 6, mirror: true, legend: &[StructGlyph { c: "A", block: Some("basalt"), mark: 0, soft: false }, StructGlyph { c: "O", block: Some("obsidian"), mark: 0, soft: false }, StructGlyph { c: "K", block: Some("spike"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("gemOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &[".A...A...A...A...", ".A...A...A...A...", "OOOOOOOOOOOOOOOOO", ".A......X......A.", ".A.....L.......A.", ".A......K......A.", ".A.............A.", ".AAAAAAAAAAAAAAA."], repeat: None },
-    StructDef { id: "underworld_brazier", code: 12, name: "Ash Brazier", place: 5, rarity: 0.5, weight: 1.0, biomes: None, bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 0, flatness: 6, mirror: false, legend: &[StructGlyph { c: "O", block: Some("obsidian"), mark: 0, soft: false }, StructGlyph { c: "A", block: Some("basalt"), mark: 0, soft: false }, StructGlyph { c: "J", block: Some("lava"), mark: 0, soft: false }, StructGlyph { c: "L", block: Some("gemOre"), mark: 1, soft: false }], body: &["..OOO..", ".O...O.", ".O.L.O.", ".OJJJO.", ".OOOOO.", ".AAAAA."], repeat: None },
-    StructDef { id: "sky_perch", code: 13, name: "Sky Perch", place: 2, rarity: 0.4, weight: 1.0, biomes: None, bands: &[], min_depth: 0, max_depth: 65535, anchor: 0, sink: 0, clearance: 52, flatness: 6, mirror: true, legend: &[StructGlyph { c: "S", block: Some("stone"), mark: 0, soft: false }, StructGlyph { c: "D", block: Some("dirt"), mark: 0, soft: false }, StructGlyph { c: "V", block: Some("vine"), mark: 0, soft: true }, StructGlyph { c: "L", block: Some("goldOre"), mark: 1, soft: false }, StructGlyph { c: "X", block: None, mark: 2, soft: false }], body: &["___SSSSS___", "__S.....S__", "__S..L..S__", "__S.X...S__", "__SSSSSSS__", "_DDDDDDDDD_", "__DDDDDDD__", "___SSSSS___", "____SSS____", "____V.V____"], repeat: None },
+    StructDef {
+        id: "surface_cabin",
+        code: 0,
+        name: "Woodcutter's Cabin",
+        place: 0,
+        rarity: 0.4,
+        weight: 1.6,
+        biomes: Some(&["plains", "savanna", "jungle", "swamp"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 4,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "W",
+                block: Some("wood"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "G",
+                block: Some("glass"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "___WWWWW___",
+            "__WWWWWWW__",
+            "_WWWWWWWWW_",
+            "_W.......W_",
+            "_WGG.L.GGW_",
+            "_W.......W_",
+            "_...X....W_",
+            "_WWWWWWWWW_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "surface_cabin_ruin",
+        code: 1,
+        name: "Collapsed Cabin",
+        place: 0,
+        rarity: 0.4,
+        weight: 1.0,
+        biomes: Some(&["plains", "savanna", "jungle", "swamp", "tundra"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "W",
+                block: Some("wood"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "M",
+                block: Some("moss"),
+                mark: 0,
+                soft: true,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("ironOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "___________",
+            "__W.....W__",
+            "_W..W...W._",
+            "_WM......._",
+            "_W..L.....W",
+            "_...X....MW",
+            "_WWW.WWWWW_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "watchtower",
+        code: 2,
+        name: "Ruined Watchtower",
+        place: 0,
+        rarity: 0.28,
+        weight: 1.2,
+        biomes: None,
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 5,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "S",
+                block: Some("stone"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "_SSSSS_", "_S.S.S_", "_SSSSS_", "_S...S_", "_S...S_", "_S.SSS_", "_S...S_", "_S..LS_",
+            "_..X.S_", "_SSSSS_",
+        ],
+        repeat: Some(StructRepeat {
+            from: 3,
+            rows: 3,
+            times: [1.0, 5.0],
+        }),
+    },
+    StructDef {
+        id: "shore_wreck",
+        code: 3,
+        name: "Beached Hull",
+        place: 1,
+        rarity: 0.5,
+        weight: 1.0,
+        biomes: None,
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 2,
+        clearance: 0,
+        flatness: 5,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "W",
+                block: Some("wood"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "D",
+                block: Some("gravel"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "____W_____W____",
+            "____W_____W____",
+            "__WWW.....WWW__",
+            "_WW....X....WW_",
+            "_W....L......W_",
+            "_DWWWWWWWWWWWD_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "desert_pyramid",
+        code: 4,
+        name: "Sunken Pyramid",
+        place: 0,
+        rarity: 0.55,
+        weight: 2.0,
+        biomes: Some(&["desert", "savanna"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 4,
+        clearance: 0,
+        flatness: 5,
+        mirror: false,
+        legend: &[
+            StructGlyph {
+                c: "N",
+                block: Some("sandstone"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "K",
+                block: Some("spike"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+        ],
+        body: &[
+            "__________N__________",
+            "_________NNN_________",
+            "________NNNNN________",
+            "_______NNNNNNN_______",
+            "______NNN...NNN______",
+            "_____NNN..K..NNN_____",
+            "____NNN.......NNN____",
+            "___NNNN.NNNNN.NNNN___",
+            "__NNNNNNNNNNNNNNNNN__",
+            "_NNNNNNNNNNNNNNNNNNN_",
+            "NNNNNNNNNNNNNNNNNNNNN",
+            "_NNNNNNNNNNNNNNNNNNN_",
+            "_N.................N_",
+            "_N..K....L....K....N_",
+            "_NNNNNNNNNNNNNNNNNNN_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "desert_obelisk",
+        code: 5,
+        name: "Obelisk",
+        place: 0,
+        rarity: 0.4,
+        weight: 1.0,
+        biomes: Some(&["desert", "savanna", "volcanic"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 3,
+        clearance: 0,
+        flatness: 7,
+        mirror: false,
+        legend: &[
+            StructGlyph {
+                c: "N",
+                block: Some("sandstone"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "C",
+                block: Some("crystal"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+        ],
+        body: &[
+            "__C__", "_NNN_", "_NNN_", "_NNN_", "_NNN_", "NNNNN", "N.L.N", "N...N", "NNNNN",
+        ],
+        repeat: Some(StructRepeat {
+            from: 2,
+            rows: 2,
+            times: [1.0, 4.0],
+        }),
+    },
+    StructDef {
+        id: "frozen_cairn",
+        code: 6,
+        name: "Frozen Cairn",
+        place: 0,
+        rarity: 0.6,
+        weight: 2.0,
+        biomes: Some(&["tundra", "glacier"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 8,
+        mirror: false,
+        legend: &[
+            StructGlyph {
+                c: "P",
+                block: Some("packedIce"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "I",
+                block: Some("ice"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+        ],
+        body: &[
+            "___P___", "__PPP__", "__P.P__", "__PPP__", "_PP.PP_", "_P...P_", "_P.L.P_", "_PPPPP_",
+            "_IIIII_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "ice_shelter",
+        code: 7,
+        name: "Ice Shelter",
+        place: 0,
+        rarity: 0.45,
+        weight: 1.2,
+        biomes: Some(&["tundra", "glacier"]),
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "P",
+                block: Some("packedIce"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "I",
+                block: Some("ice"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("ironOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "__PPPPP__",
+            "_PPIIIPP_",
+            "_P.....P_",
+            "_P..L..P_",
+            "_...X..P_",
+            "_PPPPPPP_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "cave_shrine",
+        code: 8,
+        name: "Cave Shrine",
+        place: 4,
+        rarity: 0.45,
+        weight: 1.6,
+        biomes: None,
+        bands: &[StructBands::Shallow, StructBands::Cavern],
+        min_depth: 46,
+        max_depth: 190,
+        anchor: 2,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "S",
+                block: Some("stone"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "C",
+                block: Some("crystal"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "_SSSSSSSSSSS_",
+            "_S.........S_",
+            "_S..C...C..S_",
+            "_..........S_",
+            "_S..X.C....S_",
+            "_S..SSSSS..S_",
+            "_S..S.L.S..S_",
+            "_S..SSSSS..S_",
+            "_SSSSSSSSSSS_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "fungal_grotto",
+        code: 9,
+        name: "Fungal Grotto Shrine",
+        place: 4,
+        rarity: 0.4,
+        weight: 1.0,
+        biomes: None,
+        bands: &[StructBands::Cavern, StructBands::Deep],
+        min_depth: 70,
+        max_depth: 260,
+        anchor: 2,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "U",
+                block: Some("mud"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "Y",
+                block: Some("mushroomCap"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "Z",
+                block: Some("mushroomStem"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "V",
+                block: Some("vine"),
+                mark: 0,
+                soft: true,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("gemOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "_UUUUUUUUUUU_",
+            "_UV.......VU_",
+            "_U.Y.....Y.U_",
+            "_U.Z..X..Z.U_",
+            "_U....Y....U_",
+            "_U....Z..L.U_",
+            "_..........U_",
+            "_UUUUUUUUUUU_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "sealed_vault",
+        code: 10,
+        name: "Sealed Vault",
+        place: 3,
+        rarity: 0.22,
+        weight: 1.0,
+        biomes: None,
+        bands: &[StructBands::Cavern, StructBands::Deep],
+        min_depth: 120,
+        max_depth: 420,
+        anchor: 2,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: false,
+        legend: &[
+            StructGlyph {
+                c: "B",
+                block: Some("clay"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "K",
+                block: Some("spike"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("gemOre"),
+                mark: 1,
+                soft: false,
+            },
+        ],
+        body: &[
+            "_BBBBBBBBBBBBB_",
+            "_B...........B_",
+            "_B.BBBBBBBBB.B_",
+            "_B.B.......B.B_",
+            "_B.B..L.L..B.B_",
+            "_B.B...K...B.B_",
+            "_B.BBBBBBBBB.B_",
+            "_B...........B_",
+            "_BBBBBBBBBBBBB_",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "underworld_ruin",
+        code: 11,
+        name: "Basalt Colonnade",
+        place: 5,
+        rarity: 0.7,
+        weight: 2.0,
+        biomes: None,
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 2,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "A",
+                block: Some("basalt"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "O",
+                block: Some("obsidian"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "K",
+                block: Some("spike"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("gemOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            ".A...A...A...A...",
+            ".A...A...A...A...",
+            "OOOOOOOOOOOOOOOOO",
+            ".A......X......A.",
+            ".A.....L.......A.",
+            ".A......K......A.",
+            ".A.............A.",
+            ".AAAAAAAAAAAAAAA.",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "underworld_brazier",
+        code: 12,
+        name: "Ash Brazier",
+        place: 5,
+        rarity: 0.5,
+        weight: 1.0,
+        biomes: None,
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 0,
+        flatness: 6,
+        mirror: false,
+        legend: &[
+            StructGlyph {
+                c: "O",
+                block: Some("obsidian"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "A",
+                block: Some("basalt"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "J",
+                block: Some("lava"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("gemOre"),
+                mark: 1,
+                soft: false,
+            },
+        ],
+        body: &[
+            "..OOO..", ".O...O.", ".O.L.O.", ".OJJJO.", ".OOOOO.", ".AAAAA.",
+        ],
+        repeat: None,
+    },
+    StructDef {
+        id: "sky_perch",
+        code: 13,
+        name: "Sky Perch",
+        place: 2,
+        rarity: 0.4,
+        weight: 1.0,
+        biomes: None,
+        bands: &[],
+        min_depth: 0,
+        max_depth: 65535,
+        anchor: 0,
+        sink: 0,
+        clearance: 52,
+        flatness: 6,
+        mirror: true,
+        legend: &[
+            StructGlyph {
+                c: "S",
+                block: Some("stone"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "D",
+                block: Some("dirt"),
+                mark: 0,
+                soft: false,
+            },
+            StructGlyph {
+                c: "V",
+                block: Some("vine"),
+                mark: 0,
+                soft: true,
+            },
+            StructGlyph {
+                c: "L",
+                block: Some("goldOre"),
+                mark: 1,
+                soft: false,
+            },
+            StructGlyph {
+                c: "X",
+                block: None,
+                mark: 2,
+                soft: false,
+            },
+        ],
+        body: &[
+            "___SSSSS___",
+            "__S.....S__",
+            "__S..L..S__",
+            "__S.X...S__",
+            "__SSSSSSS__",
+            "_DDDDDDDDD_",
+            "__DDDDDDD__",
+            "___SSSSS___",
+            "____SSS____",
+            "____V.V____",
+        ],
+        repeat: None,
+    },
 ];
 
 pub const STRUCT_COUNT: usize = 14;
@@ -179,90 +914,59 @@ bitflags::bitflags! {
 // array read is far cheaper than a map hit plus a struct deref.
 
 /// Placement class code.
-pub static STRUCT_PLACE: [u8; 14] = [
-    0, 0, 0, 1, 0, 0, 0, 0, 4, 4, 3, 5, 5, 2
-];
+pub static STRUCT_PLACE: [u8; 14] = [0, 0, 0, 1, 0, 0, 0, 0, 4, 4, 3, 5, 5, 2];
 
 pub static STRUCT_RARITY: [f32; 14] = [
-    0.4, 0.4, 0.28, 0.5, 0.55, 0.4, 0.6, 0.45, 0.45, 0.4, 0.22, 0.7, 0.5, 0.4
+    0.4, 0.4, 0.28, 0.5, 0.55, 0.4, 0.6, 0.45, 0.45, 0.4, 0.22, 0.7, 0.5, 0.4,
 ];
 
 pub static STRUCT_WEIGHT: [f32; 14] = [
-    1.6, 1.0, 1.2, 1.0, 2.0, 1.0, 2.0, 1.2, 1.6, 1.0, 1.0, 2.0, 1.0, 1.0
+    1.6, 1.0, 1.2, 1.0, 2.0, 1.0, 2.0, 1.2, 1.6, 1.0, 1.0, 2.0, 1.0, 1.0,
 ];
 
 /// Packed band bitmask: `STRUCT_BANDS[c] & SBAND.cavern`. 0 = unrestricted.
-pub static STRUCT_BANDS: [u8; 14] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 6, 12, 12, 0, 0, 0
-];
+pub static STRUCT_BANDS: [u8; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 6, 12, 12, 0, 0, 0];
 
-pub static STRUCT_MINDEPTH: [u16; 14] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 46, 70, 120, 0, 0, 0
-];
+pub static STRUCT_MINDEPTH: [u16; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 46, 70, 120, 0, 0, 0];
 
 pub static STRUCT_MAXDEPTH: [u16; 14] = [
-    65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 190, 260, 420, 65535, 65535,
-    65535
+    65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 190, 260, 420, 65535, 65535, 65535,
 ];
 
 /// Anchor code.
-pub static STRUCT_ANCHOR: [u8; 14] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0
-];
+pub static STRUCT_ANCHOR: [u8; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0];
 
-pub static STRUCT_SINK: [u8; 14] = [
-    0, 0, 0, 2, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0
-];
+pub static STRUCT_SINK: [u8; 14] = [0, 0, 0, 2, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0];
 
-pub static STRUCT_CLEARANCE: [u8; 14] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 52
-];
+pub static STRUCT_CLEARANCE: [u8; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 52];
 
-pub static STRUCT_FLATNESS: [u8; 14] = [
-    4, 6, 5, 5, 5, 7, 8, 6, 6, 6, 6, 6, 6, 6
-];
+pub static STRUCT_FLATNESS: [u8; 14] = [4, 6, 5, 5, 5, 7, 8, 6, 6, 6, 6, 6, 6, 6];
 
 /// Template width in cells — the widest authored body row.
-pub static STRUCT_W: [u8; 14] = [
-    11, 11, 7, 15, 21, 5, 7, 9, 13, 13, 15, 17, 7, 11
-];
+pub static STRUCT_W: [u8; 14] = [11, 11, 7, 15, 21, 5, 7, 9, 13, 13, 15, 17, 7, 11];
 
 /// Authored template height in rows.
-pub static STRUCT_H: [u8; 14] = [
-    8, 7, 10, 6, 15, 9, 9, 6, 9, 8, 9, 8, 6, 10
-];
+pub static STRUCT_H: [u8; 14] = [8, 7, 10, 6, 15, 9, 9, 6, 9, 8, 9, 8, 6, 10];
 
 /// Height with the repeatable slice at `repeat.times` max — the honest
 /// vertical extent the placement pass must declare as its reach.
-pub static STRUCT_MAXH: [u8; 14] = [
-    8, 7, 22, 6, 15, 15, 9, 6, 9, 8, 9, 8, 6, 10
-];
+pub static STRUCT_MAXH: [u8; 14] = [8, 7, 22, 6, 15, 15, 9, 6, 9, 8, 9, 8, 6, 10];
 
 /// Repeatable slice start row.
-pub static STRUCT_REP_FROM: [u8; 14] = [
-    0, 0, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0
-];
+pub static STRUCT_REP_FROM: [u8; 14] = [0, 0, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
 
 /// Repeatable slice height; 0 = no repeat.
-pub static STRUCT_REP_ROWS: [u8; 14] = [
-    0, 0, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0
-];
+pub static STRUCT_REP_ROWS: [u8; 14] = [0, 0, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
 
 /// Fewest copies of the slice.
-pub static STRUCT_REP_MIN: [u8; 14] = [
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-];
+pub static STRUCT_REP_MIN: [u8; 14] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
 /// Most copies of the slice.
-pub static STRUCT_REP_MAX: [u8; 14] = [
-    1, 1, 5, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1
-];
+pub static STRUCT_REP_MAX: [u8; 14] = [1, 1, 5, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1];
 
 /// Packed template flags: `STRUCT_FLAGS[c] & SFLAG.loot`. Lets the pass
 /// answer 'does this template have a cache?' without walking its legend.
-pub static STRUCT_FLAGS: [u8; 14] = [
-    7, 7, 7, 7, 2, 2, 2, 7, 7, 7, 2, 7, 2, 7
-];
+pub static STRUCT_FLAGS: [u8; 14] = [7, 7, 7, 7, 2, 2, 2, 7, 7, 7, 2, 7, 2, 7];
 
 /// Every flat table in this module, by name. For the gates, not the game.
 pub static STRUCT_TABLES: &[(&str, crate::Table)] = &[

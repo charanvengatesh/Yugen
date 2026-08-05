@@ -83,19 +83,206 @@ pub struct FeatureDef {
 
 /// Authoring ids, index == code.
 pub static FEATURE_IDS: [&str; 7] = [
-    "floating_island", "highland_lake", "mineshaft", "vault_dungeon", "crystal_geode",
-    "glowing_grove", "rich_ore_cluster"
+    "floating_island",
+    "highland_lake",
+    "mineshaft",
+    "vault_dungeon",
+    "crystal_geode",
+    "glowing_grove",
+    "rich_ore_cluster",
 ];
 
 /// Every def, index == code, tombstones included.
 pub static FEATURES: [FeatureDef; 7] = [
-    FeatureDef { id: "floating_island", code: 0, name: "Floating Island", kind: 0, place: 0, cell_w: 512, cell_h: 512, rarity: 0.5, reach_x: 32, reach_y: 26, size: [13.0, 30.0], height: [9.0, 19.0], clearance: [44.0, 96.0], density: 0.3, min_depth: 0, max_depth: 65535, biomes: None, layers: None, mat: Some(FeatureMat { shell: Some("stone"), fill: Some("dirt"), accent: Some("crystal"), frame: Some("vine"), liquid: Some("water") }) },
-    FeatureDef { id: "highland_lake", code: 1, name: "Highland Lake", kind: 3, place: 1, cell_w: 420, cell_h: 420, rarity: 0.55, reach_x: 27, reach_y: 17, size: [11.0, 25.0], height: [5.0, 13.0], clearance: [0.0, 0.0], density: 0.4, min_depth: 0, max_depth: 65535, biomes: Some(&["plains", "savanna", "jungle", "swamp", "tundra", "glacier"]), layers: None, mat: Some(FeatureMat { shell: Some("gravel"), fill: Some("sand"), accent: Some("clay"), frame: None, liquid: Some("water") }) },
-    FeatureDef { id: "mineshaft", code: 2, name: "Abandoned Mineshaft", kind: 1, place: 2, cell_w: 320, cell_h: 224, rarity: 0.34, reach_x: 88, reach_y: 28, size: [84.0, 168.0], height: [3.0, 4.0], clearance: [0.0, 0.0], density: 0.55, min_depth: 44, max_depth: 250, biomes: None, layers: None, mat: Some(FeatureMat { shell: Some("stone"), fill: Some("gravel"), accent: Some("ironOre"), frame: Some("wood"), liquid: Some("water") }) },
-    FeatureDef { id: "vault_dungeon", code: 3, name: "Vault Dungeon", kind: 2, place: 2, cell_w: 896, cell_h: 416, rarity: 0.4, reach_x: 44, reach_y: 28, size: [3.0, 5.0], height: [2.0, 3.0], clearance: [0.0, 0.0], density: 0.45, min_depth: 96, max_depth: 360, biomes: None, layers: None, mat: Some(FeatureMat { shell: Some("clay"), fill: Some("gravel"), accent: Some("goldOre"), frame: Some("stone"), liquid: Some("water") }) },
-    FeatureDef { id: "crystal_geode", code: 4, name: "Crystal Geode", kind: 4, place: 2, cell_w: 248, cell_h: 208, rarity: 0.28, reach_x: 19, reach_y: 15, size: [8.0, 16.0], height: [6.0, 12.0], clearance: [0.0, 0.0], density: 0.35, min_depth: 180, max_depth: 620, biomes: None, layers: None, mat: Some(FeatureMat { shell: Some("obsidian"), fill: Some("gemOre"), accent: Some("crystal"), frame: None, liquid: Some("water") }) },
-    FeatureDef { id: "glowing_grove", code: 5, name: "Mushroom Grove", kind: 5, place: 2, cell_w: 368, cell_h: 288, rarity: 0.36, reach_x: 31, reach_y: 17, size: [15.0, 29.0], height: [7.0, 14.0], clearance: [0.0, 0.0], density: 0.5, min_depth: 62, max_depth: 300, biomes: None, layers: Some(&["fungal", "grottos", "caverns"]), mat: Some(FeatureMat { shell: Some("moss"), fill: Some("mud"), accent: Some("mushroomCap"), frame: Some("mushroomStem"), liquid: Some("water") }) },
-    FeatureDef { id: "rich_ore_cluster", code: 6, name: "Rich Ore Cluster", kind: 6, place: 2, cell_w: 152, cell_h: 128, rarity: 0.3, reach_x: 11, reach_y: 9, size: [4.0, 9.0], height: [3.0, 7.0], clearance: [0.0, 0.0], density: 0.72, min_depth: 56, max_depth: 65535, biomes: None, layers: None, mat: Some(FeatureMat { shell: Some("gravel"), fill: Some("ironOre"), accent: Some("gemOre"), frame: None, liquid: None }) },
+    FeatureDef {
+        id: "floating_island",
+        code: 0,
+        name: "Floating Island",
+        kind: 0,
+        place: 0,
+        cell_w: 512,
+        cell_h: 512,
+        rarity: 0.5,
+        reach_x: 32,
+        reach_y: 26,
+        size: [13.0, 30.0],
+        height: [9.0, 19.0],
+        clearance: [44.0, 96.0],
+        density: 0.3,
+        min_depth: 0,
+        max_depth: 65535,
+        biomes: None,
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("stone"),
+            fill: Some("dirt"),
+            accent: Some("crystal"),
+            frame: Some("vine"),
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "highland_lake",
+        code: 1,
+        name: "Highland Lake",
+        kind: 3,
+        place: 1,
+        cell_w: 420,
+        cell_h: 420,
+        rarity: 0.55,
+        reach_x: 27,
+        reach_y: 17,
+        size: [11.0, 25.0],
+        height: [5.0, 13.0],
+        clearance: [0.0, 0.0],
+        density: 0.4,
+        min_depth: 0,
+        max_depth: 65535,
+        biomes: Some(&["plains", "savanna", "jungle", "swamp", "tundra", "glacier"]),
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("gravel"),
+            fill: Some("sand"),
+            accent: Some("clay"),
+            frame: None,
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "mineshaft",
+        code: 2,
+        name: "Abandoned Mineshaft",
+        kind: 1,
+        place: 2,
+        cell_w: 320,
+        cell_h: 224,
+        rarity: 0.34,
+        reach_x: 88,
+        reach_y: 28,
+        size: [84.0, 168.0],
+        height: [3.0, 4.0],
+        clearance: [0.0, 0.0],
+        density: 0.55,
+        min_depth: 44,
+        max_depth: 250,
+        biomes: None,
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("stone"),
+            fill: Some("gravel"),
+            accent: Some("ironOre"),
+            frame: Some("wood"),
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "vault_dungeon",
+        code: 3,
+        name: "Vault Dungeon",
+        kind: 2,
+        place: 2,
+        cell_w: 896,
+        cell_h: 416,
+        rarity: 0.4,
+        reach_x: 44,
+        reach_y: 28,
+        size: [3.0, 5.0],
+        height: [2.0, 3.0],
+        clearance: [0.0, 0.0],
+        density: 0.45,
+        min_depth: 96,
+        max_depth: 360,
+        biomes: None,
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("clay"),
+            fill: Some("gravel"),
+            accent: Some("goldOre"),
+            frame: Some("stone"),
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "crystal_geode",
+        code: 4,
+        name: "Crystal Geode",
+        kind: 4,
+        place: 2,
+        cell_w: 248,
+        cell_h: 208,
+        rarity: 0.28,
+        reach_x: 19,
+        reach_y: 15,
+        size: [8.0, 16.0],
+        height: [6.0, 12.0],
+        clearance: [0.0, 0.0],
+        density: 0.35,
+        min_depth: 180,
+        max_depth: 620,
+        biomes: None,
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("obsidian"),
+            fill: Some("gemOre"),
+            accent: Some("crystal"),
+            frame: None,
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "glowing_grove",
+        code: 5,
+        name: "Mushroom Grove",
+        kind: 5,
+        place: 2,
+        cell_w: 368,
+        cell_h: 288,
+        rarity: 0.36,
+        reach_x: 31,
+        reach_y: 17,
+        size: [15.0, 29.0],
+        height: [7.0, 14.0],
+        clearance: [0.0, 0.0],
+        density: 0.5,
+        min_depth: 62,
+        max_depth: 300,
+        biomes: None,
+        layers: Some(&["fungal", "grottos", "caverns"]),
+        mat: Some(FeatureMat {
+            shell: Some("moss"),
+            fill: Some("mud"),
+            accent: Some("mushroomCap"),
+            frame: Some("mushroomStem"),
+            liquid: Some("water"),
+        }),
+    },
+    FeatureDef {
+        id: "rich_ore_cluster",
+        code: 6,
+        name: "Rich Ore Cluster",
+        kind: 6,
+        place: 2,
+        cell_w: 152,
+        cell_h: 128,
+        rarity: 0.3,
+        reach_x: 11,
+        reach_y: 9,
+        size: [4.0, 9.0],
+        height: [3.0, 7.0],
+        clearance: [0.0, 0.0],
+        density: 0.72,
+        min_depth: 56,
+        max_depth: 65535,
+        biomes: None,
+        layers: None,
+        mat: Some(FeatureMat {
+            shell: Some("gravel"),
+            fill: Some("ironOre"),
+            accent: Some("gemOre"),
+            frame: None,
+            liquid: None,
+        }),
+    },
 ];
 
 pub const FEATURE_COUNT: usize = 7;
@@ -119,72 +306,40 @@ pub const NEVER: u16 = 0xffff;
 // array read is far cheaper than a map hit plus a struct deref.
 
 /// Generator code.
-pub static FEAT_KIND: [u8; 7] = [
-    0, 3, 1, 2, 4, 5, 6
-];
+pub static FEAT_KIND: [u8; 7] = [0, 3, 1, 2, 4, 5, 6];
 
 /// Placement class code.
-pub static FEAT_PLACE: [u8; 7] = [
-    0, 1, 2, 2, 2, 2, 2
-];
+pub static FEAT_PLACE: [u8; 7] = [0, 1, 2, 2, 2, 2, 2];
 
-pub static FEAT_CELLW: [u16; 7] = [
-    512, 420, 320, 896, 248, 368, 152
-];
+pub static FEAT_CELLW: [u16; 7] = [512, 420, 320, 896, 248, 368, 152];
 
-pub static FEAT_CELLH: [u16; 7] = [
-    512, 420, 224, 416, 208, 288, 128
-];
+pub static FEAT_CELLH: [u16; 7] = [512, 420, 224, 416, 208, 288, 128];
 
-pub static FEAT_RARITY: [f32; 7] = [
-    0.5, 0.55, 0.34, 0.4, 0.28, 0.36, 0.3
-];
+pub static FEAT_RARITY: [f32; 7] = [0.5, 0.55, 0.34, 0.4, 0.28, 0.36, 0.3];
 
-pub static FEAT_REACHX: [u16; 7] = [
-    32, 27, 88, 44, 19, 31, 11
-];
+pub static FEAT_REACHX: [u16; 7] = [32, 27, 88, 44, 19, 31, 11];
 
-pub static FEAT_REACHY: [u16; 7] = [
-    26, 17, 28, 28, 15, 17, 9
-];
+pub static FEAT_REACHY: [u16; 7] = [26, 17, 28, 28, 15, 17, 9];
 
 /// Smallest primary size.
-pub static FEAT_SIZE0: [u16; 7] = [
-    13, 11, 84, 3, 8, 15, 4
-];
+pub static FEAT_SIZE0: [u16; 7] = [13, 11, 84, 3, 8, 15, 4];
 
 /// Largest primary size.
-pub static FEAT_SIZE1: [u16; 7] = [
-    30, 25, 168, 5, 16, 29, 9
-];
+pub static FEAT_SIZE1: [u16; 7] = [30, 25, 168, 5, 16, 29, 9];
 
-pub static FEAT_HEIGHT0: [u16; 7] = [
-    9, 5, 3, 2, 6, 7, 3
-];
+pub static FEAT_HEIGHT0: [u16; 7] = [9, 5, 3, 2, 6, 7, 3];
 
-pub static FEAT_HEIGHT1: [u16; 7] = [
-    19, 13, 4, 3, 12, 14, 7
-];
+pub static FEAT_HEIGHT1: [u16; 7] = [19, 13, 4, 3, 12, 14, 7];
 
-pub static FEAT_CLEAR0: [u16; 7] = [
-    44, 0, 0, 0, 0, 0, 0
-];
+pub static FEAT_CLEAR0: [u16; 7] = [44, 0, 0, 0, 0, 0, 0];
 
-pub static FEAT_CLEAR1: [u16; 7] = [
-    96, 0, 0, 0, 0, 0, 0
-];
+pub static FEAT_CLEAR1: [u16; 7] = [96, 0, 0, 0, 0, 0, 0];
 
-pub static FEAT_DENSITY: [f32; 7] = [
-    0.3, 0.4, 0.55, 0.45, 0.35, 0.5, 0.72
-];
+pub static FEAT_DENSITY: [f32; 7] = [0.3, 0.4, 0.55, 0.45, 0.35, 0.5, 0.72];
 
-pub static FEAT_MINDEPTH: [u16; 7] = [
-    0, 0, 44, 96, 180, 62, 56
-];
+pub static FEAT_MINDEPTH: [u16; 7] = [0, 0, 44, 96, 180, 62, 56];
 
-pub static FEAT_MAXDEPTH: [u16; 7] = [
-    65535, 65535, 250, 360, 620, 300, 65535
-];
+pub static FEAT_MAXDEPTH: [u16; 7] = [65535, 65535, 250, 360, 620, 300, 65535];
 
 /// Every flat table in this module, by name. For the gates, not the game.
 pub static FEATURE_TABLES: &[(&str, crate::Table)] = &[

@@ -2901,6 +2901,7 @@ dependencies = [
  "criterion",
  "godgame-data",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]
