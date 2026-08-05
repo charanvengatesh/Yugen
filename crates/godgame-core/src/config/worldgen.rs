@@ -84,6 +84,6 @@ pub const UNDERWORLD_FLOOR: i32 = 640;
 pub const GEN_LATTICE: usize = 4;
 
 const _: () = assert!(
-    CHUNK_CELLS as usize % GEN_LATTICE == 0,
+    (CHUNK_CELLS as usize).is_multiple_of(GEN_LATTICE),
     "GEN_LATTICE must divide CHUNK_CELLS or chunk edges stop sharing lattice corners"
 );
