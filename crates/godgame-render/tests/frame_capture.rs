@@ -79,6 +79,7 @@ use bevy::tasks::block_on;
 use bevy::window::{WindowPlugin, WindowResolution};
 
 use godgame_render::GodGameRenderPlugin;
+use godgame_render::effects::Screenshake;
 use godgame_render::input::PlayerIntent;
 use godgame_render::lowres::LowResTarget;
 use godgame_render::player::PlayerBody;
@@ -777,5 +778,71 @@ fn a_running_body_reaches_a_non_zero_lean() {
         peak > 0.0,
         "a body held to the right for {WARMUP_FRAMES} steps never leant — the \
          shear path is never exercised by a real run, however well its pieces test"
+    );
+}
+
+/// A world nobody is touching does not shake the camera.
+///
+/// This is a regression test for a bug that 896 other tests did not see, and the
+/// shape of it is worth keeping in mind.
+///
+/// `MobSystem::events()` returns a FIXED backing buffer and documents that only
+/// the first `event_count` entries are valid; the rest are the filler it was
+/// constructed with, whose `kind` happens to be `MobHurt`. The host drained the
+/// whole buffer. So roughly fourteen phantom creature-hits arrived every frame,
+/// at (0, 0), for creatures that did not exist — each adding 0.08 trauma against
+/// a decay of 4.0/s, which pinned the shake at maximum from the instant the game
+/// opened and never let go.
+///
+/// Nothing else could have caught it. The unit tests cover `Screenshake`'s decay
+/// curve and `MobSystem`'s event contract, and both were correct in isolation —
+/// the defect lived entirely in the join. The frame assertions above could not
+/// see it either: a shaking camera still renders a varied, correctly-lit frame,
+/// so every colour and luminance floor stayed green while the screen was
+/// unplayable.
+///
+/// What this asserts is therefore deliberately about REST rather than about
+/// pixels: with no input, no damage and nothing dying, trauma must stay at zero.
+/// A single real event would legitimately break that, which is why the body is
+/// left alone rather than driven.
+#[test]
+fn an_undisturbed_world_never_shakes_the_camera() {
+    if !gpu_is_available() {
+        println!("SKIPPED shake check: no wgpu adapter on this machine");
+        return;
+    }
+
+    let mut app = headless_game();
+    app.finish();
+    app.cleanup();
+    app.world_mut()
+        .resource_mut::<NextState<Scene>>()
+        .set(Scene::Playing);
+
+    let mut peak = 0.0f32;
+    let mut shaking_frames = 0;
+    for _ in 0..WARMUP_FRAMES {
+        app.update();
+        let trauma = app.world().resource::<Screenshake>().trauma();
+        peak = peak.max(trauma);
+        if trauma > 0.0 {
+            shaking_frames += 1;
+        }
+    }
+
+    let body = app.world().resource::<PlayerBody>();
+    assert!(
+        !body.dead() && body.health > 0.0,
+        "the body died during an idle run, so a shake would be legitimate — \
+         health {}, which makes this test's premise wrong rather than the shake",
+        body.health
+    );
+
+    println!("peak trauma over {WARMUP_FRAMES} idle frames: {peak:.4}");
+    assert_eq!(
+        shaking_frames, 0,
+        "the camera shook on {shaking_frames} of {WARMUP_FRAMES} idle frames \
+         (peak trauma {peak:.4}) with a live, undamaged body and nothing \
+         attacking it — something is raising events that did not happen"
     );
 }

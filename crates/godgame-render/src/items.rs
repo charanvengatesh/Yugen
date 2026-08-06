@@ -189,7 +189,14 @@ fn collect_loot(creatures: Res<Creatures>, mut ground: ResMut<GroundItems>) {
     if creatures.loot_count() == 0 {
         return;
     }
-    for (i, l) in creatures.loot().iter().enumerate() {
+    // `[..loot_count()]`, for the reason `crate::mobs::step_creatures` spells
+    // out: `loot()` returns the fixed backing store and only the first
+    // `loot_count` rows are valid. This one was surviving on luck — a filler row
+    // has `count` 0, so the `n > 0` guard below was silently doing the slicing —
+    // and the identical mistake in the event drain pinned the screen shake at
+    // maximum. Reading the count is the contract; the guard is not.
+    let live = creatures.loot_count();
+    for (i, l) in creatures.loot()[..live].iter().enumerate() {
         let n = l.count.max(0.0) as u32;
         if n > 0 {
             // The slot index is the bob phase, so a pile from one kill does not

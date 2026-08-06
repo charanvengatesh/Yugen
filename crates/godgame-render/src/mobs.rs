@@ -785,8 +785,17 @@ fn step_creatures(
     // below never holds the creatures while it works. Each event is one hit,
     // death or chill this tick — a handful at most, and the `Local` keeps the
     // allocation across frames.
+    // `[..event_count()]`, and NOT the whole buffer. `events()` hands back the
+    // fixed backing store, and its doc is explicit that only the first
+    // `event_count` are valid — the rest are the filler the pool was constructed
+    // with, whose `kind` happens to be `MobHurt`.
+    //
+    // Taking all of them replayed ~14 phantom hits every frame, each worth 0.08
+    // trauma against a decay of 4/s, which pinned the screen shake at maximum
+    // from the moment the game opened. The events were real enough to shake the
+    // camera and spawn blood, at (0, 0), for creatures that did not exist.
     drained.clear();
-    drained.extend_from_slice(creatures.events());
+    drained.extend_from_slice(&creatures.events()[..creatures.event_count()]);
     creatures.clear_events();
     drop(creatures);
 
