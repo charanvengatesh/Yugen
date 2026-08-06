@@ -63,6 +63,9 @@ pub struct KeyBindings {
     /// Creative brush size. The wheel is spoken for by the hotbar now.
     pub brush_down: &'static [&'static str],
     pub brush_up: &'static [&'static str],
+    /// Held: the brush acts on the BACKGROUND WALL plane. See
+    /// [`Cursor::back`](crate::interact::Cursor::back).
+    pub background: &'static [&'static str],
 }
 
 /// Semantic key bindings.
@@ -88,6 +91,10 @@ pub static KEYS: KeyBindings = KeyBindings {
     creative: &["KeyG"],
     brush_down: &["BracketLeft", "Minus"],
     brush_up: &["BracketRight", "Equal"],
+    // A modifier plus a letter, the shape `dash` uses. Shift is already dash and
+    // Control is claimed by the window manager on every platform this runs on, so
+    // Alt is the modifier and `B` for "background" is the one-handed alternative.
+    background: &["AltLeft", "AltRight", "KeyB"],
 };
 
 /// The two questions the old `Input` class answered about the keyboard.

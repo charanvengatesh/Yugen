@@ -269,10 +269,10 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `DIG_INTERVAL` (private) | `0.16` | Seconds between dig ticks at `dig_speed` 1. | 60 |
 | `PLACE_INTERVAL` (private) | `0.1` | Placing is not tool-gated, so it runs at a flat cadence. | 63 |
-| `TOOL_DEFAULT_DIG_SPEED` (private) | `1.0` | What a tool item leaves unsaid. | 178 |
-| `TOOL_DEFAULT_REACH` (private) | `6.0` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 180 |
-| `TOOL_DEFAULT_BRUSH_MAX` (private) | `1` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 182 |
-| `PALETTE_SLOTS` | `8` | How many palette groups there are, i.e. how many digit keys the host scans. | 281 |
+| `TOOL_DEFAULT_DIG_SPEED` (private) | `1.0` | What a tool item leaves unsaid. | 185 |
+| `TOOL_DEFAULT_REACH` (private) | `6.0` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 187 |
+| `TOOL_DEFAULT_BRUSH_MAX` (private) | `1` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 189 |
+| `PALETTE_SLOTS` | `8` | How many palette groups there are, i.e. how many digit keys the host scans. | 288 |
 
 ### `crates/godgame-core/src/items/drops.rs`
 

@@ -114,6 +114,13 @@ pub struct Cursor {
     pub dig: bool,
     /// The place verb is being held.
     pub place: bool,
+    /// Both verbs act on the BACKGROUND WALL plane instead of the play plane.
+    ///
+    /// A held modifier rather than a tool mode. A mode would be a second piece of
+    /// state to show in the HUD, to keep in sync with the hotbar, and to teach —
+    /// for the same two verbs. Holding a key says "the other layer" for exactly
+    /// as long as you mean it.
+    pub back: bool,
 }
 
 /// The selected slot, as the tool needs to see it.
@@ -526,8 +533,11 @@ impl BuildTool {
             self.creative || ddx * ddx + ddy * ddy <= self.profile.reach * self.profile.reach;
 
         let cell = WorldCell::new(cx, cy);
+        // The HUD reads what is under the cursor IN THE PLANE BEING EDITED, so
+        // holding the modifier reports the wall you are about to break rather
+        // than the air in front of it.
         self.target_block = if grid.is_loaded_world(cell) {
-            grid.get_world(cell)
+            plane_at(grid, cell, cursor.back)
         } else {
             EMPTY
         };
@@ -539,10 +549,10 @@ impl BuildTool {
             return None;
         }
         if cursor.place {
-            return self.place(grid, cx, cy, held);
+            return self.place(grid, cx, cy, held, cursor.back);
         }
         if cursor.dig {
-            return self.dig(grid, cx, cy);
+            return self.dig(grid, cx, cy, cursor.back);
         }
         None
     }
@@ -563,15 +573,20 @@ impl BuildTool {
     ///
     /// Creative digs roll nothing, which is what "no drops, no cost" on
     /// [`BuildTool::creative`] has always meant.
-    fn dig(&mut self, grid: &CellGrid, cx: i32, cy: i32) -> Option<BrushAction> {
+    fn dig(&mut self, grid: &CellGrid, cx: i32, cy: i32, back: bool) -> Option<BrushAction> {
         if self.dig_timer > 0.0 {
             return None;
         }
+        let mode = if back {
+            EditMode::DigBack
+        } else {
+            EditMode::Dig
+        };
 
         if self.creative {
             self.dig_timer = DIG_INTERVAL * 0.5;
             return Some(BrushAction {
-                mode: EditMode::Dig,
+                mode,
                 cx,
                 cy,
                 r: self.brush,
@@ -581,12 +596,19 @@ impl BuildTool {
 
         // Nothing here this tool can break — no edit, and no cooldown either, so
         // the next frame re-asks rather than pausing on a wall.
-        let r = self.dig_radius(grid, cx, cy, self.profile.dig_power, self.profile.brush_max)?;
+        let r = self.dig_radius(
+            grid,
+            cx,
+            cy,
+            self.profile.dig_power,
+            self.profile.brush_max,
+            back,
+        )?;
 
         self.dig_timer = DIG_INTERVAL / self.profile.dig_speed;
-        self.collect(grid, cx, cy, r, self.profile.dig_power);
+        self.collect(grid, cx, cy, r, self.profile.dig_power, back);
         Some(BrushAction {
-            mode: EditMode::Dig,
+            mode,
             cx,
             cy,
             r,
@@ -607,7 +629,7 @@ impl BuildTool {
     /// mined rather than merely inside a circle. A payout rule that depends on
     /// the caller having shrunk the radius correctly is a payout rule one
     /// refactor away from paying out for obsidian.
-    fn collect(&mut self, grid: &CellGrid, cx: i32, cy: i32, r: i32, dig_power: f32) {
+    fn collect(&mut self, grid: &CellGrid, cx: i32, cy: i32, r: i32, dig_power: f32, back: bool) {
         let r2 = r * r;
         for dy in -r..=r {
             for dx in -r..=r {
@@ -618,7 +640,7 @@ impl BuildTool {
                 if !grid.is_loaded_world(cell) {
                     continue;
                 }
-                let m = grid.get_world(cell);
+                let m = plane_at(grid, cell, back);
                 if m == EMPTY || hardness(m) > dig_power {
                     continue;
                 }
@@ -663,6 +685,7 @@ impl BuildTool {
         cy: i32,
         dig_power: f32,
         r_max: i32,
+        back: bool,
     ) -> Option<i32> {
         let mut allowed = r_max;
         let mut first_breakable = i32::MAX;
@@ -678,7 +701,7 @@ impl BuildTool {
                 if !grid.is_loaded_world(cell) {
                     continue;
                 }
-                let m = grid.get_world(cell);
+                let m = plane_at(grid, cell, back);
                 if m == EMPTY {
                     continue;
                 }
@@ -724,15 +747,21 @@ impl BuildTool {
         cx: i32,
         cy: i32,
         held: Option<Held>,
+        back: bool,
     ) -> Option<BrushAction> {
         if self.place_timer > 0.0 {
             return None;
         }
+        let mode = if back {
+            EditMode::PlaceBack
+        } else {
+            EditMode::Place
+        };
 
         if self.creative {
             self.place_timer = PLACE_INTERVAL * 0.5;
             return Some(BrushAction {
-                mode: EditMode::Place,
+                mode,
                 cx,
                 cy,
                 r: self.brush,
@@ -747,10 +776,10 @@ impl BuildTool {
             return None;
         }
 
-        let r = self.place_radius(grid, cx, cy, held.count as i32)?;
+        let r = self.place_radius(grid, cx, cy, held.count as i32, back)?;
         self.place_timer = PLACE_INTERVAL;
         Some(BrushAction {
-            mode: EditMode::Place,
+            mode,
             cx,
             cy,
             r,
@@ -771,7 +800,14 @@ impl BuildTool {
     /// allocated nothing per frame. `BRUSH_MAX + 2` `i32`s is 88 bytes; here it
     /// is a stack array, which is the same trick with the ownership question
     /// deleted.
-    pub fn place_radius(&mut self, grid: &CellGrid, cx: i32, cy: i32, avail: i32) -> Option<i32> {
+    pub fn place_radius(
+        &mut self,
+        grid: &CellGrid,
+        cx: i32,
+        cy: i32,
+        avail: i32,
+        back: bool,
+    ) -> Option<i32> {
         self.place_cost = 0;
         if avail <= 0 {
             return None;
@@ -788,7 +824,7 @@ impl BuildTool {
                     continue;
                 }
                 let cell = WorldCell::new(cx + dx, cy + dy);
-                if !grid.is_loaded_world(cell) || !grid.is_empty_world(cell) {
+                if !grid.is_loaded_world(cell) || plane_at(grid, cell, back) != EMPTY {
                     continue;
                 }
                 ring[isqrt_ceil(d2) as usize] += 1;
@@ -827,6 +863,21 @@ fn cell_of(px: f32) -> i32 {
 }
 
 /// A material's hardness, or 0 for a code the registry does not have.
+/// The material at a cell in whichever plane the stroke is acting on.
+///
+/// Every grid read in the brush goes through this, which is what keeps the two
+/// planes' rules identical: the same disc, the same loaded-window guard, the same
+/// hardness test and the same drop table, asked of a different array. A wall is
+/// dug and placed by the rules its own material carries, not by a second set.
+#[inline]
+fn plane_at(grid: &CellGrid, cell: WorldCell, back: bool) -> CellId {
+    if back {
+        grid.get_back_world(cell)
+    } else {
+        grid.get_world(cell)
+    }
+}
+
 #[inline]
 fn hardness(id: CellId) -> f32 {
     MAT_HARDNESS.get(id as usize).copied().unwrap_or(0.0)
@@ -924,6 +975,7 @@ mod tests {
     /// Cursor at the centre of cell (cx, cy).
     fn at(cx: i32, cy: i32, dig: bool, place: bool) -> Cursor {
         Cursor {
+            back: false,
             x: (cx * CELL_SIZE + CELL_SIZE / 2) as f32,
             y: (cy * CELL_SIZE + CELL_SIZE / 2) as f32,
             dig,
@@ -1129,15 +1181,15 @@ mod tests {
         // Unbreakable at distance 2: it first enters the disc at r=2, so the
         // largest radius that excludes it is 1.
         g.set(32, 30, block::OBSIDIAN);
-        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4), Some(1));
+        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4, false), Some(1));
 
         // Adjacent: only r=0 is left.
         g.set(31, 30, block::OBSIDIAN);
-        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4), Some(0));
+        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4, false), Some(0));
 
         // On the cursor itself: nothing breakable is reachable at all.
         g.set(30, 30, block::OBSIDIAN);
-        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4), None);
+        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4, false), None);
     }
 
     #[test]
@@ -1145,14 +1197,17 @@ mod tests {
         let t = creative();
         let mut g = grid();
         g.set(30, 30, block::OBSIDIAN);
-        assert_eq!(t.dig_radius(&g, 30, 30, CREATIVE.dig_power, 2), Some(2));
+        assert_eq!(
+            t.dig_radius(&g, 30, 30, CREATIVE.dig_power, 2, false),
+            Some(2)
+        );
     }
 
     #[test]
     fn an_empty_disc_is_not_a_swing() {
         let t = survival();
         let g = grid();
-        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4), None);
+        assert_eq!(t.dig_radius(&g, 30, 30, HANDS.dig_power, 4, false), None);
     }
 
     #[test]
@@ -1161,18 +1216,18 @@ mod tests {
         let mut g = grid();
 
         // One item buys the centre cell and nothing more.
-        assert_eq!(t.place_radius(&g, 30, 30, 1), Some(0));
+        assert_eq!(t.place_radius(&g, 30, 30, 1, false), Some(0));
         assert_eq!(t.place_cost(), 1);
 
         // r=1 is the centre plus its four orthogonal neighbours.
-        assert_eq!(t.place_radius(&g, 30, 30, 5), Some(1));
+        assert_eq!(t.place_radius(&g, 30, 30, 5, false), Some(1));
         assert_eq!(t.place_cost(), 5);
         // Four short of the next ring, so it stays at r=1.
-        assert_eq!(t.place_radius(&g, 30, 30, 12), Some(1));
+        assert_eq!(t.place_radius(&g, 30, 30, 12, false), Some(1));
         assert_eq!(t.place_cost(), 5);
 
         // Whatever it charges is what the brush actually fills.
-        let r = t.place_radius(&g, 30, 30, 40).unwrap();
+        let r = t.place_radius(&g, 30, 30, 40, false).unwrap();
         let cost = t.place_cost();
         apply_brush(&mut g, EditMode::Place, 30, 30, r, block::STONE);
         let filled = g.material.iter().filter(|&&m| m == block::STONE).count();
@@ -1181,7 +1236,7 @@ mod tests {
         // The search does NOT stop at what it just filled: `apply_brush` skips
         // occupied cells, so the next stroke buys the annulus outside the disc
         // and pays for exactly that.
-        let r2 = t.place_radius(&g, 30, 30, 40).unwrap();
+        let r2 = t.place_radius(&g, 30, 30, 40, false).unwrap();
         assert!(r2 > r);
         let before = filled as i32;
         apply_brush(&mut g, EditMode::Place, 30, 30, r2, block::STONE);
@@ -1198,7 +1253,7 @@ mod tests {
                 g.set(x, y, block::STONE);
             }
         }
-        assert_eq!(t.place_radius(&g, 30, 30, 1000), None);
+        assert_eq!(t.place_radius(&g, 30, 30, 1000, false), None);
         assert_eq!(t.place_cost(), 0);
     }
 
@@ -1206,8 +1261,8 @@ mod tests {
     fn no_items_buys_nothing() {
         let mut t = creative();
         let g = grid();
-        assert_eq!(t.place_radius(&g, 30, 30, 0), None);
-        assert_eq!(t.place_radius(&g, 30, 30, -1), None);
+        assert_eq!(t.place_radius(&g, 30, 30, 0, false), None);
+        assert_eq!(t.place_radius(&g, 30, 30, -1, false), None);
     }
 
     #[test]

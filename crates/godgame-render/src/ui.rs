@@ -1169,7 +1169,7 @@ pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
     ));
     for (line, top) in [
         ("LMB dig   RMB place   1-0 / wheel hotbar", 36),
-        ("F use   C craft   G creative", 50),
+        ("F use   C craft   G creative   Alt wall", 50),
     ] {
         out.push(UiPrim::text(
             line,
@@ -2433,7 +2433,7 @@ mod tests {
             "DASH",
             "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
             "LMB dig   RMB place   1-0 / wheel hotbar",
-            "F use   C craft   G creative",
+            "F use   C craft   G creative   Alt wall",
             "GodGame",
             "Press Enter or Space to start",
             "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash   L-click dig   R-click place",

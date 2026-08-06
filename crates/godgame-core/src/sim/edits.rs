@@ -22,6 +22,25 @@ pub enum EditMode {
     Dig,
     /// Fill only the EMPTY cells under the brush, leaving terrain alone.
     Place,
+    /// Clear the background WALL under the brush, leaving the play plane alone.
+    DigBack,
+    /// Fill the empty background wall under the brush.
+    PlaceBack,
+}
+
+impl EditMode {
+    /// Whether this mode writes the background wall plane rather than the play
+    /// plane.
+    #[inline]
+    pub const fn is_back(self) -> bool {
+        matches!(self, EditMode::DigBack | EditMode::PlaceBack)
+    }
+
+    /// Whether this mode fills rather than clears.
+    #[inline]
+    pub const fn is_place(self) -> bool {
+        matches!(self, EditMode::Place | EditMode::PlaceBack)
+    }
 }
 
 /// Stamp a filled circle at (cx,cy).
@@ -34,7 +53,8 @@ pub enum EditMode {
 /// them to the window and drops any that fall outside the loaded region.
 pub fn apply_brush(grid: &mut CellGrid, mode: EditMode, cx: i32, cy: i32, r: i32, mat: CellId) {
     let r2 = r * r;
-    let place = mode == EditMode::Place;
+    let place = mode.is_place();
+    let back = mode.is_back();
     for dy in -r..=r {
         for dx in -r..=r {
             if dx * dx + dy * dy > r2 {
@@ -44,10 +64,25 @@ pub fn apply_brush(grid: &mut CellGrid, mode: EditMode, cx: i32, cy: i32, r: i32
             if !grid.is_loaded_world(cell) {
                 continue;
             }
-            if place && !grid.is_empty_world(cell) {
+            // The two planes are asked the same question about their OWN
+            // contents. A wall may be placed behind standing terrain — that is
+            // the normal case, since the front plane is what you just dug out —
+            // so the occupancy test has to be about the plane being written and
+            // not about the play plane.
+            let occupied = if back {
+                grid.get_back_world(cell) != EMPTY
+            } else {
+                !grid.is_empty_world(cell)
+            };
+            if place && occupied {
                 continue;
             }
-            grid.set_world(cell, if place { mat } else { EMPTY });
+            let id = if place { mat } else { EMPTY };
+            if back {
+                grid.set_back_world(cell, id);
+            } else {
+                grid.set_world(cell, id);
+            }
         }
     }
 }
@@ -55,7 +90,107 @@ pub fn apply_brush(grid: &mut CellGrid, mode: EditMode, cx: i32, cy: i32, r: i32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::coords::WorldCell;
+    use crate::sim::materials::EMPTY;
     use crate::sim::materials::block;
+
+    /// A back stroke never touches the play plane, and a front stroke never
+    /// touches the walls.
+    ///
+    /// This is the worst bug the wall brush can produce, and it is silent in the
+    /// dangerous direction: a `DigBack` that wrote the front plane would delete
+    /// the terrain out from under the player while they were redecorating, and
+    /// nothing else in the tree would notice — the stroke lands where the cursor
+    /// is, the disc is the right size, and the only thing wrong is WHICH ARRAY it
+    /// went into.
+    #[test]
+    fn a_stroke_writes_one_plane_and_leaves_the_other_alone() {
+        // Front solid, back empty — so a write to either is unambiguous.
+        let mut g = grid();
+        for (cx, cy) in disc(30, 30, 6) {
+            g.set(cx, cy, block::STONE);
+        }
+
+        // Digging the BACK plane leaves the standing terrain exactly as it was.
+        apply_brush(&mut g, EditMode::DigBack, 30, 30, 4, EMPTY);
+        for (cx, cy) in disc(30, 30, 4) {
+            assert_eq!(
+                g.get(cx, cy),
+                block::STONE,
+                "a DigBack stroke cleared the play plane at ({cx},{cy}) — this \
+                 would delete the ground under the player"
+            );
+        }
+
+        // Placing into the BACK plane fills walls without adding any matter.
+        apply_brush(&mut g, EditMode::PlaceBack, 30, 30, 3, block::DIRT);
+        for (cx, cy) in disc(30, 30, 3) {
+            assert_eq!(g.get_back(cx, cy), block::DIRT, "the wall was not placed");
+            assert_eq!(
+                g.get(cx, cy),
+                block::STONE,
+                "a PlaceBack stroke added matter to the play plane"
+            );
+        }
+
+        // And the front verbs still ignore the walls entirely.
+        apply_brush(&mut g, EditMode::Dig, 30, 30, 3, EMPTY);
+        for (cx, cy) in disc(30, 30, 3) {
+            assert_eq!(g.get(cx, cy), EMPTY, "the front dig did not happen");
+            assert_eq!(
+                g.get_back(cx, cy),
+                block::DIRT,
+                "a front Dig stroke removed the wall behind it — digging a tunnel \
+                 must leave you a room, not a void"
+            );
+        }
+    }
+
+    /// A wall may be placed behind standing terrain.
+    ///
+    /// The occupancy test asks about the plane being WRITTEN, not about the play
+    /// plane, and that distinction is the normal case rather than an edge one:
+    /// the front plane is exactly what you just dug out, and a rule that refused
+    /// to wall a cell with rock in front of it would refuse almost everywhere.
+    #[test]
+    fn a_wall_goes_in_behind_solid_ground() {
+        let mut g = grid();
+        for (cx, cy) in disc(20, 20, 5) {
+            g.set(cx, cy, block::STONE);
+        }
+
+        apply_brush(&mut g, EditMode::PlaceBack, 20, 20, 3, block::DIRT);
+        for (cx, cy) in disc(20, 20, 3) {
+            assert_eq!(
+                g.get_back(cx, cy),
+                block::DIRT,
+                "solid ground in front blocked a wall from being placed behind it"
+            );
+        }
+    }
+
+    /// Placing a wall does not paint over a wall that is already there.
+    ///
+    /// The same rule the front plane has, asked of its own plane: `Place` fills
+    /// only what is empty, so a stroke cannot silently replace what a player put
+    /// down earlier.
+    #[test]
+    fn placing_a_wall_does_not_overwrite_one() {
+        let mut g = grid();
+        g.set_back_world(WorldCell::new(10, 10), block::STONE);
+
+        apply_brush(&mut g, EditMode::PlaceBack, 10, 10, 2, block::DIRT);
+        assert_eq!(
+            g.get_back(10, 10),
+            block::STONE,
+            "the existing wall was painted over"
+        );
+        assert_eq!(
+            g.get_back(10, 11),
+            block::DIRT,
+            "its neighbours still filled"
+        );
+    }
 
     fn grid() -> CellGrid {
         CellGrid::new(64, 64)

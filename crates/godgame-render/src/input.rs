@@ -198,6 +198,7 @@ const CODES: &[(&str, KeyCode)] = &[
     ("ArrowUp", KeyCode::ArrowUp),
     ("ArrowDown", KeyCode::ArrowDown),
     ("KeyA", KeyCode::KeyA),
+    ("KeyB", KeyCode::KeyB),
     ("KeyC", KeyCode::KeyC),
     ("KeyD", KeyCode::KeyD),
     ("KeyF", KeyCode::KeyF),
@@ -210,6 +211,8 @@ const CODES: &[(&str, KeyCode)] = &[
     ("Enter", KeyCode::Enter),
     ("ShiftLeft", KeyCode::ShiftLeft),
     ("ShiftRight", KeyCode::ShiftRight),
+    ("AltLeft", KeyCode::AltLeft),
+    ("AltRight", KeyCode::AltRight),
     ("Backquote", KeyCode::Backquote),
     ("BracketLeft", KeyCode::BracketLeft),
     ("BracketRight", KeyCode::BracketRight),
@@ -579,6 +582,7 @@ struct Swinger<'w> {
 fn swing_brush(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     cursor: Res<CursorWorld>,
     mut actor: Swinger,
     mut tool: ResMut<Tool>,
@@ -593,6 +597,10 @@ fn swing_brush(
         y: at.y,
         dig: buttons.pressed(MouseButton::Left),
         place: buttons.pressed(MouseButton::Right),
+        // HELD, not toggled — the modifier says "the other layer" for exactly as
+        // long as you mean it, and there is no mode for the HUD to display or for
+        // the hotbar to stay in sync with.
+        back: BevyKeys(&keys).any_down(KEYS.background),
     };
 
     // Reach is measured from whoever is swinging: the body when there is one,
@@ -846,6 +854,11 @@ mod tests {
         build.creative = true;
         world.insert_resource(Tool(build));
         world.insert_resource(Pack::default());
+        // No keys held, so every stroke below is a FRONT-plane stroke. The
+        // background modifier is tested where it is decided, in
+        // `godgame_core::interact` and `godgame_core::sim::edits`; what these
+        // check is the mouse-to-brush wiring.
+        world.insert_resource(ButtonInput::<KeyCode>::default());
         world.insert_resource(SimWorld {
             level: Level::new(grid, SpawnPoint { x: at.x, y: at.y }),
             window: WindowManager::new(ChunkStore::new(SEED)),

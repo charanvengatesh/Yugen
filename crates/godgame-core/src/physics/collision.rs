@@ -474,6 +474,7 @@ pub fn for_each_overlapped_cell(grid: &CellGrid, b: Aabb, mut f: impl FnMut(i32,
 mod tests {
     use super::*;
     use crate::config::{PLAYER_H, PLAYER_W, STEP_UP_MAX};
+    use crate::sim::coords::WorldCell;
     use crate::sim::materials::{EMPTY, block};
 
     const CS: f32 = CELL_SIZE as f32;
@@ -493,6 +494,87 @@ mod tests {
 
     fn player_at(x: f32, y: f32) -> Aabb {
         Aabb::new(x, y, PLAYER_W, PLAYER_H)
+    }
+
+    // --- The back plane is never solid ---------------------------------------
+
+    /// A world made entirely of background wall is a world you fall through.
+    ///
+    /// # Why this is a test and not a comment
+    ///
+    /// The invariant holds structurally today: every entry point below reaches
+    /// cells through `CellGrid::get_world` or `CellGrid::material`, and the back
+    /// plane is only reachable through the separately-named `get_back*`. So a
+    /// collision query cannot see a wall unless somebody types the word `back`.
+    ///
+    /// That is exactly the kind of guarantee that survives until the day it looks
+    /// like a bug. A wall is drawn where the player can see it, so "why can I walk
+    /// through that?" is a reasonable thing for someone to ask, and one `||
+    /// grid.get_back(...)` in `is_solid_cell` would answer it — and turn every
+    /// cave in the world into solid rock, because the wall plane is the terrain
+    /// the carve removed. It would be a one-line change that makes the game
+    /// unplayable in a way no existing test would notice.
+    ///
+    /// So: the whole plane filled, the front plane left empty, and every public
+    /// way of asking "is this solid" required to say no.
+    #[test]
+    fn the_back_plane_is_never_solid() {
+        let mut g = grid();
+        for cy in 0..64 {
+            for cx in 0..64 {
+                g.set_back_world(WorldCell::new(cx, cy), block::STONE);
+            }
+        }
+        assert_eq!(
+            g.get_back(10, 10),
+            block::STONE,
+            "the fixture did not take — this test would pass on an empty plane"
+        );
+        assert_eq!(g.get(10, 10), EMPTY, "the FRONT plane must stay empty");
+
+        assert!(!is_solid_cell(&g, 10, 10), "a wall is not a solid cell");
+        assert!(
+            !box_overlaps_solid(&g, player_at(10.0 * CS, 10.0 * CS)),
+            "a body standing in a walled room is not overlapping anything"
+        );
+        assert!(
+            !one_way_under_feet(&g, player_at(10.0 * CS, 10.0 * CS)),
+            "a wall is not a platform"
+        );
+
+        // Nothing is reported as overlapped either — `for_each_overlapped_cell`
+        // publishes the FRONT material, and a caller that got a wall id here
+        // would treat it as matter.
+        let mut seen = Vec::new();
+        for_each_overlapped_cell(&g, player_at(10.0 * CS, 10.0 * CS), |_, _, id| {
+            seen.push(id)
+        });
+        assert!(
+            seen.iter().all(|&id| id == EMPTY),
+            "the overlap walk reported {seen:?} inside a room whose front plane is \
+             empty"
+        );
+
+        // And the whole point, end to end: a body falls straight through a world
+        // made of nothing but wall, and is not stopped anywhere on the way.
+        // Stopping short of the window's own floor: cells outside the window read
+        // SOLID by design (see `cells_outside_the_window_read_solid`), so a fall
+        // that runs off the bottom is stopped by the fail-safe rather than by a
+        // wall, and would fail this test for the wrong reason. 64 cells is 320 px.
+        let mut body = player_at(10.0 * CS, 0.0);
+        for _ in 0..100 {
+            let step = resolve_axis(&g, body, 0.0, 2.0, f32::INFINITY);
+            assert!(
+                !step.hit_y(),
+                "a wall stopped a falling body at y {}",
+                body.y
+            );
+            body = step.aabb(body);
+        }
+        assert!(
+            body.y > 150.0,
+            "the body did not actually travel, so nothing was proven"
+        );
     }
 
     // --- The fail-safe -------------------------------------------------------
