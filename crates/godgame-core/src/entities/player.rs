@@ -34,6 +34,22 @@
 //!   mutating it, and the borrow would have been load-bearing for nothing: the
 //!   player only ever read the grid.
 //!
+//! # Creative mode is a truce. This is a DELIBERATE DIVERGENCE, not a port.
+//!
+//! [`Player::untouchable`] has no counterpart in the TypeScript. Creative there
+//! was an infinite build palette and nothing else: it changed what you could
+//! PLACE and left the hazards and the creatures exactly as they were, so the
+//! canonical way to survey a cavern was to fly a body that lava still ate.
+//!
+//! There is therefore no original to be faithful to here and nothing to check a
+//! fixture against — which is precisely why it is written down. Everything else
+//! in this file that differs from the original differs because Rust is not
+//! JavaScript; this differs because the game now says something the original
+//! never said. That is the same standard `godgame_render::particles` holds
+//! itself to for its one knowing improvement, and it is held here for the
+//! larger claim: a divergence in FEEL is easier to smuggle in than a divergence
+//! in code, because nothing fails when you do.
+//!
 //! # Widths
 //!
 //! Everything here is `f32`, which is what [`crate::config`] and
@@ -369,6 +385,41 @@ pub struct Player {
     /// Hit points, clamped to `[0, MAX_HEALTH]` at the end of every step.
     pub health: f32,
 
+    /// Nothing in the world may act on this body. Off unless a host turns it on.
+    ///
+    /// Named `untouchable` and NOT `invulnerable`, because it is stronger than
+    /// invulnerability and the difference is the whole feature. Invulnerable is
+    /// a well-worn word that means one thing — damage does not land — and a
+    /// reader who saw it here would be entitled to expect a body that creatures
+    /// still chase, still swarm and still shoot at, harmlessly. This flag also
+    /// takes the body OUT OF PERCEPTION: [`MobTarget::targetable`] answers `!` of
+    /// it, and a creature that cannot perceive you does not aggro, does not
+    /// dive, does not fire. An unfamiliar word is the right cost for sending a
+    /// reader to this paragraph.
+    ///
+    /// Two things stop when it is set, and it is worth being exact about which:
+    ///
+    /// - the material hazard drain in [`Player::overlap_effects`] — lava and
+    ///   spikes — does not apply, and NEITHER DOES ITS REACTION. No hurt pose,
+    ///   no [`PlayerEvent::Hurt`], no spent `hurt_cooldown`. A flash and a
+    ///   flinch that cost nothing are a lie told to the player about their own
+    ///   health bar, and the flinch is worse than the flash: the pose preempts
+    ///   every other animation state, so a body standing in lava would stutter
+    ///   permanently while taking no damage at all.
+    /// - `MobTarget::take_damage` no-ops, which is the last line rather than the
+    ///   first: `targetable` already stops every caller inside `MobSystem`, and
+    ///   this catches the one that is written next year.
+    ///
+    /// What deliberately does NOT stop: everything the player does to the world.
+    /// Digging, placing, swinging, shooting and killing all work exactly as they
+    /// did, and creatures still spawn, wander, take damage and die. Creative is
+    /// the world ignoring you, not the world stopping.
+    ///
+    /// [`Player::reset`] does not clear it — see the note there.
+    ///
+    /// [`MobTarget::targetable`]: crate::entities::mobs::MobTarget::targetable
+    pub untouchable: bool,
+
     // Environment flags sensed pre-move each step from surrounding cells.
     /// Feet resting on something solid.
     pub on_ground: bool,
@@ -486,6 +537,7 @@ impl Player {
             vy: 0.0,
             facing: 1.0,
             health: MAX_HEALTH,
+            untouchable: false,
             on_ground: false,
             on_ice: false,
             in_liquid: false,
@@ -870,6 +922,12 @@ impl Player {
     }
 
     /// Put the body back at the spawn point and clear the per-life state.
+    ///
+    /// [`Player::untouchable`] is NOT per-life state and is not cleared, on the
+    /// same terms as the weapon: it is a MODE the host holds, mirrored onto the
+    /// body from the build tool, and a respawn that silently dropped it would
+    /// hand the mode back to a player who never asked for it — or, worse, be
+    /// corrected a frame later by the host and read as a flicker.
     pub fn reset(&mut self) {
         let s = self.spawn;
         self.x = s.x + (TILE_SIZE as f32 - PLAYER_W) / 2.0;
@@ -1445,6 +1503,15 @@ impl Player {
     }
 
     fn overlap_effects(&mut self, dt: f32, grid: &CellGrid) {
+        // An untouchable body does not sense the hazard at all, rather than
+        // sensing it and subtracting zero. The scan below has exactly one
+        // consumer — the drain and the flinch it triggers — so skipping it is
+        // not an optimisation that could drift out of step with the rule; it IS
+        // the rule. See `Player::untouchable` for why the flinch goes too.
+        if self.untouchable {
+            return;
+        }
+
         // Highest damage among overlapped cells, applied once (spike / lava).
         let mut dmg = 0.0f32;
         for_each_overlapped_cell(grid, self.aabb(), |_cx, _cy, id| {
@@ -1619,6 +1686,7 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::materials::block;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1852,6 +1920,98 @@ mod tests {
             "the swing id does NOT reset: a resolver comparing ids across a \
              respawn must not see one it has already damaged with"
         );
+    }
+
+    /// A loaded window at the world origin, filled edge to edge with `id`, so a
+    /// body standing anywhere inside it is overlapping that material.
+    fn drowning_in(id: CellId) -> CellGrid {
+        let mut g = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+        for cy in 0..crate::config::WINDOW_ROWS {
+            for cx in 0..crate::config::WINDOW_COLS {
+                g.set(cx, cy, id);
+            }
+        }
+        g
+    }
+
+    /// A body standing in the middle of `grid`, one hazard tick already applied.
+    fn one_tick_of_hazard(grid: &CellGrid, untouchable: bool) -> Player {
+        let mut p = Player::new(SPAWN);
+        p.x = 100.0;
+        p.y = 100.0;
+        p.untouchable = untouchable;
+        p.overlap_effects(1.0 / 120.0, grid);
+        p
+    }
+
+    #[test]
+    fn an_untouchable_body_takes_no_hazard_damage_where_a_normal_one_does() {
+        // Lava, which is the continuous per-tick drain rather than a discrete
+        // hit, so it also proves the guard is on the DRAIN and not on some
+        // event path that happens to sit next to it.
+        let g = drowning_in(block::LAVA);
+
+        let mortal = one_tick_of_hazard(&g, false);
+        assert!(
+            mortal.health < MAX_HEALTH,
+            "the fixture did not hurt a normal body, so it proves nothing"
+        );
+
+        let spared = one_tick_of_hazard(&g, true);
+        assert_eq!(spared.health, MAX_HEALTH);
+
+        // And it is not a one-tick reprieve: a body left in the fire indefinitely
+        // is still at full health.
+        let mut p = one_tick_of_hazard(&g, true);
+        for _ in 0..2_000 {
+            p.overlap_effects(1.0 / 120.0, &g);
+        }
+        assert_eq!(p.health, MAX_HEALTH, "the drain leaked over time");
+    }
+
+    #[test]
+    fn an_untouchable_body_does_not_flinch_at_damage_it_never_took() {
+        // A hurt flash and a hurt pose with no health lost are a lie told to the
+        // player about their own health bar — and the pose is the worse half,
+        // because `AnimState::Hurt` preempts everything, so a body parked in
+        // lava would stutter forever while taking nothing.
+        let g = drowning_in(block::SPIKE);
+
+        let mut mortal = one_tick_of_hazard(&g, false);
+        let mut evs = Vec::new();
+        mortal.drain_events(&mut evs);
+        assert!(
+            evs.contains(&PlayerEvent::Hurt),
+            "the fixture did not flinch a normal body, so it proves nothing"
+        );
+        assert!(mortal.hurt_timer > 0.0 && mortal.hurt_cooldown > 0.0);
+
+        let mut spared = one_tick_of_hazard(&g, true);
+        evs.clear();
+        spared.drain_events(&mut evs);
+        assert!(!evs.contains(&PlayerEvent::Hurt), "a hurt with no hurt");
+        assert_eq!(spared.hurt_timer, 0.0, "and no pose to go with it");
+        assert_eq!(
+            spared.hurt_cooldown, 0.0,
+            "nor a spent cooldown, which would swallow the first real hit \
+             after the truce ends"
+        );
+    }
+
+    #[test]
+    fn the_truce_is_off_by_default_and_a_respawn_does_not_end_it() {
+        // Off by default is what keeps every existing suite — the parity replay
+        // included — describing the same game it always did.
+        let mut p = Player::new(SPAWN);
+        assert!(!p.untouchable);
+
+        // And it is a MODE the host holds, not per-life state: `reset` clears the
+        // life, not the mode. See `Player::reset`.
+        p.untouchable = true;
+        p.health = 3.0;
+        p.reset();
+        assert_eq!(p.health, MAX_HEALTH);
+        assert!(p.untouchable, "the respawn revoked a mode it does not own");
     }
 
     #[test]

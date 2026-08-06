@@ -7,7 +7,7 @@
 //!   - [`godgame_core::input`] owns the binding table and [`Intent`]. No Bevy.
 //!   - this module owns the translation: `ButtonInput<KeyCode>` into
 //!     [`KeyState`], the pointer into a world-space [`Cursor`], and the wheel
-//!     into brush steps.
+//!     into a signed step whose meaning the tool's mode decides.
 //!
 //! # Held vs just-pressed, and why it is load-bearing
 //!
@@ -37,15 +37,18 @@ use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use godgame_core::config::{CELL_SIZE, MAX_RUN_SPEED, PLAYER_H, PLAYER_W};
+use godgame_core::config::{CELL_SIZE, MAX_HEALTH, MAX_RUN_SPEED, PLAYER_H, PLAYER_W};
 use godgame_core::input::{Intent, KEYS, KeyState};
 use godgame_core::interact::{BuildTool, Cursor, Held, PALETTE_SLOTS};
+use godgame_core::items::registry::{ItemCategory, ItemEffect};
+use godgame_core::items::{HOTBAR, Inventory, craft, item_by_code, next_craftable, recipes};
 use godgame_core::sim::edits::{EditMode, apply_brush};
 
 use crate::cellmap::upload_dirty_chunks;
 use crate::items::Pack;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
 use crate::player::PlayerBody;
+use crate::ui::Toast;
 use crate::world::{SimWorld, WorldFocus};
 
 /// How much faster the free camera flies than the player runs.
@@ -74,6 +77,7 @@ impl Plugin for InputPlugin {
             .init_resource::<CursorWorld>()
             .init_resource::<FocusDriver>()
             .init_resource::<Tool>()
+            .init_resource::<CraftCursor>()
             .add_systems(Startup, spawn_preview)
             .add_systems(PreUpdate, gather_intent.after(bevy::input::InputSystems))
             // The free camera runs first so the cursor is un-projected against
@@ -116,6 +120,20 @@ pub struct CursorWorld(pub Option<Vec2>);
 /// The dig/place tool. Bevy-side wrapper; all the behaviour is in the core type.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct Tool(pub BuildTool);
+
+/// Where the next craft press starts scanning the recipe table.
+///
+/// `Game.craftCursor`. There is no crafting SCREEN — see the head of
+/// [`godgame_core::items::crafting`] for why the authored station is validated
+/// and then ignored — so one key has to reach every affordable recipe.
+/// [`next_craftable`] scans from here and a successful craft parks the cursor
+/// one past what it made, which turns repeated presses into a walk through the
+/// affordable set instead of ten of the same bandage.
+///
+/// Nothing resets it when the pack changes, and nothing needs to: a recipe that
+/// stops being affordable simply stops being returned, and the scan wraps.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct CraftCursor(pub usize);
 
 /// Who moves [`WorldFocus`] — the view, and therefore the streaming window.
 ///
@@ -329,27 +347,74 @@ fn fly_camera(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut focus: ResMu
 
 // --- The brush --------------------------------------------------------------
 
-/// The keyboard/wheel half of `Game.handleBuildInput`: mode, palette, size.
+/// Everything the survival half of [`tool_keys`] writes to.
+///
+/// Bundled for the reason [`Swinger`] is: four things, one question — "what is
+/// the player carrying, and what have they just been told about it". Listing
+/// them would also put the system at seven parameters, which is the count the
+/// tree bundles at rather than argues about.
+///
+/// `body` is optional because `--free-camera` runs with no player at all. There
+/// is still a pack to select from and craft into; there is just nobody to drink.
+#[derive(SystemParam)]
+struct Survival<'w> {
+    pack: Res<'w, Pack>,
+    toast: ResMut<'w, Toast>,
+    cursor: ResMut<'w, CraftCursor>,
+    body: Option<ResMut<'w, PlayerBody>>,
+}
+
+/// The keyboard/wheel half of `Game.handleBuildInput`: mode, selection, size.
 ///
 /// Runs before [`swing_brush`], and that order is the TypeScript's: a stroke
-/// started on the same frame as a palette change places what you just picked.
+/// started on the same frame as a selection change places what you just picked.
 ///
-/// SEAM (items): the survival half of that function — hotbar selection,
-/// crafting, consuming, and the wheel cycling the hotbar instead of the brush —
-/// needs an inventory. Those keys are already named in [`KEYS`] (`hotbar`,
-/// `craft`, `use_item`); they are left unbound rather than bound to something
-/// invented.
+/// The digits and the wheel mean different things per mode, and that is the
+/// whole reason the branch exists rather than an accident of it: in creative
+/// they drive the material palette, in survival they move the hotbar cursor.
+/// Brush size lives on the brackets in BOTH modes, because the wheel is the
+/// natural hotbar control and the hotbar is what a survival run actually uses.
 fn tool_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
     mut tool: ResMut<Tool>,
+    mut player: Survival,
 ) {
     let k = BevyKeys(&keys);
 
     if k.any_pressed(KEYS.creative) {
         tool.toggle_creative();
-        info!("creative {}", if tool.creative { "on" } else { "off" });
+        // `Game.say`, not a log line. This is the one mode switch a player can
+        // make; it silently changes what every other key in this function does,
+        // and until the HUD landed the only place to report it was stdout, which
+        // the player is not reading. Every other branch below already talks
+        // through the toast.
+        let mode = if tool.creative {
+            "creative on"
+        } else {
+            "creative off"
+        };
+        player.toast.show(mode);
     }
+
+    // Read ONCE, above the branch, so the mode cannot decide whether the queue
+    // is drained. Unread steps are dropped with the reader, which is the old
+    // `clearFrame` dropping whatever no consumer took — and a frame whose
+    // consumer happened to be the other branch must not leave a backlog for the
+    // next one to spend.
+    //
+    // The sign is the DOM's, not Bevy's: the TypeScript accumulated
+    // `Math.sign(deltaY)`, which is POSITIVE scrolling down, and BOTH consumers
+    // below were written against that number. Bevy reports the opposite sign for
+    // the same physical motion, hence the negation.
+    //
+    // So positive is a wheel rolled toward you, and it GROWS the brush and moves
+    // the hotbar selection RIGHT, toward slot 9. On the brush that is faithful
+    // rather than natural — which way a wheel grows a disc is a design decision
+    // and not a porting one. On the hotbar it is both: scroll down, next slot is
+    // what every game with a hotbar does, so the faithful port is also the one
+    // that needs no explaining to a player.
+    let steps: i32 = wheel.read().map(|w| -w.y.signum() as i32).sum();
 
     if tool.creative {
         for i in 0..PALETTE_SLOTS {
@@ -358,26 +423,135 @@ fn tool_keys(
                 info!("palette: {}", tool.selected_name());
             }
         }
+        if steps != 0 {
+            tool.add_brush(steps);
+        }
+    } else {
+        let mut inv = player.pack.lock();
+        for i in 0..HOTBAR {
+            if k.was_pressed(KEYS.hotbar[i]) {
+                inv.select_slot(i);
+            }
+        }
+
+        // Clamped to one slot a frame — `Math.sign(wheel)` in the original, and
+        // deliberately NOT what the brush above gets. A brush size is a
+        // magnitude and adding three to it is three steps of the same idea; a
+        // ten-slot ring that jumps three places on one flick has lost the
+        // player, who was looking at the hotbar and not at the wheel. Zero is
+        // already a no-op inside `cycle`.
+        inv.cycle(steps.signum());
+
+        if k.any_pressed(KEYS.craft) {
+            try_craft(&mut inv, &mut player.cursor.0, &mut player.toast);
+        }
+        if k.any_pressed(KEYS.use_item)
+            && let Some(body) = &mut player.body
+        {
+            try_use(&mut inv, body, &mut player.toast);
+        }
     }
 
-    // The wheel's sign is the DOM's, not Bevy's: the TypeScript accumulated
-    // `Math.sign(deltaY)`, which is POSITIVE scrolling down, and fed it straight
-    // to `addBrush` — so scrolling down grows the brush. Bevy reports the
-    // opposite sign for the same physical motion, hence the negation. Faithful
-    // rather than natural; which way a wheel grows a brush is a design decision
-    // and not a porting one.
-    //
-    // Unread steps are dropped with the reader, which is the old `clearFrame`
-    // dropping whatever no consumer took.
-    let steps: i32 = wheel.read().map(|w| -w.y.signum() as i32).sum();
-    if steps != 0 {
-        tool.add_brush(steps);
-    }
     if k.any_pressed(KEYS.brush_down) {
         tool.add_brush(-1);
     }
     if k.any_pressed(KEYS.brush_up) {
         tool.add_brush(1);
+    }
+}
+
+/// Craft the next affordable recipe and say what it was. `Game.tryCraft`.
+///
+/// A free function over the three things it touches rather than a system, so the
+/// port can be tested against an [`Inventory`] and a [`Toast`] with no Bevy
+/// world at all — the same split [`cursor_world_px`] gets, and for the same
+/// reason: this is the part that can be wrong in a way no screenshot shows.
+///
+/// Both outcomes report. A key that silently does nothing is indistinguishable
+/// from a key that is not bound, which is precisely the defect the HUD's
+/// "C craft" hint had been advertising.
+fn try_craft(inv: &mut Inventory, cursor: &mut usize, toast: &mut Toast) {
+    let Some(i) = next_craftable(inv, *cursor) else {
+        toast.show("nothing craftable");
+        return;
+    };
+    let r = &recipes()[i];
+    // `next_craftable` has already run `can_craft` on this row and nothing can
+    // have moved the pack in between, so this cannot fail today. Kept as the
+    // original had it: the day `craft` grows a second refusal, the cursor must
+    // not advance past a craft that did not happen.
+    if !craft(inv, r) {
+        return;
+    }
+    *cursor = i + 1;
+    let name = item_by_code(r.out).name;
+    toast.show(if r.out_count > 1 {
+        format!("crafted {}x {}", r.out_count, name)
+    } else {
+        format!("crafted {name}")
+    });
+}
+
+/// Consume the held item if it heals or buffs. `Game.tryUse`.
+///
+/// Effects are data and not code yet: the `effect` name is authored, compiled
+/// and reported, and nothing applies it. That is exactly the state the
+/// TypeScript left it in, and it stays there — the buff system is what turns a
+/// name into a behaviour, and inventing one here would put a second, unauthored
+/// effect table in the input module.
+fn try_use(inv: &mut Inventory, body: &mut PlayerBody, toast: &mut Toast) {
+    let Some(code) = inv.held() else {
+        return;
+    };
+    let def = item_by_code(code);
+    if def.category != ItemCategory::Consumable {
+        return;
+    }
+    let Some(u) = def.r#use else {
+        return;
+    };
+
+    let heal = u.heal.unwrap_or(0.0);
+    if heal > 0.0 && body.health >= MAX_HEALTH {
+        toast.show("already at full health");
+        return;
+    }
+
+    let slot = inv.selected();
+    inv.remove_at(slot, 1);
+    if heal > 0.0 {
+        body.health = MAX_HEALTH.min(body.health + heal);
+    }
+
+    // The original was `+${heal} hp`, with the effect appended when there was
+    // one. It was written before a consumable with NO heal existed: the Emberward
+    // Draught is pure `fireward`, and "+0 hp · fireward" leads with the one
+    // number that is not the point. A heal-less use reports the effect alone.
+    // Every other case is the original's line, character for character.
+    let effect = u.effect.and_then(effect_name);
+    toast.show(match (heal > 0.0, effect) {
+        (true, Some(e)) => format!("+{heal} hp · {e}"),
+        (false, Some(e)) => e.to_string(),
+        (_, None) => format!("+{heal} hp"),
+    });
+}
+
+/// The authored name of an effect, or `None` for "no effect at all".
+///
+/// [`ItemEffect::None`] and an absent `effect` field are the same thing to a
+/// player and are folded together here, which is `def.use.effect ?? "none"` and
+/// the `=== "none"` test that followed it, collapsed into one answer.
+///
+/// The match is exhaustive on purpose. A new effect in `content/items/` is then
+/// a compile error in this file rather than a draught that consumes itself and
+/// reports nothing.
+fn effect_name(effect: ItemEffect) -> Option<&'static str> {
+    match effect {
+        ItemEffect::None => None,
+        ItemEffect::Regen => Some("regen"),
+        ItemEffect::Fireward => Some("fireward"),
+        ItemEffect::Haste => Some("haste"),
+        ItemEffect::Light => Some("light"),
     }
 }
 
@@ -738,5 +912,320 @@ mod tests {
         world.run_system_once(swing_brush).unwrap();
         let grid = &world.resource::<SimWorld>().level.grid;
         assert!(grid.material.iter().all(|&m| m == block::STONE));
+    }
+
+    // --- The survival half of `tool_keys` -----------------------------------
+    //
+    // The seam these close was a HUD advertising three keys — the digits, C and
+    // F — that reached nothing. So what is asserted throughout is that the key
+    // ARRIVED: that the pack moved, that the toast said something. The rules it
+    // arrived at (what `cycle` wraps to, what `craft` may spend) are tested
+    // where they live, in `godgame_core::items`.
+
+    use bevy::input::mouse::MouseScrollUnit;
+    use bevy::input::touch::TouchPhase;
+    use godgame_core::items::registry::{ITEM_DEFS, ItemDef};
+    use godgame_core::items::{Recipe, item_code_of, recipes};
+
+    /// A world with the survival half wired and the given keys down this frame.
+    ///
+    /// Survival EXPLICITLY, for the same reason [`clicking`] says creative
+    /// explicitly: these tests are about which side of the branch a key lands
+    /// on, so the side must not be whatever `START_CREATIVE` happens to be.
+    fn pressing(codes: &[&str]) -> World {
+        let mut world = World::new();
+        let mut keys = ButtonInput::<KeyCode>::default();
+        for code in codes {
+            keys.press(key_code(code).expect("the test named an unbound key"));
+        }
+        world.insert_resource(keys);
+        // `MessageReader` reads this resource whether or not anything wrote to
+        // it, so a wheel-less test still has to have one.
+        world.init_resource::<Messages<MouseWheel>>();
+
+        let mut build = BuildTool::new();
+        build.creative = false;
+        world.insert_resource(Tool(build));
+        world.insert_resource(Pack::default());
+        world.insert_resource(Toast::default());
+        world.insert_resource(CraftCursor::default());
+        world
+    }
+
+    /// Roll the wheel by `y` in Bevy's sign — POSITIVE is away from you.
+    fn scroll(world: &mut World, y: f32) {
+        world.write_message(MouseWheel {
+            unit: MouseScrollUnit::Line,
+            x: 0.0,
+            y,
+            window: Entity::PLACEHOLDER,
+            phase: TouchPhase::Moved,
+        });
+    }
+
+    /// A player at full health, so `try_use` has somebody to heal.
+    fn with_a_body(world: &mut World) {
+        world.insert_resource(PlayerBody(godgame_core::entities::Player::new(
+            SpawnPoint { x: 0.0, y: 0.0 },
+        )));
+    }
+
+    fn toast_of(world: &World) -> String {
+        world
+            .resource::<Toast>()
+            .showing()
+            .map(|(text, _)| text.to_owned())
+            .unwrap_or_default()
+    }
+
+    /// The first consumable the content declares that actually restores health.
+    fn a_healing_item() -> &'static ItemDef {
+        ITEM_DEFS
+            .iter()
+            .find(|d| {
+                d.category == ItemCategory::Consumable
+                    && d.r#use.is_some_and(|u| u.heal.unwrap_or(0.0) > 0.0)
+            })
+            .expect("content declares no consumable that heals")
+    }
+
+    #[test]
+    fn a_digit_selects_that_hotbar_slot_in_survival() {
+        let mut world = pressing(&[KEYS.hotbar[4]]);
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Pack>().lock().selected(), 4);
+    }
+
+    /// Digit 0 is the LAST slot, not the first. The binding table is
+    /// index-ordered and this is the end of it that a naive `i` would get wrong.
+    #[test]
+    fn the_zero_key_selects_the_last_hotbar_slot() {
+        let mut world = pressing(&[KEYS.hotbar[HOTBAR - 1]]);
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Pack>().lock().selected(), HOTBAR - 1);
+    }
+
+    /// The creative branch must not have started writing the pack.
+    #[test]
+    fn a_digit_drives_the_palette_and_not_the_pack_in_creative() {
+        let mut world = pressing(&[KEYS.hotbar[4]]);
+        world.resource_mut::<Tool>().creative = true;
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Tool>().slot_index(), 4);
+        assert_eq!(
+            world.resource::<Pack>().lock().selected(),
+            0,
+            "creative digits reached the inventory"
+        );
+    }
+
+    /// Scrolling toward you steps the selection RIGHT and leaves the brush
+    /// alone. See the sign argument in `tool_keys`.
+    #[test]
+    fn the_wheel_cycles_the_hotbar_in_survival_and_not_the_brush() {
+        let mut world = pressing(&[]);
+        let brush = world.resource::<Tool>().brush;
+        scroll(&mut world, -1.0);
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Pack>().lock().selected(), 1);
+        assert_eq!(
+            world.resource::<Tool>().brush,
+            brush,
+            "the survival wheel sized the brush"
+        );
+    }
+
+    #[test]
+    fn scrolling_away_from_you_steps_the_selection_back_and_wraps() {
+        let mut world = pressing(&[]);
+        scroll(&mut world, 1.0);
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Pack>().lock().selected(), HOTBAR - 1);
+    }
+
+    /// A flick that reports three steps moves ONE slot — the original's
+    /// `Math.sign` — while the same three steps size the brush by three.
+    #[test]
+    fn a_hard_flick_moves_one_slot_but_sizes_the_brush_by_three() {
+        let mut world = pressing(&[]);
+        for _ in 0..3 {
+            scroll(&mut world, -1.0);
+        }
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Pack>().lock().selected(), 1);
+
+        let mut world = pressing(&[]);
+        world.resource_mut::<Tool>().creative = true;
+        let brush = world.resource::<Tool>().brush;
+        for _ in 0..3 {
+            scroll(&mut world, -1.0);
+        }
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Tool>().brush, brush + 3);
+    }
+
+    /// The brackets are the brush in survival too — the one binding the mode
+    /// branch must NOT swallow.
+    #[test]
+    fn the_brackets_still_size_the_brush_in_survival() {
+        let mut world = pressing(KEYS.brush_up);
+        let brush = world.resource::<Tool>().brush;
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(world.resource::<Tool>().brush, brush + 1);
+    }
+
+    /// Stock `inv` with exactly what one craft of `r` costs.
+    fn stock(inv: &mut Inventory, r: &Recipe) {
+        for i in 0..r.in_items.len() {
+            inv.add(r.in_items[i], r.in_counts[i] as u32);
+        }
+    }
+
+    #[test]
+    fn the_craft_key_makes_the_first_affordable_recipe_and_says_so() {
+        let mut world = pressing(KEYS.craft);
+        let r = &recipes()[0];
+        stock(&mut world.resource::<Pack>().lock(), r);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        let name = item_by_code(r.out).name;
+        assert!(
+            world.resource::<Pack>().lock().count_of(r.out) >= r.out_count as u32,
+            "{name} was never credited"
+        );
+        assert!(
+            toast_of(&world).contains(name),
+            "the toast did not name what was crafted"
+        );
+        assert_eq!(
+            world.resource::<CraftCursor>().0,
+            1,
+            "the cursor did not park past the recipe it made"
+        );
+    }
+
+    #[test]
+    fn the_craft_key_on_an_empty_pack_says_nothing_craftable() {
+        let mut world = pressing(KEYS.craft);
+        world.run_system_once(tool_keys).unwrap();
+        assert_eq!(toast_of(&world), "nothing craftable");
+        assert_eq!(world.resource::<CraftCursor>().0, 0);
+    }
+
+    #[test]
+    fn the_use_key_consumes_one_and_heals() {
+        let def = a_healing_item();
+        let heal = def.r#use.and_then(|u| u.heal).unwrap();
+
+        let mut world = pressing(KEYS.use_item);
+        with_a_body(&mut world);
+        world.resource_mut::<PlayerBody>().health = 1.0;
+        world.resource::<Pack>().lock().add(def.code, 2);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+        assert_eq!(world.resource::<PlayerBody>().health, 1.0 + heal);
+        assert_eq!(toast_of(&world), format!("+{heal} hp"));
+    }
+
+    #[test]
+    fn using_a_heal_at_full_health_refuses_rather_than_wasting_it() {
+        let def = a_healing_item();
+        let mut world = pressing(KEYS.use_item);
+        with_a_body(&mut world);
+        world.resource_mut::<PlayerBody>().health = MAX_HEALTH;
+        world.resource::<Pack>().lock().add(def.code, 1);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(
+            world.resource::<Pack>().lock().count_of(def.code),
+            1,
+            "a full-health drink was swallowed anyway"
+        );
+        assert_eq!(toast_of(&world), "already at full health");
+    }
+
+    /// A buff with no heal reports the buff, not "+0 hp". The one place this
+    /// port deliberately differs from `Game.tryUse` — see the note there.
+    #[test]
+    fn a_heal_less_draught_reports_its_effect_and_is_still_drunk() {
+        let code = item_code_of("emberward_draught").expect("content lost the emberward draught");
+        let mut world = pressing(KEYS.use_item);
+        with_a_body(&mut world);
+        world.resource::<Pack>().lock().add(code, 1);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(toast_of(&world), "fireward");
+        assert_eq!(world.resource::<Pack>().lock().count_of(code), 0);
+    }
+
+    #[test]
+    fn the_use_key_on_something_you_cannot_eat_does_nothing() {
+        let def = ITEM_DEFS
+            .iter()
+            .find(|d| d.category == ItemCategory::Material)
+            .expect("content declares no material");
+        let mut world = pressing(KEYS.use_item);
+        with_a_body(&mut world);
+        world.resource::<Pack>().lock().add(def.code, 3);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 3);
+        assert_eq!(toast_of(&world), "", "a rock reported something");
+    }
+
+    /// Creative is the palette's mode and must reach neither verb — a `C` in
+    /// creative is the same key that used to do nothing at all.
+    #[test]
+    fn neither_craft_nor_use_fires_in_creative() {
+        let def = a_healing_item();
+        let mut world = pressing(&[KEYS.craft[0], KEYS.use_item[0]]);
+        world.resource_mut::<Tool>().creative = true;
+        with_a_body(&mut world);
+        world.resource_mut::<PlayerBody>().health = 1.0;
+        world.resource::<Pack>().lock().add(def.code, 1);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+        assert_eq!(world.resource::<PlayerBody>().health, 1.0);
+        assert_eq!(toast_of(&world), "");
+    }
+
+    /// `--free-camera` runs survival with no body. Crafting still works; using
+    /// has nobody to drink and must not panic reaching for one.
+    #[test]
+    fn the_use_key_with_no_body_at_all_is_survivable() {
+        let def = a_healing_item();
+        let mut world = pressing(KEYS.use_item);
+        world.resource::<Pack>().lock().add(def.code, 1);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+    }
+
+    /// Every effect the content can name has a word for the toast, and the
+    /// absent-effect and explicit-`none` spellings agree.
+    #[test]
+    fn every_authored_effect_has_a_name_and_none_has_none() {
+        assert_eq!(effect_name(ItemEffect::None), None);
+        for def in ITEM_DEFS.iter() {
+            let Some(u) = def.r#use else { continue };
+            let Some(e) = u.effect else { continue };
+            if e == ItemEffect::None {
+                continue;
+            }
+            assert!(
+                effect_name(e).is_some(),
+                "{} names an effect the toast cannot spell",
+                def.id
+            );
+        }
     }
 }

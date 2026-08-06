@@ -74,6 +74,24 @@
 //! - Every loop over the pool is BY INDEX. That is not a translation slip: the
 //!   body of each one calls back into `&mut self` (to fire, to bank loot, to
 //!   push an event), which a live `&mut Mob` borrow would forbid.
+//!
+//! # A target the creatures may not perceive: a DELIBERATE DIVERGENCE
+//!
+//! [`MobTarget::targetable`] and everything that honours it are NEW. The
+//! TypeScript's creative mode was an infinite build palette and nothing more —
+//! its creatures chased, bit and shot a creative player exactly as they chased a
+//! survival one — so there is no original behaviour being ported here and no
+//! fixture that could catch a mistake in it. That is the reason it is called out
+//! at the top of the file rather than left to be inferred from the code: this
+//! tree is careful to distinguish what it INHERITED from what it DECIDED, and
+//! `godgame_render::particles` sets the standard for how a decision gets said
+//! out loud.
+//!
+//! What the divergence is, exactly: an untargetable player is invisible to the
+//! creatures and to nothing else. They still spawn around it, wander, patrol,
+//! burrow, take a sword to the face and die. See [`OUT_OF_RANGE_OFFSET`] for how
+//! the invisibility is expressed to the brains without threading an `Option`
+//! through all five of them.
 
 use crate::config::{
     CELL_SIZE, CHUNK_CELLS, PLAYER_H, PLAYER_W, SEED, View, WINDOW_COLS, WINDOW_ROWS, cell_at,
@@ -115,6 +133,46 @@ const SPAWN_SEPARATION: f32 = 30.0;
 const PACK_SPREAD: f32 = 5.0;
 /// Precomputed so the nocturnal test is a compare rather than a lookup.
 const BAND_SURFACE: Band = band_bit(MobBand::Surface);
+
+/// How far from the player the phantom target sits when the real one may not be
+/// perceived ([`MobTarget::targetable`] is `false`). World px, on both axes.
+///
+/// [`step_mob`] takes the target's CENTRE and derives the `dx`/`dy` that drive
+/// `decide` and every `near(aggro_px)` test in all five brains. Making that
+/// target optional would mean an `Option<f32>` threaded through `step_mob`,
+/// `decide`, `step_walker`, `step_hopper`, `step_flyer` and `step_burrower`, and
+/// a new "no target" branch inside each — six new code paths, none of which the
+/// game would run in the ninety-nine percent case, to express a state the brains
+/// ALREADY HAVE A NAME FOR.
+///
+/// Because they do. Every creature in the game spends most of its life with the
+/// player outside its aggro box; that is not an edge case being simulated, it is
+/// the default condition of the world, exercised by every frame of
+/// `two_systems_on_one_seed_spawn_the_same_world` and by every creature that
+/// spawns off-screen and is culled before you ever see it. Putting the target
+/// out there is not a sentinel smuggled into the arithmetic — it is the honest
+/// input for "this creature has no one to chase".
+///
+/// It is an OFFSET from the player and not an absolute coordinate, because the
+/// world is infinite: an absolute 1e6 would sit on top of a player who had
+/// walked a million pixels east and turn the whole thing into an aggro magnet.
+///
+/// The value is 1e6 px, and both bounds matter:
+///
+/// - **Far enough.** The largest `aggroPx` in `content/mobs/` is 210, the
+///   largest `aggroYPx` 140, the largest `ranged.range` 230. Every live creature
+///   is inside the despawn rectangle, a couple of thousand px across at most, so
+///   the smallest `dx` any brain can see here is ~1e6 — four orders of magnitude
+///   past the widest perception in the game. Content would have to grow an aggro
+///   radius of two hundred screen-widths to close it.
+/// - **Near enough.** It is FINITE, so no `NaN` or infinity can enter the
+///   arithmetic: the sharpest thing done to `dx` is `dx * dx` in the flyer's
+///   steering, and 1e12 is twenty-six orders of magnitude inside `f32::MAX`.
+///   Adding it to the player's own position survives `f32` rounding until the
+///   player is past ~8e12 px from the origin, and the game's px coordinates stop
+///   resolving whole pixels at 1.7e7 — so the offset outlives the coordinate
+///   system it is added to by six orders of magnitude.
+const OUT_OF_RANGE_OFFSET: f32 = 1.0e6;
 
 /// Hard cap on projectiles in flight. Also the pool length — same rule as
 /// [`MAX_MOBS`].
@@ -175,6 +233,21 @@ pub trait MobTarget {
     fn health(&self) -> f32;
     /// Take `amount` hit points off.
     fn take_damage(&mut self, amount: f32);
+    /// Whether the creatures may perceive and attack this target at all.
+    ///
+    /// Defaulted to `true`, which is the answer every target gave before this
+    /// method existed, so adding it changed no implementor and no behaviour.
+    /// That is deliberate and not merely convenient: a trait that is also a
+    /// TEST HARNESS SEAM must stay cheap to satisfy, and a required method here
+    /// would have made every fake in every test file answer a question it does
+    /// not care about.
+    ///
+    /// It is a question about PERCEPTION, not about damage. A target that says
+    /// `false` is not merely armoured — it is not there. See
+    /// [`MobSystem::update`] for the three places that follow from it.
+    fn targetable(&self) -> bool {
+        true
+    }
     /// Which way the body is pointing: exactly `1.0` or `-1.0`.
     fn facing(&self) -> f32;
     /// The damage WINDOW is open — not "the punch pose is playing".
@@ -200,8 +273,19 @@ impl MobTarget for Player {
     fn health(&self) -> f32 {
         self.health
     }
+    /// The belt to `targetable`'s braces. [`MobSystem`] already refuses to reach
+    /// this for an untargetable player, so the guard is dead code today — and it
+    /// is here anyway, because the next caller of `take_damage` will be written
+    /// by someone who read the trait and not this file, and "the body cannot be
+    /// hurt" should be true of the body rather than of one of its callers.
     fn take_damage(&mut self, amount: f32) {
+        if self.untouchable {
+            return;
+        }
         self.health -= amount;
+    }
+    fn targetable(&self) -> bool {
+        !self.untouchable
     }
     fn facing(&self) -> f32 {
         self.facing
@@ -653,14 +737,46 @@ impl MobSystem {
     /// at `MAX_MOB_STEPS` to avoid a spiral of death after a stall. `day` is the
     /// day/night factor (1 = full daylight) and only biases which species are
     /// eligible to spawn.
+    ///
+    /// # An untargetable player
+    ///
+    /// When [`MobTarget::targetable`] is `false` this frame, three things stop
+    /// and nothing else does:
+    ///
+    ///   1. the brains are fed a target [`OUT_OF_RANGE_OFFSET`] away, so
+    ///      `decide` never alerts, no flyer dives, no worm ambushes and no
+    ///      shooter finds a firing solution;
+    ///   2. the half of [`MobSystem::resolve_combat`] that resolves AGAINST the
+    ///      player — contact damage — is skipped. The other half, the player's
+    ///      own swing landing on a creature, runs untouched;
+    ///   3. shots already in flight pass through the body instead of hitting it.
+    ///
+    /// Spawning, culling and the population budget all still read the player's
+    /// REAL box, because the world is still built around where the player is. It
+    /// simply stops noticing them. See the header for why that is a deliberate
+    /// divergence and not a port.
     pub fn update(&mut self, dt: f32, grid: &CellGrid, player: &mut dyn MobTarget, day: f32) {
         // The player's box is snapshot at the top of the FRAME, not per
         // sub-step: the creatures move several times inside one `update` and the
         // player does not, so re-reading it would be reading the same numbers
         // three times.
         let player_box = Aabb::new(player.x(), player.y(), PLAYER_W, PLAYER_H);
-        let tx = player.x() + PLAYER_W * 0.5;
-        let ty = player.y() + PLAYER_H * 0.5;
+        // Snapshot for the same reason, and it matters more here: a target that
+        // flipped mid-frame could aggro a creature on sub-step one and disarm
+        // the combat resolver on sub-step two, which is a state no reader of
+        // this loop would predict.
+        let targetable = player.targetable();
+        // What the BRAINS are told the target is — the real centre, or a point
+        // no aggro radius in the game can reach. The spawner and the culler
+        // below deliberately do NOT use these.
+        let (tx, ty) = if targetable {
+            (player.x() + PLAYER_W * 0.5, player.y() + PLAYER_H * 0.5)
+        } else {
+            (
+                player.x() + OUT_OF_RANGE_OFFSET,
+                player.y() + OUT_OF_RANGE_OFFSET,
+            )
+        };
 
         self.accumulator += dt;
         let mut steps = 0;
@@ -676,9 +792,9 @@ impl MobSystem {
                     self.pool[i].wants_shot = false;
                     self.fire(i, tx, ty);
                 }
-                self.resolve_combat(i, player, player_box);
+                self.resolve_combat(i, player, player_box, targetable);
             }
-            self.step_shots(MOB_DT, grid, player, player_box);
+            self.step_shots(MOB_DT, grid, player, player_box, targetable);
         }
         if self.accumulator > MOB_DT * MAX_MOB_STEPS as f32 {
             self.accumulator = 0.0;
@@ -735,12 +851,20 @@ impl MobSystem {
     /// Point-vs-cell against the world and point-vs-box against the player: a
     /// projectile is small enough that a swept AABB would only buy accuracy
     /// nobody can see at these speeds and this cell size.
+    ///
+    /// `targetable` gates the player test only. A shot at an untargetable player
+    /// still flies, still dies on solid and still expires on its life timer — it
+    /// simply passes through the body. That is the right behaviour for the frame
+    /// creative is switched ON: the volley already in the air was aimed at a
+    /// target that was fair game when it left the barrel, and deleting it would
+    /// make the toggle a screen-clear.
     fn step_shots(
         &mut self,
         dt: f32,
         grid: &CellGrid,
         player: &mut dyn MobTarget,
         player_box: Aabb,
+        targetable: bool,
     ) {
         for i in 0..self.shots.len() {
             if !self.shots[i].active {
@@ -762,7 +886,8 @@ impl MobSystem {
                 continue;
             }
             let (x, y, rgb, damage, chill) = (s.x, s.y, s.rgb, s.damage, s.chill);
-            if player.health() > 0.0
+            if targetable
+                && player.health() > 0.0
                 && x >= player_box.x
                 && x <= player_box.x + PLAYER_W
                 && y >= player_box.y
@@ -780,7 +905,18 @@ impl MobSystem {
 
     // --- combat --------------------------------------------------------------
 
-    fn resolve_combat(&mut self, i: usize, player: &mut dyn MobTarget, player_box: Aabb) {
+    /// `targetable` gates ONE of the two directions. The player's swing always
+    /// resolves — a creature has to be killable by a player the creatures cannot
+    /// see, or creative would be a mode in which the world froze rather than one
+    /// in which it ignored you — and only the contact damage coming back is
+    /// skipped. An early return for `!targetable` would have quietly taken both.
+    fn resolve_combat(
+        &mut self,
+        i: usize,
+        player: &mut dyn MobTarget,
+        player_box: Aabb,
+        targetable: bool,
+    ) {
         if self.pool[i].buried {
             return;
         }
@@ -822,7 +958,12 @@ impl MobSystem {
 
         // Contact damage, on the creature's own cooldown so a mob standing on
         // the player drains health at a readable rate instead of every step.
-        if d.contact_damage > 0.0
+        //
+        // `targetable` is tested FIRST, so an untargetable player does not even
+        // spend the creature's `attack_cd`: nothing happened, so nothing should
+        // have been consumed by it.
+        if targetable
+            && d.contact_damage > 0.0
             && self.pool[i].attack_cd <= 0.0
             && player.health() > 0.0
             && overlaps(player_box, self.pool[i].body)
@@ -1321,6 +1462,8 @@ fn pocket_free(grid: &CellGrid, b: Aabb) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MAX_HEALTH;
+    use crate::entities::player::PlayerWeapon;
     use crate::sim::materials::block;
     use crate::sim::worldgen::SpawnPoint;
 
@@ -1496,7 +1639,7 @@ mod tests {
         let player_box = Aabb::new(player.x, player.y, PLAYER_W, PLAYER_H);
         let before = sys.pool[slot].health;
         for _ in 0..10 {
-            sys.resolve_combat(slot, &mut player, player_box);
+            sys.resolve_combat(slot, &mut player, player_box, true);
         }
         let dealt = before - sys.pool[slot].health;
         let one_hit = 1.0f32.max(player.melee_damage() - def.armor);
@@ -1508,7 +1651,7 @@ mod tests {
             player.step(1.0 / 120.0, crate::input::Intent::default(), &g);
         }
         assert!(player.attack(0.0, 0.0));
-        sys.resolve_combat(slot, &mut player, player_box);
+        sys.resolve_combat(slot, &mut player, player_box, true);
         assert_eq!(before - sys.pool[slot].health, one_hit * 2.0);
     }
 
@@ -1595,6 +1738,279 @@ mod tests {
             "the fixture spawned nothing, so it would prove nothing"
         );
         assert_eq!(a, run(), "the same seed produced a different population");
+    }
+
+    // --- the truce -----------------------------------------------------------
+
+    /// A body, optionally one the creatures may not perceive.
+    fn body(untouchable: bool) -> Player {
+        let mut p = Player::new(SpawnPoint { x: 0.0, y: 0.0 });
+        p.untouchable = untouchable;
+        p
+    }
+
+    /// One grubling on the floor, and the slot it landed in. A walker with
+    /// `contactDamage` 8 and `aggroPx` 130 — hostile enough to prove both halves
+    /// of the truce.
+    fn one_grubling(sys: &mut MobSystem, g: &CellGrid) -> usize {
+        let def = super::super::defs::def_by_id("grubling");
+        assert!(sys.place(g, def, 40, SAMPLE_ROW));
+        sys.pool.iter().position(|m| m.active).unwrap()
+    }
+
+    /// The bare minimum a `MobTarget` was before `targetable` existed: every
+    /// required method answered, and the new one left to its default.
+    ///
+    /// Written out rather than reusing `Player`, which DOES override it. The
+    /// whole argument for defaulting the method is that a harness fake should
+    /// not have to answer a question it has no opinion about, and this is the
+    /// only thing that can check that argument still holds.
+    #[derive(Default)]
+    struct BareTarget {
+        health: f32,
+    }
+
+    impl MobTarget for BareTarget {
+        fn x(&self) -> f32 {
+            0.0
+        }
+        fn y(&self) -> f32 {
+            0.0
+        }
+        fn health(&self) -> f32 {
+            self.health
+        }
+        fn take_damage(&mut self, amount: f32) {
+            self.health -= amount;
+        }
+        fn facing(&self) -> f32 {
+            1.0
+        }
+        fn punching(&self) -> bool {
+            false
+        }
+        fn swing_id(&self) -> u32 {
+            0
+        }
+        fn hit_box(&self) -> Aabb {
+            Aabb::new(0.0, 0.0, 0.0, 0.0)
+        }
+        fn melee_damage(&self) -> f32 {
+            0.0
+        }
+        fn melee_knockback(&self) -> f32 {
+            0.0
+        }
+    }
+
+    #[test]
+    fn a_target_that_does_not_mention_targetable_is_still_a_target() {
+        // The default has to be `true`, or adding the method would silently have
+        // pacified the game for every implementor that predates it.
+        assert!(BareTarget::default().targetable());
+        assert!(body(false).targetable(), "and so is an ordinary player");
+        assert!(!body(true).targetable());
+    }
+
+    #[test]
+    fn an_untouchable_body_takes_no_contact_damage_from_a_creature() {
+        let g = world(FLOOR_ROW);
+
+        // The same fixture twice, differing only in the flag: the creature is
+        // placed, the body is dropped on top of it, and one 60Hz step is run
+        // through the real `update`, so what is under test is the wiring and not
+        // just the guard.
+        let bitten = |untouchable: bool| {
+            let mut sys = system();
+            let slot = one_grubling(&mut sys, &g);
+            let b = sys.pool[slot].body;
+            let mut p = body(untouchable);
+            p.x = b.x;
+            p.y = b.y;
+            sys.update(MOB_DT, &g, &mut p, 1.0);
+            (MAX_HEALTH - p.health, sys.pool[slot].attack_cd)
+        };
+
+        let (hurt, cd) = bitten(false);
+        assert!(hurt > 0.0, "the fixture did not bite, so it proves nothing");
+        assert!(cd > 0.0, "a bite spends the creature's cooldown");
+
+        let (hurt, cd) = bitten(true);
+        assert_eq!(hurt, 0.0);
+        assert_eq!(
+            cd, 0.0,
+            "nothing happened, so nothing should have been consumed by it"
+        );
+    }
+
+    #[test]
+    fn an_untouchable_body_takes_no_projectile_damage_from_a_creature() {
+        let g = world(FLOOR_ROW);
+
+        // A shot planted stationary inside the body, so the only question the
+        // step has to answer is whether it connects. Making a creature fire one
+        // for real would test the aggro gate a second time instead of testing
+        // the impact gate once.
+        let shot_at = |untouchable: bool| {
+            let mut sys = system();
+            let mut p = body(untouchable);
+            p.x = 200.0;
+            p.y = 200.0;
+            sys.shots[0] = Shot {
+                active: true,
+                x: p.x + PLAYER_W * 0.5,
+                y: p.y + PLAYER_H * 0.5,
+                vx: 0.0,
+                vy: 0.0,
+                life: 5.0,
+                damage: 11.0,
+                r_px: 1.0,
+                chill: 0.0,
+                glow: 0.0,
+                rgb: [255, 0, 0],
+            };
+            sys.update(MOB_DT, &g, &mut p, 1.0);
+            (MAX_HEALTH - p.health, sys.shots[0].active)
+        };
+
+        let (hurt, still_flying) = shot_at(false);
+        assert_eq!(hurt, 11.0, "the fixture did not land, so it proves nothing");
+        assert!(!still_flying, "a shot that lands is consumed");
+
+        let (hurt, still_flying) = shot_at(true);
+        assert_eq!(hurt, 0.0);
+        assert!(
+            still_flying,
+            "a shot already in the air should pass through, not vanish: this is \
+             a truce, not a screen-clear"
+        );
+    }
+
+    #[test]
+    fn creatures_do_not_aggro_on_an_untouchable_body_but_still_wander() {
+        let g = world(FLOOR_ROW);
+
+        // Five seconds: several `DECIDE_INTERVAL`s and several of the grubling's
+        // 2.4s beats, so both the alert test and the wander have run repeatedly.
+        let run = |untouchable: bool| {
+            let mut sys = system();
+            let slot = one_grubling(&mut sys, &g);
+            let start = sys.pool[slot].body.x;
+            let mut p = body(untouchable);
+            // Standing on the creature, which is as far inside `aggroPx` as it
+            // is possible to be.
+            p.x = sys.pool[slot].body.x;
+            p.y = sys.pool[slot].body.y;
+            for _ in 0..300 {
+                sys.update(MOB_DT, &g, &mut p, 1.0);
+            }
+            (
+                sys.pool[slot].active,
+                sys.pool[slot].alerted,
+                (sys.pool[slot].body.x - start).abs(),
+            )
+        };
+
+        let (alive, alerted, _) = run(false);
+        assert!(alive && alerted, "the fixture failed to provoke a creature");
+
+        let (alive, alerted, travelled) = run(true);
+        assert!(!alerted, "a creature aggroed on a body it cannot perceive");
+        assert!(alive, "the creature was culled rather than ignored");
+        assert!(
+            travelled > 0.0,
+            "the creature stopped living: this is the world ignoring you, not \
+             the world stopping"
+        );
+    }
+
+    #[test]
+    fn creatures_still_spawn_around_an_untouchable_body() {
+        // The spawner and the culler read the player's REAL box, because the
+        // world is still built around where the player is standing. If the
+        // out-of-range offset ever leaked into either, the population would try
+        // to form a million pixels away and this would find nothing.
+        let g = world(FLOOR_ROW);
+        let mut sys = system();
+        let mut p = body(true);
+        p.x = 400.0;
+        p.y = 400.0;
+        for _ in 0..600 {
+            sys.update(1.0 / 60.0, &g, &mut p, 1.0);
+        }
+        assert!(sys.count() > 0, "the world emptied out");
+    }
+
+    #[test]
+    fn a_creature_is_still_killable_by_a_player_it_cannot_see() {
+        // The half of `resolve_combat` that must NOT be gated. An early return
+        // for an untargetable player would have taken this with it and made
+        // creative a mode in which nothing can be fought.
+        let g = world(FLOOR_ROW);
+        let mut sys = system();
+        let slot = one_grubling(&mut sys, &g);
+        let def = sys.pool[slot].def;
+
+        let mut p = body(true);
+        let b = sys.pool[slot].body;
+        p.x = b.x;
+        p.y = b.y;
+        p.facing = 1.0;
+
+        // A swing that hurts but does not kill, so both outcomes are observed.
+        p.set_weapon(Some(PlayerWeapon {
+            damage: def.max_health - 1.0 + def.armor,
+            ..PlayerWeapon::default()
+        }));
+        assert!(p.attack(0.0, 0.0));
+        sys.update(MOB_DT, &g, &mut p, 1.0);
+        assert!(
+            sys.pool[slot].active,
+            "the first swing should not have killed"
+        );
+        assert!(
+            sys.pool[slot].health < def.max_health,
+            "an untouchable player could not hurt a creature"
+        );
+
+        // And the killing blow, on a fresh swing id.
+        for _ in 0..120 {
+            p.step(1.0 / 120.0, crate::input::Intent::default(), &g);
+        }
+        p.x = sys.pool[slot].body.x;
+        p.y = sys.pool[slot].body.y;
+        p.facing = 1.0;
+        assert!(p.attack(0.0, 0.0));
+        sys.update(MOB_DT, &g, &mut p, 1.0);
+        assert!(
+            !sys.pool[slot].active,
+            "the creature survived a lethal swing"
+        );
+        assert_eq!(sys.xp_banked(), def.xp, "no kill was banked");
+    }
+
+    #[test]
+    fn the_out_of_range_offset_is_past_every_perception_in_the_game() {
+        // The constant's whole claim, checked against the compiled content
+        // rather than against the numbers quoted in its doc comment — which is
+        // the only version of this assertion that survives a content edit.
+        let widest = MOB_DEFS
+            .iter()
+            .map(|d| {
+                let ranged = d.ranged.map_or(0.0, |r| r.range);
+                d.aggro_px.max(d.aggro_y_px).max(d.flee_px).max(ranged)
+            })
+            .fold(0.0f32, f32::max);
+        assert!(widest > 0.0, "no creature perceives anything: bad fixture");
+        assert!(
+            OUT_OF_RANGE_OFFSET > widest * 1000.0,
+            "the offset ({OUT_OF_RANGE_OFFSET}) is no longer orders of magnitude \
+             past the widest perception in content ({widest})"
+        );
+        // Finite, and its SQUARE is finite: the flyer's steering squares it, and
+        // an infinity there would put a NaN into every velocity in the pool.
+        assert!(OUT_OF_RANGE_OFFSET.is_finite());
+        assert!((OUT_OF_RANGE_OFFSET * OUT_OF_RANGE_OFFSET).is_finite());
     }
 
     #[test]

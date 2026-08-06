@@ -22,7 +22,7 @@ use godgame_core::input::{KEYS, KeyState};
 use godgame_core::config::SEED;
 use godgame_core::items::{Inventory, item_code_of};
 
-use crate::input::BevyKeys;
+use crate::input::{BevyKeys, Tool};
 use crate::items::{GroundItems, Pack};
 use crate::mobs::Creatures;
 use crate::player::PlayerBody;
@@ -72,7 +72,56 @@ impl Plugin for GluePlugin {
                     .chain()
                     .run_if(resource_exists::<State<Scene>>),
             )
+            .add_systems(
+                Update,
+                creative_is_a_truce
+                    .run_if(resource_exists::<Tool>)
+                    .run_if(resource_exists::<PlayerBody>),
+            )
             .add_systems(OnEnter(Scene::Playing), start_a_run);
+    }
+}
+
+/// Creative mode makes the body untouchable.
+///
+/// # This is a DELIBERATE DIVERGENCE, and the seam is where it is admitted
+///
+/// The TypeScript's creative mode was an infinite build palette and nothing
+/// else — lava still ate you and everything with teeth still came for you. The
+/// truce is new. `godgame_core::entities::player::Player::untouchable` and
+/// `godgame_core::entities::mobs::MobTarget::targetable` each carry the full
+/// argument; what is worth saying HERE is that the divergence is not a change to
+/// either of those modules. Both were written knowing nothing about creative
+/// mode: one exposes a flag, the other asks a question. The decision that
+/// creative should ANSWER that question is this line, and it is the only line in
+/// the tree that holds it.
+///
+/// # Why it is a mirror and not a shared field
+///
+/// [`Tool`] is the build brush: reach, palette, brush size, cadence.
+/// [`PlayerBody`] is a simulated body with a health bar. Neither has any
+/// business importing the other, and the alternative — `MobSystem` reaching for
+/// a `Res<Tool>` to ask whether it is allowed to bite — would put a UI mode
+/// inside a combat resolver, which is exactly the reach-into-your-neighbour this
+/// module exists to prevent.
+///
+/// # Timing
+///
+/// Unordered in `Update`, like [`follow_scene`]. Bevy runs `FixedUpdate` before
+/// `Update`, so a toggle is honoured by the creatures on the next frame's fixed
+/// step at the latest — under 17ms, and the frame it costs is one in which a
+/// creature that was already mid-lunge lands its blow. That reads as the hit
+/// that was already coming, which is the more forgiving of the two ways to be
+/// wrong; buying the frame back would mean an ordering edge into
+/// [`crate::input`]'s private system chain, maintained forever, for something
+/// nobody can perceive.
+///
+/// Written only when it differs, `set_if_neq` by hand: [`PlayerBody`] is touched
+/// by the fixed step every frame anyway, and this system has no business adding
+/// a change tick of its own on top.
+fn creative_is_a_truce(tool: Res<Tool>, mut body: ResMut<PlayerBody>) {
+    if body.untouchable != tool.creative {
+        body.untouchable = tool.creative;
     }
 }
 
@@ -248,6 +297,9 @@ fn follow_scene(scene: Res<State<Scene>>, mut screen: ResMut<UiScreen>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use godgame_core::entities::player::Player;
+    use godgame_core::interact::BuildTool;
+    use godgame_core::sim::worldgen::SpawnPoint;
 
     #[test]
     fn every_scene_has_a_screen_and_the_mapping_is_total() {
@@ -312,6 +364,57 @@ mod tests {
         assert_eq!(first.level.spawn.x, again.level.spawn.x);
         assert_eq!(first.level.spawn.y, again.level.spawn.y);
         assert_eq!(first.seed, again.seed);
+    }
+
+    #[test]
+    fn creative_makes_the_body_untouchable_and_survival_hands_it_back() {
+        // The join, driven through a real app so what is under test is the
+        // system and its run conditions rather than a copy of its two lines.
+        let mut app = App::new();
+        app.init_resource::<Tool>();
+        app.insert_resource(PlayerBody(Player::new(SpawnPoint { x: 0.0, y: 0.0 })));
+        app.add_systems(Update, creative_is_a_truce);
+
+        assert!(
+            !app.world().resource::<Tool>().creative,
+            "survival by default"
+        );
+        app.update();
+        assert!(
+            !app.world().resource::<PlayerBody>().untouchable,
+            "the default must not leak: every existing suite describes a world \
+             where lava and teeth still work"
+        );
+
+        app.world_mut().resource_mut::<Tool>().toggle_creative();
+        app.update();
+        assert!(app.world().resource::<PlayerBody>().untouchable);
+
+        // And it is a mirror, not a latch: leaving creative ends the truce.
+        app.world_mut().resource_mut::<Tool>().toggle_creative();
+        app.update();
+        assert!(!app.world().resource::<PlayerBody>().untouchable);
+    }
+
+    #[test]
+    fn the_truce_is_a_deliberate_divergence_with_no_original_to_match() {
+        // Not a behaviour test — a claim about the two sides of the seam, which
+        // is the thing that would rot silently. `Tool` is a build brush and
+        // `Player` is a body; if either ever grew the other's concept, this join
+        // would be dead code and the coupling it prevents would be back.
+        //
+        // The TypeScript's creative mode changed the PALETTE and nothing else.
+        // Its default is the one thing that has to stay true, because everything
+        // ported into this tree was measured against a world in which hazards
+        // and creatures do not care what you are holding.
+        assert!(
+            !BuildTool::default().creative,
+            "creative is not the default mode"
+        );
+        assert!(
+            !Player::new(SpawnPoint { x: 0.0, y: 0.0 }).untouchable,
+            "the body is mortal until this module says otherwise"
+        );
     }
 
     #[test]
