@@ -813,12 +813,12 @@ only the exported surface is held to the rule.
 | `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 769 |
 | `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 794 |
 | `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 796 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.6` | Strength of a biome's ambient cast. | 804 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2034 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2036 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2048 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2063 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2065 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 830 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2110 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2112 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2124 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2139 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2141 |
 
 ### `crates/godgame-render/src/lowres.rs`
 

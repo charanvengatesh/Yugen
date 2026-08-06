@@ -350,7 +350,7 @@ problem. Known stale as of this writing:
 | `SKY_DITHER` | `sky.rs` | The halo needs it; the sun's core edge may be cleaner without. Try `0.0` |
 | `LIGHT_SOFTNESS` | `light.rs` | 0.5 is a midpoint guess between "reads as masonry" and "reads as wash" |
 | `COLOUR_GAIN` | `light.rs` | Strength dial. Its right value moved when the resolution changed and it has not been retuned since |
-| `BIOME_AMBIENT_ALPHA` | `light.rs` | The wash composites additively in linear where the original was an sRGB fill, so it lifts dark pixels harder |
+| ~~`BIOME_AMBIENT_ALPHA`~~ | `light.rs` | **DONE, 0.6 -> 0.05.** The suspicion here was right and the arithmetic makes it exact: tundra authors `[0.04, 0.07, 0.12]`, and 0.6 of that added in linear encodes to 76/255 on a black cave pixel where the original's sRGB fill added 18.4. **4.1x too bright, on blue, everywhere it was darkest.** 0.05 reproduces the original at 17.9/255. Verified as a picture at 0.6 / 0.15 / 0.05: at 0.05 the stone is stone and the ore veins are visible again |
 | `START_CREATIVE` | `interact.rs` | Currently `false` (survival), matching the original |
 
 ## 9. Rust-specific work worth doing

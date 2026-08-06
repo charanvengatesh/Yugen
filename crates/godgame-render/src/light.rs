@@ -801,7 +801,33 @@ const UNDERWORLD_RGB: [f32; 3] = [96.0, 30.0, 14.0];
 ///
 /// A faint additive wash so a biome's mood (warm volcanic, cold tundra) colours
 /// the whole scene. Plains sends `[0, 0, 0]`, which is a no-op.
-const BIOME_AMBIENT_ALPHA: f32 = 0.6;
+///
+/// # This was 0.6, and 0.6 was the TypeScript's number in the wrong space
+///
+/// The original filled the frame with the biome's ambient colour at this alpha
+/// in **sRGB**. This composites it additively in **linear**, and the two are not
+/// the same operation anywhere except white — on a dark pixel, which is the
+/// entire underground, linear addition lifts far harder.
+///
+/// Tundra authors `ambient = [0.04, 0.07, 0.12]`. Carried across at 0.6 that is
+/// a linear `+0.072` on blue, which encodes to **76/255** added to a black cave
+/// pixel. The original's sRGB fill added `0.6 * 0.12 = 18.4/255`. So the port was
+/// **4.1x** too bright, on the blue channel, everywhere it was darkest.
+///
+/// You could see it: 900 px down, every rock face read the same blue-violet and
+/// local albedo survived only inside the lava's own falloff. It looked like a
+/// blue-lit cave rather than a dark one, and `HANDOFF.md` §8.4 had suspected the
+/// cause without anyone doing the arithmetic.
+///
+/// 0.05 is the value that reproduces the original: it encodes to 17.9/255 against
+/// its 18.4. Checked as a picture too, not just on paper — `tests/lit_scene.rs`
+/// at 0.6, 0.15 and 0.05. At 0.05 the stone is stone again and the ore veins are
+/// visible; 0.15 still hazes.
+///
+/// Judge any change to this UNDERGROUND, never at the surface, where the sky
+/// swamps it. That is the same instruction [`BLOOM_INTENSITY`] carries, for the
+/// same reason, after the same mistake was made with it.
+const BIOME_AMBIENT_ALPHA: f32 = 0.05;
 
 // --- The solver --------------------------------------------------------------
 
@@ -879,6 +905,9 @@ pub struct LightGrid {
     heights: Heightmap,
     /// The noise the heightmap is evaluated against.
     noise: Noise,
+    /// The world seed [`LightGrid::heights`] and [`LightGrid::noise`] describe.
+    /// See [`LightGrid::follow_seed`].
+    seed: u32,
 }
 
 impl LightGrid {
@@ -900,7 +929,54 @@ impl LightGrid {
             hot: Vec::with_capacity(HOT_MAX),
             heights: Heightmap::new(),
             noise: world_noise(seed),
+            seed,
         }
+    }
+
+    /// Rebuild the climate fields if the world underneath has changed.
+    ///
+    /// # Why this exists when nothing can currently call it usefully
+    ///
+    /// This grid keeps its own `Heightmap` and `Noise` so the skylight flood can
+    /// seed a column that starts underground. `crate::ambience` keeps a second
+    /// copy for its own reasons, and has always guarded itself this way; this one
+    /// did not. It was built from the compile-time `SEED` at both production
+    /// sites and never read `SimWorld::seed`.
+    ///
+    /// Nothing is wrong on screen today, because `build_world` is only ever
+    /// called with that same constant. But it takes a seed — the signature is an
+    /// open invitation — and the failure mode on the day someone adds a `--seed`
+    /// flag or a new-world menu is silent: the light solver would flood sky down
+    /// to one surface line while the terrain sat at another, and no test would
+    /// notice. That is precisely the shape of the three bugs in `HANDOFF.md`
+    /// §7.1, all of which degraded to plausible output.
+    ///
+    /// Only the seeded fields are rebuilt; the buffers do not depend on the seed.
+    ///
+    /// # The heightmap is REPLACED, and that is not belt-and-braces
+    ///
+    /// `Heightmap` invalidates its 4096-slot memo by comparing the ADDRESS of the
+    /// `Noise` it is handed against the one its live entries belong to
+    /// (`retire_if_new_seed`) — an O(1) trick that is exactly right for the
+    /// worldgen path, where a new world means a new `ChunkGen` and so a new
+    /// `Noise` at a new address.
+    ///
+    /// It is a trap here. `self.noise = world_noise(seed)` overwrites a field in
+    /// place, so the address does not move, so the memo would go on serving the
+    /// previous world's surface rows forever. Handing the new noise to a fresh
+    /// `Heightmap` is what makes the invalidation fire.
+    pub fn follow_seed(&mut self, seed: u32) {
+        if self.seed != seed {
+            self.seed = seed;
+            self.noise = world_noise(seed);
+            self.heights = Heightmap::new();
+        }
+    }
+
+    /// The world seed the climate fields were built from.
+    #[inline]
+    pub const fn seed(&self) -> u32 {
+        self.seed
     }
 
     /// Grid width in light cells.
@@ -2514,6 +2590,11 @@ fn solve_light(
 ) {
     let view = inputs.target.view;
     let cells = &inputs.world.level.grid;
+
+    // Before anything reads the surface line. `crate::ambience::breathe` does the
+    // same against the same resource; see `LightGrid::follow_seed`.
+    pass.grid.follow_seed(inputs.world.seed);
+
     let day = inputs.clock.0.phase().day;
     let t = inputs.time.elapsed_secs();
 
@@ -2805,6 +2886,53 @@ mod tests {
         grid.lb = vec![0.0; n];
         grid.seen = vec![false; n];
         grid
+    }
+
+    /// The light grid must follow the world it is lighting, not a constant.
+    ///
+    /// This grid keeps its own `Heightmap` and `Noise` to seed the skylight
+    /// flood, and it built them from the compile-time `SEED` at both production
+    /// sites while `crate::ambience` — which keeps a second copy for its own
+    /// reasons — guarded itself. Nothing was wrong on screen, because
+    /// `build_world` is only ever called with that constant today.
+    ///
+    /// So this test is not defending a live bug. It is defending against the one
+    /// that arrives the day someone adds a `--seed` flag: the solver would flood
+    /// sky down to one surface line while the terrain sat at another, silently.
+    /// The bug that motivated the whole frame-stability effort had exactly that
+    /// shape, and 896 tests missed it.
+    ///
+    /// Asserting on the SURFACE ROW rather than on the seed field is deliberate,
+    /// and it is what catches the real hazard. `Heightmap` retires its memo by
+    /// comparing the ADDRESS of the noise it is given, so a `follow_seed` that
+    /// overwrote `self.noise` in place and kept the heightmap would leave every
+    /// memoised row live and stale — while passing any check on the seed field.
+    /// Only reading the surface line back can see that.
+    #[test]
+    fn the_light_grid_follows_the_world_seed_it_is_given() {
+        let mut grid = LightGrid::new(View::default(), SEED);
+        let before = grid.heights.surface_row_at(&grid.noise, 0, None);
+
+        // A seed it was not built with. `world_noise` is a pure function of it,
+        // so a different seed is a different world with a different surface.
+        grid.follow_seed(SEED + 1);
+        assert_eq!(grid.seed(), SEED + 1, "the grid did not adopt the new seed");
+        let after = grid.heights.surface_row_at(&grid.noise, 0, None);
+        assert_ne!(
+            before, after,
+            "the surface line did not move, so either the noise or the heightmap \
+             memo survived the seed change and the flood is lighting a world that \
+             is no longer there"
+        );
+
+        // Idempotent, because it runs every frame: a re-seed to the value it
+        // already holds must not throw the memo away and pay for it again.
+        grid.follow_seed(SEED + 1);
+        assert_eq!(grid.heights.surface_row_at(&grid.noise, 0, None), after);
+
+        // And it goes back, so this is a mirror of the world and not a latch.
+        grid.follow_seed(SEED);
+        assert_eq!(grid.heights.surface_row_at(&grid.noise, 0, None), before);
     }
 
     /// The absolute cell a light cell samples, on either axis.
