@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 561 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 562 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -667,6 +667,7 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `MATERIAL_SLOTS` | `64` | Per-material parameter slots. | 91 |
 | `ID_BYTES` (private) | `2` | Bytes per texel of the cell-id texture. | 101 |
+| `BACK_Z` (private) | `-1.0` | Where the wall quad sits: behind the cell quad, in front of everything else. | 129 |
 
 ### `crates/godgame-render/src/cells.rs`
 

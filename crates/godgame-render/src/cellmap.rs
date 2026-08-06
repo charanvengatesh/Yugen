@@ -73,7 +73,7 @@ use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use godgame_core::config::{CELL_SIZE, CHUNK_CELLS, WINDOW_COLS, WINDOW_ROWS};
-use godgame_core::sim::materials::{MAT_B, MAT_COUNT, MAT_G, MAT_R};
+use godgame_core::sim::materials::{CellId, MAT_B, MAT_COUNT, MAT_G, MAT_R};
 
 use crate::cells::{
     CellShades, SHADE_MATERIAL_STRIDE, TEX_A, TEX_A_PERIOD, TEX_B, TEX_B_PERIOD, TEX_PATTERN_COUNT,
@@ -100,17 +100,61 @@ const _: () = assert!(
 /// [`CellId`]: godgame_core::sim::materials::CellId
 const ID_BYTES: usize = 2;
 
+/// A full-window quad, and the z it sits at.
+///
+/// Both cell passes are the same rectangle over the same streaming window,
+/// sampling their id textures from the same uv — they differ only in depth and in
+/// which plane they read. Carrying the depth on the marker is what lets
+/// [`follow_window`] place them from one set of numbers, which is the property
+/// that matters: two quads placed by two code paths is two chances to disagree
+/// for a frame, and a wall a pixel out from its cells would be a seam along every
+/// tunnel.
+#[derive(Component)]
+pub struct WindowQuad(pub f32);
+
 /// The quad that draws the streaming window.
 #[derive(Component)]
 pub struct CellQuad;
 
-/// The cell-id texture and the material that reads it.
+/// The quad that draws the background walls, behind [`CellQuad`].
+#[derive(Component)]
+pub struct BackQuad;
+
+/// Where the wall quad sits: behind the cell quad, in front of everything else.
+///
+/// The cell quad is at z 0; `crate::weather`'s haze is at -50 and the sky's
+/// ridgeline at -97, so -1 is unoccupied and correctly ordered between them. A
+/// wall is part of the terrain, not part of the backdrop — it must occlude the
+/// sky and be occluded by the cells in front of it.
+const BACK_Z: f32 = -1.0;
+
+/// How much of its own colour a background wall keeps.
+///
+/// A wall is the same rock as the front plane and must not read as the same
+/// SURFACE, or a tunnel looks like a slab of stone with a hole drawn on it
+/// rather than like a room. Darkening is what puts it behind you.
+///
+/// Alpha stays at 1: the wall is opaque where it exists. What makes a hole
+/// through to the sky read as sky is the back plane being AIR there, which
+/// `cell_color` already returns transparent — not a partial alpha here.
+///
+/// Judge this UNDERGROUND, in `tests/lit_scene.rs`, and expect it to interact
+/// with `light::BIOME_AMBIENT_ALPHA`: both decide how much of a dark cave is
+/// lifted out of black, and tuning one without looking at the other is how the
+/// cave went blue for two milestones.
+const WALL_TINT: Vec4 = Vec4::new(0.45, 0.45, 0.52, 1.0);
+
+/// The cell-id textures and the materials that read them.
 #[derive(Resource, Clone, Debug)]
 pub struct CellMap {
     /// `WINDOW_COLS x WINDOW_ROWS` `R16Uint`: one material code per cell.
     pub ids: Handle<Image>,
     /// The pass that turns those ids into colour.
     pub material: Handle<CellMaterial>,
+    /// The same shape again, for the background wall plane.
+    pub back_ids: Handle<Image>,
+    /// The pass that draws the walls. See [`BackCellMaterial`].
+    pub back_material: Handle<BackCellMaterial>,
 }
 
 /// Everything the shader needs that is not a table.
@@ -165,6 +209,62 @@ pub struct CellMaterial {
     pub params: CellShadeParams,
 }
 
+/// The background wall pass: the same shading over a different plane.
+///
+/// Bindings 0-4 are `CellMaterial`'s, in the same order and holding the same
+/// handles for the three lookup textures — the pattern tiles and the shade table
+/// are pure functions of the content build, so both passes read one copy.
+///
+/// Binding 0 is the BACK plane, which is what makes `cell_color` compute the
+/// wall's own rim light and ambient occlusion rather than the front's. It also
+/// makes this pass, by construction, the same verified function of a different
+/// input times a scalar — the front pass keeps its CPU oracle and this one
+/// inherits it.
+///
+/// Two bindings are its own: the front plane, so a fragment the front already
+/// covers can `discard` before shading anything, and the tint.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct BackCellMaterial {
+    /// One WALL code per cell.
+    #[texture(0, sample_type = "u_int")]
+    pub ids: Handle<Image>,
+    /// [`TEX_A`], shared with [`CellMaterial`].
+    #[texture(1, sample_type = "u_int")]
+    pub tex_a: Handle<Image>,
+    /// [`TEX_B`], shared with [`CellMaterial`].
+    #[texture(2, sample_type = "u_int")]
+    pub tex_b: Handle<Image>,
+    /// The prepacked shade table, shared with [`CellMaterial`].
+    #[texture(3, sample_type = "float", filterable = false)]
+    pub shade: Handle<Image>,
+    /// Per-material scalars and the animation clock.
+    ///
+    /// Its own copy rather than a shared handle, because `shim` is ZEROED here: a
+    /// wall does not shimmer. Lava behind you is a wall of cooled rock, not a
+    /// second lava lake pulsing out of phase with the one in front. The shader
+    /// already branches on `amp`, so zeroing it is also the cheaper path.
+    #[uniform(4)]
+    pub params: CellShadeParams,
+    /// The FRONT plane, read only to decide whether to `discard`.
+    #[texture(5, sample_type = "u_int")]
+    pub front_ids: Handle<Image>,
+    /// [`WALL_TINT`], as the shader sees it.
+    #[uniform(6)]
+    pub tint: Vec4,
+}
+
+impl Material2d for BackCellMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "embedded://godgame_render/backcell.wgsl".into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode2d {
+        // Air in the back plane is open sky and must stay transparent, exactly as
+        // it is in the front pass.
+        AlphaMode2d::Blend
+    }
+}
+
 impl Material2d for CellMaterial {
     fn fragment_shader() -> ShaderRef {
         // Embedded rather than loaded from an `assets/` directory: the shader is
@@ -189,8 +289,10 @@ impl Plugin for CellMapPlugin {
         // an embedded asset nothing has asked for is never loaded.
         bevy::shader::load_shader_library!(app, "cells.wgsl");
         bevy::asset::embedded_asset!(app, "cellmap.wgsl");
+        bevy::asset::embedded_asset!(app, "backcell.wgsl");
 
         app.add_plugins(Material2dPlugin::<CellMaterial>::default())
+            .add_plugins(Material2dPlugin::<BackCellMaterial>::default())
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
@@ -211,15 +313,50 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CellMaterial>>,
+    mut back_materials: ResMut<Assets<BackCellMaterial>>,
 ) {
     let ids = images.add(new_id_texture());
+    let back_ids = images.add(new_id_texture());
+    // One copy of each lookup, shared by both passes: the pattern tiles and the
+    // shade table are pure functions of the content build, so a second copy would
+    // be a second megabyte that can drift.
+    let tex_a = images.add(new_tile_texture(&TEX_A, TEX_A_PERIOD));
+    let tex_b = images.add(new_tile_texture(&TEX_B, TEX_B_PERIOD));
+    let shade = images.add(new_shade_texture(&CellShades::new()));
+
     let material = materials.add(CellMaterial {
         ids: ids.clone(),
-        tex_a: images.add(new_tile_texture(&TEX_A, TEX_A_PERIOD)),
-        tex_b: images.add(new_tile_texture(&TEX_B, TEX_B_PERIOD)),
-        shade: images.add(new_shade_texture(&CellShades::new())),
+        tex_a: tex_a.clone(),
+        tex_b: tex_b.clone(),
+        shade: shade.clone(),
         params: build_params(),
     });
+
+    let mut back_params = build_params();
+    // A wall does not shimmer. See `BackCellMaterial::params`.
+    back_params.shim = [Vec4::ZERO; MATERIAL_SLOTS];
+    let back_material = back_materials.add(BackCellMaterial {
+        ids: back_ids.clone(),
+        tex_a,
+        tex_b,
+        shade,
+        params: back_params,
+        front_ids: ids.clone(),
+        tint: WALL_TINT,
+    });
+
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::default())),
+        MeshMaterial2d(back_material.clone()),
+        Transform::from_scale(Vec3::new(
+            (WINDOW_COLS * CELL_SIZE) as f32,
+            (WINDOW_ROWS * CELL_SIZE) as f32,
+            1.0,
+        )),
+        BackQuad,
+        WindowQuad(BACK_Z),
+        WORLD_LAYERS,
+    ));
 
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::default())),
@@ -233,10 +370,16 @@ fn setup(
             1.0,
         )),
         CellQuad,
+        WindowQuad(0.0),
         WORLD_LAYERS,
     ));
 
-    commands.insert_resource(CellMap { ids, material });
+    commands.insert_resource(CellMap {
+        ids,
+        material,
+        back_ids,
+        back_material,
+    });
 }
 
 /// An all-air cell-id plane the size of the streaming window.
@@ -360,18 +503,24 @@ pub fn build_params() -> CellShadeParams {
 /// The grid's origin moves in whole-chunk steps as the window recentres, so this
 /// is the only thing that has to move when the world scrolls — the texture's
 /// contents are already window-local.
-fn follow_window(world: Res<SimWorld>, mut quad: Single<&mut Transform, With<CellQuad>>) {
+fn follow_window(world: Res<SimWorld>, mut quads: Query<(&mut Transform, &WindowQuad)>) {
     let grid = &world.level.grid;
     let w = (grid.cols() * CELL_SIZE) as f32;
     let h = (grid.rows() * CELL_SIZE) as f32;
     let x = (grid.origin_cell_x() * CELL_SIZE) as f32;
     let y = (grid.origin_cell_y() * CELL_SIZE) as f32;
 
-    // Bevy's +y is up, the sim's is down: the window's top edge is its LARGEST
-    // Bevy y. The quad's uv origin is its top-left, which is therefore grid row
-    // 0 — the texture needs no flip.
-    quad.translation = Vec3::new(x + w * 0.5, -(y + h * 0.5), 0.0);
-    quad.scale = Vec3::new(w, h, 1.0);
+    // Both quads, in one system and from one set of numbers. The wall plane is
+    // the same window at the same scale — it has to be, because both sample their
+    // id texture from the same uv — so letting them follow the window separately
+    // would only create a way for them to disagree for a frame.
+    for (mut quad, &WindowQuad(z)) in &mut quads {
+        // Bevy's +y is up, the sim's is down: the window's top edge is its
+        // LARGEST Bevy y. The quad's uv origin is its top-left, which is
+        // therefore grid row 0 — the texture needs no flip.
+        quad.translation = Vec3::new(x + w * 0.5, -(y + h * 0.5), z);
+        quad.scale = Vec3::new(w, h, 1.0);
+    }
 }
 
 /// Advance the animation clock and follow the window's origin.
@@ -427,16 +576,43 @@ pub fn upload_dirty_chunks(
         return;
     }
 
-    let Some(mut image) = images.get_mut(&cellmap.ids) else {
-        return;
-    };
-    let Some(data) = image.data.as_mut() else {
-        return;
-    };
-
+    // Both planes are written from ONE dirty list, in one system. `Assets` has no
+    // way to borrow two images at once, so this is two passes rather than one
+    // loop — but the list is collected once above and the dirty bit is cleared
+    // once below, after both. That is the invariant that matters: a second SYSTEM
+    // walking the same per-chunk bit would race this one and clear it first,
+    // leaving the wall plane showing an edit the front plane had already
+    // consumed, or the reverse. The planes would desynchronise silently, and only
+    // where the player had just dug.
     let cols = grid.cols();
     let rows = grid.rows();
+
+    for (handle, plane) in [
+        (&cellmap.ids, &grid.material),
+        (&cellmap.back_ids, &grid.back),
+    ] {
+        let Some(mut image) = images.get_mut(handle) else {
+            return;
+        };
+        let Some(data) = image.data.as_mut() else {
+            return;
+        };
+        blit_dirty(data, plane, &dirty, cols, rows);
+    }
+
     for (cx, cy) in dirty {
+        grid.clear_chunk_dirty(cx, cy);
+    }
+}
+
+/// Copy every dirty chunk of one cell plane into its texture's bytes.
+///
+/// Shared by the front and the wall planes so the two cannot drift in how they
+/// address a texel — they are the same size, the same format and the same
+/// layout, and the one thing that would be invisible until somebody dug a hole is
+/// them disagreeing about which byte a cell lands on.
+fn blit_dirty(data: &mut [u8], plane: &[CellId], dirty: &[(i32, i32)], cols: i32, rows: i32) {
+    for &(cx, cy) in dirty {
         let x0 = cx * CHUNK_CELLS;
         let x1 = ((cx + 1) * CHUNK_CELLS).min(cols);
         let y0 = cy * CHUNK_CELLS;
@@ -444,9 +620,8 @@ pub fn upload_dirty_chunks(
 
         for y in y0..y1 {
             let row = (y * cols) as usize;
-            let src = &grid.material[row + x0 as usize..row + x1 as usize];
             let mut at = (row + x0 as usize) * ID_BYTES;
-            for id in src {
+            for id in &plane[row + x0 as usize..row + x1 as usize] {
                 // Explicit little-endian rather than a `bytemuck` cast: the
                 // texel layout is a wire format, not this machine's memory
                 // layout, and the whole conversion is a store per cell.
@@ -454,14 +629,111 @@ pub fn upload_dirty_chunks(
                 at += ID_BYTES;
             }
         }
-
-        grid.clear_chunk_dirty(cx, cy);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wall pass REUSES the verified shading; it does not fork it.
+    ///
+    /// This is the assertion that keeps the back plane honest, and no other test
+    /// in the tree can make it. `ts_cells_parity` freezes `paint_cells` and
+    /// `shader_matches_cpu` diffs `cells.wgsl` against it — both would stay
+    /// perfectly green if someone copied the shading arithmetic into
+    /// `backcell.wgsl` and then let the copy drift, because neither of them looks
+    /// at that file at all.
+    ///
+    /// So this reads the shader source and requires it to be a CALLER: it imports
+    /// `cell_color` from `godgame::cells` and does not define one. A structural
+    /// check rather than a numeric one, in the same spirit as
+    /// `shader_matches_cpu` parsing the WGSL for its constants.
+    #[test]
+    fn the_wall_pass_calls_the_verified_shading_rather_than_restating_it() {
+        const BACK: &str = include_str!("backcell.wgsl");
+
+        assert!(
+            BACK.contains("#import godgame::cells::{cell_color, CellShadeParams}"),
+            "backcell.wgsl no longer imports the shared shading"
+        );
+        assert_eq!(
+            BACK.matches("cell_color(").count(),
+            1,
+            "the wall pass should call cell_color exactly once and never define one"
+        );
+        assert!(
+            !BACK.contains("fn cell_color"),
+            "backcell.wgsl defines its own cell_color — the wall pass has forked \
+             the shading, and every frozen suite in the tree will stay green while \
+             the two drift apart"
+        );
+
+        // And it must not have copied any of the tables or the pattern maths
+        // across either. These are the names `cells.wgsl` owns.
+        for owned in [
+            "fn cell_edge_class",
+            "fn cell_pack_channel",
+            "PAT_MID",
+            "EDGE_GAIN",
+        ] {
+            assert!(
+                !BACK.contains(owned),
+                "backcell.wgsl restates `{owned}`, which belongs to cells.wgsl"
+            );
+        }
+    }
+
+    /// A wall does not shimmer, and the front plane still does.
+    ///
+    /// Both halves matter. Lava behind you is a wall of cooled rock, not a second
+    /// lava lake pulsing out of phase with the one in front — the two planes share
+    /// a shade table and a clock, so without zeroing this they would animate
+    /// together and the wall would read as a live surface. And zeroing the WRONG
+    /// copy would silently stop the front plane shimmering, which is a thing
+    /// nobody would notice for a while.
+    #[test]
+    fn the_wall_pass_is_still_and_the_front_pass_is_not() {
+        let front = build_params();
+        assert!(
+            front.shim.iter().any(|s| s.x > 0.0),
+            "no material shimmers at all — this test cannot see its own subject"
+        );
+
+        let mut back = build_params();
+        back.shim = [Vec4::ZERO; MATERIAL_SLOTS];
+        assert!(
+            back.shim.iter().all(|s| *s == Vec4::ZERO),
+            "a wall would animate"
+        );
+        // The tables the two passes DO share are untouched by that zeroing.
+        assert_eq!(front.base, back.base, "the two passes read one palette");
+    }
+
+    /// The wall tint darkens without tinting the world a colour.
+    ///
+    /// A wall is the same rock as the front plane and must read as further away,
+    /// which is a brightness difference; a saturated tint would make it read as a
+    /// different MATERIAL instead. Alpha stays at 1 because what makes a hole
+    /// through to the sky read as sky is the back plane being air there, not a
+    /// partial alpha here.
+    #[test]
+    fn the_wall_tint_darkens_and_stays_opaque() {
+        assert_eq!(WALL_TINT.w, 1.0, "a wall is opaque where it exists");
+        for c in [WALL_TINT.x, WALL_TINT.y, WALL_TINT.z] {
+            assert!(
+                (0.0..=1.0).contains(&c),
+                "{c} is not a darkening factor — above 1 the wall would be \
+                 brighter than the rock in front of it"
+            );
+        }
+        let spread = WALL_TINT.z.max(WALL_TINT.x) - WALL_TINT.z.min(WALL_TINT.x);
+        assert!(
+            spread < 0.25,
+            "the tint is {spread} apart across channels, which reads as a \
+             different material rather than as distance"
+        );
+    }
 
     #[test]
     fn the_parameters_cover_every_material_and_match_the_shader() {
