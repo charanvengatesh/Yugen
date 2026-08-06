@@ -1833,6 +1833,34 @@ pub fn bloom_rect(view: Rect2, texels: (i32, i32)) -> Rect2 {
 
 // --- Vignette ----------------------------------------------------------------
 
+/// How far `depth` or `day` must move before the vignette is baked again.
+///
+/// The bake is 1 530 radial samples — the largest of the three, and 5.8% of the
+/// whole light stack — recomputed every frame from inputs that barely move.
+/// `day` advances by 1/36 000 per frame at 120 Hz, and `depth` only as fast as
+/// the player descends.
+///
+/// `the_vignette_cache_never_skips_a_visible_change` sweeps the input space and
+/// requires two bakes this far apart to differ by at most one byte in any
+/// channel — the smallest difference an `Rgba8Unorm` target can represent, so a
+/// skipped frame cannot be a frame anyone could see.
+///
+/// **This is deliberately an order of magnitude under the measured limit.**
+/// Bisecting the constant against that test: 0.02 still passes, 0.05 moves two
+/// bytes. So the honest bound is somewhere in 0.02..0.05, and 0.002 buys nothing
+/// in exchange for the caution — at 120 Hz `day` alone forces a re-bake every 72
+/// frames here against every 720 at 0.02, which is the difference between
+/// skipping 98.6% of the bakes and skipping 99.9%. Both round to "all of them".
+///
+/// Being 10x under a limit that was measured rather than assumed is the cheap
+/// side of this trade. Do not tighten it for performance; there is none left to
+/// win.
+///
+/// Skipping the bake also skips the `Assets::get_mut` that would schedule the
+/// upload, which is the larger half of the saving and the same reason
+/// `cellmap::upload_dirty_chunks` bails before touching its asset.
+const VIGNETTE_REBAKE_EPS: f32 = 0.002;
+
 /// Vignette texture size for a view, in samples.
 pub fn vignette_size(view: View) -> (i32, i32) {
     let ceil = |px: i32| (px.max(0) + VIGNETTE_CELL - 1) / VIGNETTE_CELL + 1;
@@ -2237,6 +2265,9 @@ pub struct LightPass {
 
     /// The view the textures above are currently sized for.
     view: View,
+    /// `(view, depth, day)` the vignette currently on the GPU was baked from, or
+    /// `None` before the first bake. See [`VIGNETTE_REBAKE_EPS`].
+    vignette_baked: Option<(View, f32, f32)>,
     /// World px of the light grid's top-left corner, sim convention.
     origin: Vec2,
     /// World px the light grid spans.
@@ -2458,6 +2489,7 @@ fn setup(
     commands.insert_resource(LightPass {
         grid: LightGrid::new(view, SEED),
         census: EmitterScan::default(),
+        vignette_baked: None,
         shadow,
         colour,
         vignette,
@@ -2723,9 +2755,23 @@ fn solve_light(
     if pass.colour_visible {
         upload(&colour, &mut images, |out| pass.grid.bake_colour(out));
     }
-    upload(&vignette, &mut images, |out| {
-        bake_vignette(view, depth, day, out);
-    });
+    // The vignette is re-baked only when it would actually differ. `upload` calls
+    // `Assets::get_mut`, which is what schedules a GPU upload, so a frame that
+    // skips this skips the copy as well as the 1 530 samples.
+    let stale = match pass.vignette_baked {
+        Some((v, d, dy)) => {
+            v != view
+                || (d - depth).abs() >= VIGNETTE_REBAKE_EPS
+                || (dy - day).abs() >= VIGNETTE_REBAKE_EPS
+        }
+        None => true,
+    };
+    if stale {
+        upload(&vignette, &mut images, |out| {
+            bake_vignette(view, depth, day, out);
+        });
+        pass.vignette_baked = Some((view, depth, day));
+    }
 
     // The two flat washes are both additive fills over the whole view, so they
     // are one quad: adding two colours and adding their sum are the same
@@ -2753,6 +2799,11 @@ fn solve_light(
 fn resize(pass: &mut LightPass, view: View, images: &mut Assets<Image>) {
     pass.view = view;
     pass.grid = LightGrid::new(view, SEED);
+    // The texture below is reallocated, so whatever was baked into it is gone.
+    // The `view` in the tuple would catch this on its own; stating it here means
+    // a future resize that stopped changing the view still cannot serve a stale
+    // vignette out of a freshly allocated buffer.
+    pass.vignette_baked = None;
     let (lw, lh) = grid_size(view);
     let (vw, vh) = vignette_size(view);
     let (bw, bh) = bloom_size(view);
@@ -3822,6 +3873,102 @@ mod tests {
         let margin = (BLOOM_RADIUS_CELLS * CELL_SIZE) as f32;
         assert!(base.x <= 1000.0 - margin, "left margin lost");
         assert!(base.x + base.w >= 1000.0 + view.w as f32 + margin, "right");
+    }
+
+    /// The vignette cache never skips a frame anybody could see.
+    ///
+    /// `VIGNETTE_REBAKE_EPS` is the whole of that promise, and this is what makes
+    /// it a measurement rather than a guess: over the input space, two bakes that
+    /// far apart must differ by at most ONE byte in any channel. One byte is the
+    /// smallest difference the `Rgba8Unorm` target can represent, so a frame the
+    /// cache skips cannot be a frame that would have looked different.
+    ///
+    /// The sweep is over both axes and both ends of each, because the terms are
+    /// not symmetric: `depth` pulls the inner radius in and the edge alpha down
+    /// AND desaturates the tint, while `day` only moves the two radii. A single
+    /// midpoint probe would miss whichever one happens to be steepest at the ends.
+    ///
+    /// If this fails after a vignette retune, the constant is what moves — not the
+    /// assertion.
+    #[test]
+    fn the_vignette_cache_never_skips_a_visible_change() {
+        let view = View::for_screen(2560, 1440);
+        let (cols, rows) = vignette_size(view);
+        let n = (cols * rows * 4) as usize;
+
+        let bake = |depth: f32, day: f32| {
+            let mut buf = vec![0u8; n];
+            bake_vignette(view, depth, day, &mut buf);
+            buf
+        };
+        let worst = |a: &[u8], b: &[u8]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| x.abs_diff(*y))
+                .max()
+                .expect("the vignette is not empty")
+        };
+
+        let mut seen_any_change = false;
+        for &depth in &[0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            for &day in &[0.0f32, 0.25, 0.5, 0.75, 1.0] {
+                let base = bake(depth, day);
+
+                // Both directions on both axes, clamped into range.
+                for (dd, dy) in [
+                    (VIGNETTE_REBAKE_EPS, 0.0),
+                    (-VIGNETTE_REBAKE_EPS, 0.0),
+                    (0.0, VIGNETTE_REBAKE_EPS),
+                    (0.0, -VIGNETTE_REBAKE_EPS),
+                    (VIGNETTE_REBAKE_EPS, VIGNETTE_REBAKE_EPS),
+                ] {
+                    let (d2, y2) = ((depth + dd).clamp(0.0, 1.0), (day + dy).clamp(0.0, 1.0));
+                    let moved = worst(&base, &bake(d2, y2));
+                    assert!(
+                        moved <= 1,
+                        "a skipped frame would have moved the vignette by {moved} \
+                         bytes: depth {depth}->{d2}, day {day}->{y2}. \
+                         VIGNETTE_REBAKE_EPS is too coarse"
+                    );
+                    if moved > 0 {
+                        seen_any_change = true;
+                    }
+                }
+            }
+        }
+
+        // The other half of the claim: the epsilon has to be small enough to be
+        // near the resolution limit, not so small it is trivially satisfied. A
+        // step this size should sometimes move a byte.
+        assert!(
+            seen_any_change,
+            "no probe moved a single byte, so this test cannot tell a tight \
+             epsilon from an absurdly small one"
+        );
+
+        // And a step well BEYOND the epsilon must be visible, or the cache would
+        // be skipping real changes and this test would never notice.
+        let far = worst(&bake(0.0, 1.0), &bake(0.5, 1.0));
+        assert!(
+            far > 1,
+            "half the depth range moved the vignette by {far} bytes — either the \
+             vignette barely depends on depth, or this test is measuring nothing"
+        );
+
+        // The headroom, stated. The constant sits an order of magnitude under
+        // where this test starts failing (measured: 0.02 passes, 0.05 moves two
+        // bytes), and that margin is the point — so a retune that made the
+        // vignette 20x more sensitive to depth would still be caught here rather
+        // than shipping as a cache that skips visible frames.
+        let at_25x = worst(
+            &bake(0.5, 0.5),
+            &bake(0.5 + 25.0 * VIGNETTE_REBAKE_EPS, 0.5),
+        );
+        assert!(
+            at_25x > 1,
+            "twenty-five times the epsilon moved only {at_25x} bytes, so the \
+             constant is no longer conservative — it is merely small"
+        );
     }
 
     #[test]

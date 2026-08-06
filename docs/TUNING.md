@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 564 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 565 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -817,11 +817,12 @@ only the exported surface is held to the rule.
 | `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 834 |
 | `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 836 |
 | `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 870 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2158 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2160 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2172 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2187 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2189 |
+| `VIGNETTE_REBAKE_EPS` (private) | `0.002` | How far `depth` or `day` must move before the vignette is baked again. | 1862 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2186 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2188 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2200 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2215 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2217 |
 
 ### `crates/godgame-render/src/lowres.rs`
 
