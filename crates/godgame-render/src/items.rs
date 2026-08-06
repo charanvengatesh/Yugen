@@ -33,14 +33,17 @@
 //!
 //! # The rectangles
 //!
-//! A dropped stack draws as a [`DROP_SIZE_PX`] square in the item's own colour,
-//! which [`DropStack`] already caches at spawn. Icons are the sprite milestone's;
-//! the colour is not a placeholder palette this module invented, it is the one
-//! the item table authors.
+//! A dropped stack ON THE FLOOR draws as a [`DROP_SIZE_PX`] square in the item's
+//! own colour, which [`DropStack`] already caches at spawn — not a placeholder
+//! palette this module invented, but the one the item table authors. It stays a
+//! square rather than an icon because a drop is 3px in a 640x400 buffer, where a
+//! baked icon would be a smudge and its colour is the only thing that reads.
 //!
-//! The count is not drawn. A stack of one and a stack of forty are the same
-//! square until there is a font, and inventing a number here would be inventing
-//! UI two milestones early.
+//! The icon and the count both exist, in [`crate::ui`], where the same stack is
+//! drawn INSIDE the pack at a size that can carry them: the HUD resolves an icon
+//! through `IconAtlas` and sets the count in the bitmap font. That split is the
+//! point — the same item is a coloured mote at world scale and a labelled icon at
+//! UI scale, and neither drawing belongs in the other's module.
 
 use std::sync::{Arc, Mutex};
 

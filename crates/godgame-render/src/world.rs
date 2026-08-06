@@ -56,9 +56,15 @@ use godgame_core::sim::worldgen::{SPAWN_COL, spawn_point};
 
 /// System sets inside [`FixedUpdate`], in run order.
 ///
-/// Named so the player controller (which does not exist yet) can hang itself
-/// between the two: it reads the grid the streamer just recentred and writes
-/// the focus the next stream reads.
+/// Named so that everything which steps between the two can say so rather than
+/// infer it. The slot exists because a stepper reads the grid the streamer just
+/// recentred and writes the focus the next stream will read, and that ordering
+/// is not recoverable from the code once it is wrong.
+///
+/// Four things hang there now: [`crate::player`]'s body (which also drives the
+/// arrow pool from inside `Player::step`), [`crate::mobs`]' creatures,
+/// [`crate::items`]' dropped stacks, and [`crate::particles`]. All of them order
+/// against [`crate::player::PlayerSet::Step`] rather than against each other.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SimSet {
     /// Recentre the streaming window on [`WorldFocus`].
@@ -149,7 +155,26 @@ fn clamp_catch_up(mut virt: ResMut<Time<Virtual>>) {
 /// synchronous. A loading screen is a later milestone's problem; correctness of
 /// the first frame is this one's.
 fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>) {
-    let seed = SEED;
+    let world = build_world(SEED);
+    *focus = WorldFocus {
+        x: world.level.spawn.x,
+        y: world.level.spawn.y,
+    };
+    commands.insert_resource(world);
+}
+
+/// Generate a world from a seed, with its streaming window already filled.
+///
+/// Split out of [`spawn_world`] because a respawn needs exactly this and must
+/// not reimplement it: the TypeScript's `Game.loadLevel` built the grid, the
+/// window and the automata together, and a second copy of that sequence is how
+/// the two silently drift apart. `crate::glue` calls it when a run restarts.
+///
+/// A fresh grid rather than a cleared one, which is what makes a restart discard
+/// the player's excavation — the same thing `loadLevel` did by allocating a new
+/// `CellGrid`. The world is a pure function of the seed, so what comes back is
+/// the same terrain, minus every hole that was dug in it.
+pub fn build_world(seed: u32) -> SimWorld {
     let spawn = spawn_point(seed, SPAWN_COL);
 
     let (cols, rows) = window_size();
@@ -161,22 +186,17 @@ fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>) {
     let mut automata = Automata::new();
     automata.seed(seed);
 
-    *focus = WorldFocus {
-        x: spawn.x,
-        y: spawn.y,
-    };
-
     info!(
         "world {seed} ready: spawn ({:.0}, {:.0}), window {cols}x{rows} cells",
         spawn.x, spawn.y
     );
 
-    commands.insert_resource(SimWorld {
+    SimWorld {
         level: Level::new(grid, spawn),
         window,
         automata,
         seed,
-    });
+    }
 }
 
 /// Keep the streaming window centred on [`WorldFocus`].

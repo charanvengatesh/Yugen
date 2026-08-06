@@ -25,6 +25,10 @@
 //! nothing to allocate. The "read it, don't retain it" warning on the getter went
 //! with the sharing it was warning about — a copy cannot go stale.
 
+use bevy::prelude::*;
+
+use crate::mobs::Daylight;
+
 /// Real seconds in one in-game day.
 ///
 /// Five minutes: long enough to feel like a cycle rather than a strobe, short
@@ -119,16 +123,11 @@ impl DayPhase {
 
 #[inline]
 fn clamp01(v: f32) -> f32 {
-    // Written as the TypeScript's ternary chain rather than `f32::clamp`, which
-    // panics on a NaN bound; this propagates a NaN input the way the original
-    // did instead of taking out the frame.
-    if v < 0.0 {
-        0.0
-    } else if v > 1.0 {
-        1.0
-    } else {
-        v
-    }
+    // `f32::clamp` panics only on a NaN *bound*, and both bounds here are
+    // literals, so it cannot. A NaN input propagates, which is what the
+    // TypeScript's ternary chain did too — neither branch of `v < 0 ? … : v > 1`
+    // is taken for a NaN, so it fell through to `v`.
+    v.clamp(0.0, 1.0)
 }
 
 #[inline]
@@ -179,6 +178,65 @@ impl Default for DayNight {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The one clock
+// ---------------------------------------------------------------------------
+
+/// The world clock, as a resource.
+///
+/// [`DayNight`] and [`DayPhase`] above carry no Bevy at all — that is what lets
+/// the model be tested without an app, a frame or a GPU — so the one line that
+/// makes it a resource lives down here, next to the plugin that ticks it.
+///
+/// `init_resource` rather than `insert_resource` in [`DayNightPlugin`], so an app
+/// that wants to open a world at a particular hour can insert the clock first and
+/// have the plugin respect it.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct WorldClock(pub DayNight);
+
+/// Ticks the world clock, and publishes the one value the sim is allowed to see.
+///
+/// # There must be exactly one of these
+///
+/// This plugin exists because there were nearly three. The sky, the light
+/// composite and the ambience emitters each need the phase, none of them owns
+/// the others, and each was independently written to tick a clock of its own —
+/// which would have run the day at three times speed the moment all three were
+/// in the app. Each also wrote the hazard down rather than assuming it away, so
+/// the fix is this: one owner, in the module the clock is named after, and every
+/// consumer reads [`WorldClock`] without advancing it.
+///
+/// If you are adding a pass that needs the time of day: take `Res<WorldClock>`
+/// and call `.0.phase()`. Do not call `update`.
+///
+/// # The one wire into the sim
+///
+/// [`Daylight`] is the single value that crosses back out of the render side:
+/// the creature spawner weights nocturnal species by it. That is a weight on
+/// WHICH species may spawn, never on whether a chunk generates the same way
+/// twice, so worldgen stays a pure function of `(seed, edits)` — see this
+/// module's header, and `crates/godgame-core/tests/worldgen_purity.rs`, which is
+/// the test that would fail if that ever stopped being true.
+pub struct DayNightPlugin;
+
+impl Plugin for DayNightPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<WorldClock>()
+            .init_resource::<Daylight>()
+            .add_systems(Update, advance_clock);
+    }
+}
+
+/// Advance the world clock and mirror its daylight weight into [`Daylight`].
+///
+/// One write a frame, and it is what closes the seam `crate::mobs` left open:
+/// nocturnal creatures start preferring the night the moment this plugin is in
+/// the app, with no change on that side.
+fn advance_clock(time: Res<Time>, mut clock: ResMut<WorldClock>, mut daylight: ResMut<Daylight>) {
+    clock.0.update(time.delta_secs());
+    daylight.0 = clock.0.phase().day;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,7 +270,10 @@ mod tests {
         // These four are the contract every other module reads. Midnight is the
         // darkest, noon the brightest, and the two crossings sit between.
         assert_eq!(DayPhase::at(0.0).elevation, -1.0);
-        assert!(DayPhase::at(0.25).elevation.abs() < 1e-6, "sunrise crossing");
+        assert!(
+            DayPhase::at(0.25).elevation.abs() < 1e-6,
+            "sunrise crossing"
+        );
         assert_eq!(DayPhase::at(0.5).elevation, 1.0);
         assert!(DayPhase::at(0.75).elevation.abs() < 1e-6, "sunset crossing");
 

@@ -658,11 +658,18 @@ mod tests {
         let at = Vec2::splat((32 * CELL_SIZE + CELL_SIZE / 2) as f32);
         world.insert_resource(CursorWorld(Some(at)));
         world.insert_resource(WorldFocus { x: at.x, y: at.y });
-        world.insert_resource(Tool::default());
-        // Empty, and no `PlayerBody`: these tests are about the brush reaching
-        // the grid, and a fresh `Tool` is creative, which ignores both the pack
-        // and reach. The survival paths they would otherwise exercise are tested
-        // where they live, in `godgame_core::interact`.
+        // Creative EXPLICITLY, not by inheriting whatever `START_CREATIVE`
+        // happens to be. These tests are about the brush reaching the grid at
+        // all, so they want the mode that ignores the pack, reach and hardness —
+        // and they should say so. They previously relied on the shipping default
+        // being creative, and broke the day it flipped to survival, which is the
+        // test depending on a decision it does not care about.
+        //
+        // The survival paths are tested where they live, in
+        // `godgame_core::interact`, against a pack and a tool profile.
+        let mut build = BuildTool::new();
+        build.creative = true;
+        world.insert_resource(Tool(build));
         world.insert_resource(Pack::default());
         world.insert_resource(SimWorld {
             level: Level::new(grid, SpawnPoint { x: at.x, y: at.y }),

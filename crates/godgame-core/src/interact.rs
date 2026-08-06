@@ -64,17 +64,19 @@ const PLACE_INTERVAL: f32 = 0.1;
 
 /// The mode a fresh tool starts in.
 ///
-/// The TypeScript started in survival, because it had an inventory to start
-/// with. There is one now — [`profile_for`] resolves a held pickaxe's numbers,
-/// and `godgame-render`'s items plugin fills the pack from mined cells and
-/// killed creatures — so the survival path is not merely ported, it is wired.
+/// The TypeScript started in survival, and so does this now.
 ///
-/// It still starts creative, and the reason has moved: the pack starts EMPTY and
-/// there is no hotbar on screen until the UI milestone. Survival from an empty
-/// pack with no way to see it is bare hands on soft cover and nothing to place.
-/// Flip this to `false` when the HUD lands, or the moment a run starts with
-/// something in it.
-const START_CREATIVE: bool = true;
+/// It spent several milestones on `true`, and the note here each time named what
+/// was missing: first there was no inventory, then the pack started empty with no
+/// hotbar to see it with. Both are now false — `godgame-render`'s glue grants the
+/// same starting kit `Game.giveStartingKit` did (a pick, a sword, three
+/// bandages), the HUD draws the hotbar, and [`profile_for`] resolves the held
+/// pick's own dig numbers.
+///
+/// So survival is the default because survival is the game. Creative is still one
+/// keypress away — `G`, which the control hints say outright — and remains the
+/// fastest way to test terrain, reactions and worldgen.
+const START_CREATIVE: bool = false;
 
 /// A dig/place command for one frame.
 ///
