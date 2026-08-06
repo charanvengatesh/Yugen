@@ -342,8 +342,42 @@ const OPEN_DECAY_PER_CELL: f32 = 0.997_490_6;
 /// while daylight stays flat and bright up top.
 const SOLID_DECAY_PER_CELL: f32 = 0.861_173_5;
 
+/// What one SIM CELL of open air with a WALL behind it costs the flood.
+///
+/// Between [`OPEN_DECAY_PER_CELL`] and [`SOLID_DECAY_PER_CELL`], and the middle
+/// term is the whole of the background wall plane's contribution to lighting.
+///
+/// A walled tunnel is not open sky: sunlight does not pour down a mineshaft the
+/// way it pours into a canyon, because a mineshaft has three sides. But it is not
+/// rock either — you are standing in it, and it has to be brighter than the stone
+/// around it or there was no point digging.
+///
+/// So a shaft that reaches daylight through a wall-free column comes out brighter
+/// than one that does not, and THAT DIFFERENCE IS THE FEATURE. `back == EMPTY`
+/// means the sky is genuinely open above you; anything else means you are inside
+/// the world looking at its back wall.
+///
+/// Closer to open than to solid on purpose. A tunnel is mostly air and the wall
+/// is one surface at the back of it, not forty cells of rock in the way — biasing
+/// this toward `SOLID` makes every corridor a pit and undoes the reason walls
+/// were drawn at all.
+const WALL_DECAY_PER_CELL: f32 = 0.962_0;
+
 /// What one LIGHT CELL of open air costs the flood.
 const OPEN_DECAY: f32 = over_a_light_cell(OPEN_DECAY_PER_CELL);
+
+/// What one LIGHT CELL of walled air costs the flood. See [`WALL_DECAY_PER_CELL`].
+const WALL_DECAY: f32 = over_a_light_cell(WALL_DECAY_PER_CELL);
+
+/// The three decays are ordered, and the ordering is the rule.
+///
+/// Stated at compile time because it is the entire semantic content of the middle
+/// term: a walled cell must be dimmer than open sky and brighter than rock. Get
+/// it backwards and a tunnel is darker than the stone it was cut out of.
+const _: () = assert!(
+    SOLID_DECAY_PER_CELL < WALL_DECAY_PER_CELL && WALL_DECAY_PER_CELL < OPEN_DECAY_PER_CELL,
+    "a walled cell must sit between open air and solid rock"
+);
 
 /// What one LIGHT CELL of opaque rock costs the flood.
 const SOLID_DECAY: f32 = over_a_light_cell(SOLID_DECAY_PER_CELL);
@@ -1086,10 +1120,12 @@ impl LightGrid {
             for ly in 0..lh {
                 let gy = (frame.oy + ly) * step + half - gy0;
                 // Unloaded cells read as air, exactly as `get_world` reports them.
-                let solid = in_col
-                    && gy >= 0
-                    && gy < rows
-                    && MAT_COLLIDE[grid.material[(gy * cols + gx) as usize] as usize] == 1;
+                let loaded = in_col && gy >= 0 && gy < rows;
+                let at = if loaded { (gy * cols + gx) as usize } else { 0 };
+                let solid = loaded && MAT_COLLIDE[grid.material[at] as usize] == 1;
+                // Open air with a wall behind it. Only asked where the front is
+                // not solid, because rock in front of a wall is just rock.
+                let walled = loaded && !solid && grid.back[at] != EMPTY;
 
                 // STORE, THEN DECAY. A cell is lit by the light that REACHES it;
                 // the occlusion it causes applies to what is behind it, not to
@@ -1102,7 +1138,13 @@ impl LightGrid {
                 // the brightest solid in its column, and this is the ordering
                 // that makes it so.
                 self.light[(ly * lw + lx) as usize] = carry;
-                carry *= if solid { SOLID_DECAY } else { OPEN_DECAY };
+                carry *= if solid {
+                    SOLID_DECAY
+                } else if walled {
+                    WALL_DECAY
+                } else {
+                    OPEN_DECAY
+                };
             }
         }
     }
@@ -2850,6 +2892,7 @@ fn place_bloom(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use godgame_core::sim::coords::WorldCell;
     use godgame_core::sim::materials::block;
 
     /// A world of air with a stone floor from `floor_row` down, origin at 0.
@@ -2998,6 +3041,99 @@ mod tests {
         assert!(
             bottom > top * 0.8,
             "open air ate too much light: {top} at the top, {bottom} at the bottom"
+        );
+    }
+
+    /// A shaft with a wall behind it is dimmer than open sky and brighter than
+    /// rock.
+    ///
+    /// This is the whole of the background wall plane's contribution to lighting,
+    /// and it is the difference the feature exists to make readable: a shaft that
+    /// broke through to daylight is genuinely open above you, and one that is
+    /// still inside the world is not. `back == EMPTY` is that distinction, and
+    /// this is where it becomes something you can see.
+    ///
+    /// Asserted as an ORDERING rather than against a number, so retuning
+    /// `WALL_DECAY_PER_CELL` — which is a taste question and will move — cannot
+    /// break it. What must never move is the ordering, and a `const _` beside the
+    /// constants pins that at compile time as well.
+    ///
+    /// Worth stating what this does NOT claim: a deep cave is unaffected, because
+    /// there is no skylight left down there to modulate. Walls matter to the
+    /// flood near the surface, where a shaft can still reach the sky.
+    #[test]
+    fn a_walled_shaft_is_dimmer_than_open_sky_and_brighter_than_rock() {
+        // Twelve cells down, in the same world-distance terms the rock test uses.
+        const DEEP_CELLS: i32 = 12;
+        let rows = DEEP_CELLS / LIGHT_DOWNSCALE;
+
+        // Three columns of the same world, differing only in what is behind the
+        // air: nothing, a wall, and solid rock in front.
+        let open = air(64, 64);
+
+        let mut walled = air(64, 64);
+        for y in 0..walled.rows() {
+            for x in 0..walled.cols() {
+                walled.set_back_world(WorldCell::new(x, y), block::STONE);
+            }
+        }
+
+        let rock = world(64, 64, 0);
+
+        let sample = |g: &CellGrid| {
+            let mut light = solver();
+            light.compute_skylight(g, noon(0, 0));
+            light.light_at(4, rows)
+        };
+
+        let open_lit = sample(&open);
+        let walled_lit = sample(&walled);
+        let rock_lit = sample(&rock);
+
+        assert!(
+            walled_lit < open_lit,
+            "a walled shaft is not open sky — sunlight does not pour down a \
+             mineshaft the way it pours into a canyon. open {open_lit}, walled \
+             {walled_lit}"
+        );
+        assert!(
+            walled_lit > rock_lit,
+            "a walled shaft is brighter than the rock it was cut out of, or there \
+             was no point digging it. walled {walled_lit}, rock {rock_lit}"
+        );
+    }
+
+    /// A wall behind SOLID rock changes nothing.
+    ///
+    /// The flood asks about the wall only where the front is air. Rock in front of
+    /// a wall is just rock, and if the two ever compounded, every cell in the
+    /// world would be darker than it was before the back plane existed — the
+    /// entire world dimming at once, which is the kind of change that reads as
+    /// "the lighting was retuned" rather than as a bug.
+    #[test]
+    fn a_wall_behind_rock_does_not_darken_it_twice() {
+        let plain = world(64, 64, 0);
+
+        let mut backed = world(64, 64, 0);
+        for y in 0..backed.rows() {
+            for x in 0..backed.cols() {
+                backed.set_back_world(WorldCell::new(x, y), block::STONE);
+            }
+        }
+
+        let sample = |g: &CellGrid| {
+            let mut light = solver();
+            light.compute_skylight(g, noon(0, 0));
+            (0..light.rows())
+                .map(|r| light.light_at(4, r))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            sample(&plain),
+            sample(&backed),
+            "putting a wall behind solid rock moved the skylight — the two \
+             occlusions are compounding where only one applies"
         );
     }
 

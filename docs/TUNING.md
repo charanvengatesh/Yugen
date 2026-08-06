@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 562 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 564 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -769,57 +769,59 @@ only the exported surface is held to the rule.
 | `SKY_DAY_GAIN` (private) | `0.78` | What full daylight adds on top of [`SKY_NIGHT`]. | 322 |
 | `OPEN_DECAY_PER_CELL` (private) | `0.997_490_6` | What one SIM CELL of open air costs the flood. | 336 |
 | `SOLID_DECAY_PER_CELL` (private) | `0.861_173_5` | What one SIM CELL of opaque rock costs the flood. | 343 |
-| `OPEN_DECAY` (private) | `over_a_light_cell(OPEN_DECAY_PER_CELL)` | What one LIGHT CELL of open air costs the flood. | 346 |
-| `SOLID_DECAY` (private) | `over_a_light_cell(SOLID_DECAY_PER_CELL)` | What one LIGHT CELL of opaque rock costs the flood. | 349 |
-| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 400 |
-| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 405 |
-| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 407 |
-| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 412 |
-| `SPLAT_REACH_CELLS` (private) | `4` | How far a splat's four arms reach, in SIM CELLS. | 429 |
-| `FAR_REACH_CELLS` (private) | `8` | How far a strong emitter's far ring reaches, in SIM CELLS. | 435 |
-| `BLUR_REACH_CELLS` (private) | `4` | How far the blur that turns splats into glow spreads, in SIM CELLS. | 448 |
-| `SPLAT_REACH` (private) | `in_light_cells(SPLAT_REACH_CELLS)` | [`SPLAT_REACH_CELLS`] in light cells. | 451 |
-| `FAR_REACH` (private) | `in_light_cells(FAR_REACH_CELLS)` | [`FAR_REACH_CELLS`] in light cells. | 454 |
-| `BLUR_REACH` (private) | `in_light_cells(BLUR_REACH_CELLS)` | [`BLUR_REACH_CELLS`] in light cells — the blur's radius in taps per side. | 457 |
-| `LIGHT_SOFTNESS` (private) | `0.5` | How soft the light's own edges are against the art's, 0..1. | 485 |
-| `LIGHT_SNAP` (private) | `if LIGHT_DOWNSCALE == 1 { LIGHT_SOFTNESS } else { 1.0 }` | [`LIGHT_SOFTNESS`], or a full bilinear upscale if the grid is coarser than the art. | 496 |
-| `BLUR_BACK` (private) | `(BLUR_REACH / 2) as usize` | How far back one box pass of the blur looks, and how far forward. | 515 |
-| `BLUR_FWD` (private) | `(BLUR_REACH - BLUR_REACH / 2) as usize` | See [`BLUR_BACK`]. | 518 |
-| `SPLAT_EDGE` (private) | `0.42` | What the four arms of a scalar splat get, relative to its centre. | 541 |
-| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 550 |
-| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 553 |
-| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 559 |
-| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 562 |
-| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 568 |
-| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 574 |
-| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 577 |
-| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 580 |
-| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 589 |
-| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 628 |
-| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 636 |
-| `BLOOM_RADIUS_CELLS` (private) | `3` | Gather radius of the bloom blur, in CELLS. | 669 |
-| `BLOOM_EMIT_SLOTS` (private) | `MATERIAL_SLOTS` | Materials the bloom's emit table has room for. | 677 |
-| `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 689 |
-| `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 698 |
-| `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 705 |
-| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 736 |
-| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 745 |
-| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 754 |
-| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 757 |
-| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 759 |
-| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 761 |
-| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 763 |
-| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 765 |
-| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 767 |
-| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 769 |
-| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 794 |
-| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 796 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 830 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2110 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2112 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2124 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2139 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2141 |
+| `WALL_DECAY_PER_CELL` (private) | `0.962_0` | What one SIM CELL of open air with a WALL behind it costs the flood. | 364 |
+| `OPEN_DECAY` (private) | `over_a_light_cell(OPEN_DECAY_PER_CELL)` | What one LIGHT CELL of open air costs the flood. | 367 |
+| `WALL_DECAY` (private) | `over_a_light_cell(WALL_DECAY_PER_CELL)` | What one LIGHT CELL of walled air costs the flood. | 370 |
+| `SOLID_DECAY` (private) | `over_a_light_cell(SOLID_DECAY_PER_CELL)` | What one LIGHT CELL of opaque rock costs the flood. | 383 |
+| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 434 |
+| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 439 |
+| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 441 |
+| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 446 |
+| `SPLAT_REACH_CELLS` (private) | `4` | How far a splat's four arms reach, in SIM CELLS. | 463 |
+| `FAR_REACH_CELLS` (private) | `8` | How far a strong emitter's far ring reaches, in SIM CELLS. | 469 |
+| `BLUR_REACH_CELLS` (private) | `4` | How far the blur that turns splats into glow spreads, in SIM CELLS. | 482 |
+| `SPLAT_REACH` (private) | `in_light_cells(SPLAT_REACH_CELLS)` | [`SPLAT_REACH_CELLS`] in light cells. | 485 |
+| `FAR_REACH` (private) | `in_light_cells(FAR_REACH_CELLS)` | [`FAR_REACH_CELLS`] in light cells. | 488 |
+| `BLUR_REACH` (private) | `in_light_cells(BLUR_REACH_CELLS)` | [`BLUR_REACH_CELLS`] in light cells — the blur's radius in taps per side. | 491 |
+| `LIGHT_SOFTNESS` (private) | `0.5` | How soft the light's own edges are against the art's, 0..1. | 519 |
+| `LIGHT_SNAP` (private) | `if LIGHT_DOWNSCALE == 1 { LIGHT_SOFTNESS } else { 1.0 }` | [`LIGHT_SOFTNESS`], or a full bilinear upscale if the grid is coarser than the art. | 530 |
+| `BLUR_BACK` (private) | `(BLUR_REACH / 2) as usize` | How far back one box pass of the blur looks, and how far forward. | 549 |
+| `BLUR_FWD` (private) | `(BLUR_REACH - BLUR_REACH / 2) as usize` | See [`BLUR_BACK`]. | 552 |
+| `SPLAT_EDGE` (private) | `0.42` | What the four arms of a scalar splat get, relative to its centre. | 575 |
+| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 584 |
+| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 587 |
+| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 593 |
+| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 596 |
+| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 602 |
+| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 608 |
+| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 611 |
+| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 614 |
+| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 623 |
+| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 662 |
+| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 670 |
+| `BLOOM_RADIUS_CELLS` (private) | `3` | Gather radius of the bloom blur, in CELLS. | 703 |
+| `BLOOM_EMIT_SLOTS` (private) | `MATERIAL_SLOTS` | Materials the bloom's emit table has room for. | 711 |
+| `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 723 |
+| `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 732 |
+| `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 739 |
+| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 770 |
+| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 779 |
+| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 788 |
+| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 791 |
+| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 793 |
+| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 795 |
+| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 797 |
+| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 799 |
+| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 801 |
+| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 803 |
+| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 828 |
+| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 830 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 864 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2152 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2154 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2166 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2181 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2183 |
 
 ### `crates/godgame-render/src/lowres.rs`
 

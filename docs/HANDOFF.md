@@ -336,6 +336,14 @@ same run.
 - **`ui::paint` has never run on a real GPU in a test.** Its pure layer is
   exhaustively tested; the pooling, `ChildOf` parenting and atlas sampling are
   argued from code, not observed.
+- **`WALL_DECAY`'s effect on screen.** The skylight rule for background walls is
+  pinned by two unit tests, both fault-injected in each direction, and by a
+  compile-time ordering assert. But nobody has SEEN it: the two capture rigs are a
+  900 px-deep cave, where there is no skylight left to modulate and the rule
+  correctly does nothing, and a menu-dimmed surface, which is too dark to read a
+  shaft against. What is missing is a daylight surface rig with the scene forced
+  to `Playing` and a shaft cut into a hillside — a third `lit_scene`-shaped file,
+  and the obvious next thing to build for this feature.
 - **The burrower's breach tell.** Drawn now, and its geometry is pinned by three
   tests, but nobody has watched one erupt. Staging it needs a burrower placed on
   demand and `MobSystem::place` is private; the honest options are to make that

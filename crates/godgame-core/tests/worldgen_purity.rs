@@ -37,7 +37,7 @@ use rayon::prelude::*;
 use godgame_core::config::CHUNK_CELLS;
 use godgame_core::sim::biomes::column_profile_at;
 use godgame_core::sim::decor::{DecorContext, Decorator};
-use godgame_core::sim::materials::{CellId, EMPTY};
+use godgame_core::sim::materials::{CellId, EMPTY, MaterialState, Tag, has_tags};
 use godgame_core::sim::noise::Noise;
 use godgame_core::sim::worldgen::containers::{containers_present, is_container};
 use godgame_core::sim::worldgen::features::LANDMARK_DECORATOR;
@@ -643,6 +643,86 @@ fn the_back_plane_is_pure_across_a_pool() {
         assert!(
             first_difference(&serial[i], &back).is_none(),
             "chunk ({cx},{cy}) generated a different wall plane the second time"
+        );
+    }
+}
+
+/// The wall plane holds terrain and nothing else — no liquid, no gas, no ore,
+/// no chest, no tree.
+///
+/// # Why this is a property and not a preference
+///
+/// A wall is scenery you can remove. It is not simulated: the automata reaches
+/// cells through `CellGrid::material` and `get_world`, and the back plane is only
+/// reachable through `get_back*`, so nothing sweeps it, ignites it or makes it
+/// fall. That is fine for rock. It would be **wrong** for anything that is
+/// supposed to move or to be taken:
+///
+///   - a LIQUID in the wall plane is a lake that can never drain, hanging behind
+///     the world;
+///   - a GAS is a pocket that can never disperse;
+///   - an ORE is a vein you can see and never mine, because digging the wall out
+///     yields the wall, and the front plane is where mining happens;
+///   - a CHEST or a tree is an interactable drawn where nothing can interact
+///     with it.
+///
+/// All four are excluded by construction rather than by a filter, and this test
+/// is what says so out loud. Liquids and gases never appear because the wall pass
+/// only ever calls `cap_at` and `solid_at` — never `liquid_at`. Ores, chests,
+/// mushrooms and trees never appear because every one of them is placed by a
+/// DECORATOR, and `decorate` runs on the front array after the wall plane has
+/// already been taken.
+///
+/// The failure this guards against is someone later "improving" the wall rule by
+/// moving the snapshot after `decorate`, which would look like a richer backdrop
+/// and would quietly put unmineable gold behind every hillside.
+#[test]
+fn the_wall_plane_is_terrain_only() {
+    let mut cg = ChunkGen::new(SEED);
+    let mut seen: HashSet<CellId> = HashSet::new();
+    let mut front_seen: HashSet<CellId> = HashSet::new();
+
+    for cx in -20..=20 {
+        for cy in [0, 1, 2, 4, 8, 14, 20] {
+            let (front, back) = cg.generate_with_back(cx, cy);
+            seen.extend(back.iter().copied());
+            front_seen.extend(front.iter().copied());
+        }
+    }
+
+    assert!(
+        seen.len() > 4,
+        "the sweep saw too little to be a real check"
+    );
+
+    // The positive control, without which the assertions below would pass on a
+    // world that simply has no ore and no lakes in it. The FRONT plane over the
+    // same sweep must contain both, or this test is not seeing what it claims to.
+    assert!(
+        front_seen
+            .iter()
+            .any(|&id| matches!(MaterialState::of(id), MaterialState::Liquid)),
+        "no liquid anywhere in the front plane over this sweep — the exclusion \
+         below would be vacuous"
+    );
+    assert!(
+        front_seen.iter().any(|&id| has_tags(id, Tag::ORE)),
+        "no ore anywhere in the front plane over this sweep — the exclusion \
+         below would be vacuous"
+    );
+
+    for id in seen {
+        let state = MaterialState::of(id);
+        assert!(
+            !matches!(state, MaterialState::Liquid | MaterialState::Gas),
+            "the wall plane holds {id} ({state:?}) — a liquid or gas behind the \
+             world can never drain or disperse, because nothing simulates the \
+             back plane"
+        );
+        assert!(
+            !has_tags(id, Tag::ORE),
+            "the wall plane holds ore {id}, which the player can see and never \
+             mine — decorators must stay in front of the wall snapshot"
         );
     }
 }
