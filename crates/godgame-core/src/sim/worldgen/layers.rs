@@ -221,27 +221,35 @@ fn vein_field(noise: &Noise, wcx: i32, wcy: i32) -> f64 {
 /// (`CaveLattice::strata_at`) and on the probe path an exact sample
 /// (`strata_exact`). Only read below `DEEP_DEPTH`, so the caller may pass 0 above
 /// that.
+///
+/// `depth` is the BAND depth — the cell's true depth plus the column's slow
+/// `band_shift` — and it is FRACTIONAL for the same reason `caves` carves against
+/// a fractional one: every band interface has to be an undulating surface rather
+/// than a ruled line, and the two have to undulate together or every interface
+/// shows as a double edge. Rounding it to a whole cell before the call is not
+/// free: the hardening ramp below reads it continuously, and quantising the input
+/// moves the obsidian dither by up to 1/45 over the last 45 cells of the world.
 pub fn solid_at(
     noise: &Noise,
     wcx: i32,
     wcy: i32,
-    depth: i32,
+    depth: f64,
     col: &ColumnProfile,
     u: f64,
     strata: f64,
 ) -> CellId {
-    if depth >= UNDERWORLD_FLOOR {
+    if depth >= f64::from(UNDERWORLD_FLOOR) {
         return M_OBSIDIAN; // bedrock
     }
 
-    if depth >= UNDERWORLD_DEPTH {
+    if depth >= f64::from(UNDERWORLD_DEPTH) {
         // Underworld crust: ash flats over basalt, banded, hardening to obsidian
         // as the floor approaches so the last stretch reads as "you are near the
         // end".
         let to_floor = smooth_ramp(
             f64::from(UNDERWORLD_FLOOR - 45),
             f64::from(UNDERWORLD_FLOOR),
-            f64::from(depth),
+            depth,
         );
         if to_floor > 0.0 && noise.hash2(wcx + 2207, wcy) < to_floor {
             return M_OBSIDIAN;
@@ -252,7 +260,7 @@ pub fn solid_at(
         return M_BASALT;
     }
 
-    if depth < CAVERN_DEPTH {
+    if depth < f64::from(CAVERN_DEPTH) {
         // Cavern: crossfade the rock signature in DEPTH from the surface biome's
         // to the underground layer's, reusing the vein value as the dither source
         // so the handover reads as interleaved strata rather than static.
@@ -318,20 +326,23 @@ pub fn solid_at(
 /// underground LAYER's business — water in flooded grottos, acid in the fungal
 /// depths, lava in magma chambers — crossfaded with the surface biome's pocket
 /// liquid in the cavern band exactly like the rock is.
+///
+/// `depth` is the BAND depth, fractional, exactly as in [`solid_at`] — the
+/// liquid table has to change band on the same undulating line the rock does.
 pub fn liquid_at(
     noise: &Noise,
     wcx: i32,
     wcy: i32,
-    depth: i32,
+    depth: f64,
     col: &ColumnProfile,
     u: f64,
 ) -> CellId {
-    if depth >= UNDERWORLD_DEPTH {
+    if depth >= f64::from(UNDERWORLD_DEPTH) {
         return M_LAVA; // the underworld is one lava sea
     }
 
     let src = vein_field(noise, wcx, wcy);
-    if depth >= CAVERN_DEPTH {
+    if depth >= f64::from(CAVERN_DEPTH) {
         return layer_at(noise, wcx, wcy, col, src).def().pocket;
     }
 
@@ -422,9 +433,9 @@ mod tests {
                 let wcy = 48 + depth;
                 let u = ug_fade_at(depth, &col);
                 for strata in [-0.9, 0.0, 0.9] {
-                    let m = solid_at(&noise, wcx, wcy, depth, &col, u, strata);
+                    let m = solid_at(&noise, wcx, wcy, f64::from(depth), &col, u, strata);
                     assert!(m != AIR && (m as usize) < MAT_COUNT, "solid_at gave {m}");
-                    let l = liquid_at(&noise, wcx, wcy, depth, &col, u);
+                    let l = liquid_at(&noise, wcx, wcy, f64::from(depth), &col, u);
                     assert!(l != AIR && (l as usize) < MAT_COUNT, "liquid_at gave {l}");
                 }
                 let c = cap_at(&noise, wcx, wcy, depth, &col, 0.0);
@@ -439,13 +450,16 @@ mod tests {
         let col = column_profile_at(&noise, 128);
         for depth in [UNDERWORLD_FLOOR, UNDERWORLD_FLOOR + 1, 10_000] {
             assert_eq!(
-                solid_at(&noise, 128, 48 + depth, depth, &col, 1.0, 0.0),
+                solid_at(&noise, 128, 48 + depth, f64::from(depth), &col, 1.0, 0.0),
                 M_OBSIDIAN,
                 "bedrock is not bedrock at depth {depth}"
             );
         }
         for depth in [UNDERWORLD_DEPTH, UNDERWORLD_DEPTH + 50] {
-            assert_eq!(liquid_at(&noise, 128, 48 + depth, depth, &col, 1.0), M_LAVA);
+            assert_eq!(
+                liquid_at(&noise, 128, 48 + depth, f64::from(depth), &col, 1.0),
+                M_LAVA
+            );
         }
     }
 

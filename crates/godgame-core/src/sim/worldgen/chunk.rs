@@ -1,0 +1,479 @@
+//! Procedural worldgen, a pure function of ABSOLUTE cell coordinates (wcx, wcy —
+//! both may be negative and unbounded). Terrain is placed by positional noise
+//! thresholds and positional hashes only, never by rand() call order, so a chunk
+//! generated in isolation matches its neighbour's edge regardless of load order —
+//! the property that makes 2D streaming seamless and deterministic, and the one
+//! the chunk persistence layer leans on when it regenerates a pristine chunk.
+//!
+//! CHUNK INDEPENDENCE, precisely: every decision below is a function of
+//! (wcx, wcy, seed) via continuous noise fields or a stateless coordinate hash.
+//! Nothing consults "what did the previous column decide" — biome BLENDING in
+//! particular is driven by continuous climate distances (see `biomes`), not by
+//! comparing a column against its neighbour's chosen biome, which is the classic
+//! way to get chunk-aligned seams. The coarse-lattice optimisation in
+//! `worldgen::caves` obeys the same rule: its lattice is anchored to WORLD space
+//! with a stride that divides CHUNK_CELLS, so two chunks sharing an edge
+//! interpolate from identical corner samples.
+//!
+//! This file is the ORCHESTRATOR only. The generator proper lives in the sibling
+//! modules:
+//!
+//!   `spline`     monotone piecewise-linear curves — noise value → landform
+//!   `fields`     the low-frequency world fields (continentalness, erosion,
+//!                peaks/valleys, weirdness) and shaping helpers
+//!   `heightmap`  the surface row: splines + domain warp + terracing, memoised
+//!   `caves`      cheese chambers, tunnel networks, ravines, the liquid table
+//!   `layers`     depth banding, cap/shore, rock, veins, strata, underworld
+//!
+//! The column scan below is deliberately three straight-line passes so the cheap
+//! cases stay cheap: sky and sea need no field evaluation at all, the cap band
+//! needs no cave evaluation unless the column can host a surface chasm, and a
+//! chunk with no underground cells never even fills the cave lattice.
+//!
+//! # What changed in the port
+//!
+//! The TypeScript kept the per-chunk scratch (`COL_PROFILE`, `COL_CAVE`,
+//! `COL_SURF`, `COL_SHORE`, the cave lattice, the heightmap memo and the cached
+//! `Noise`) at MODULE scope, so `generateChunk(cx, cy, seed)` allocated nothing
+//! but its output. That shape is single-threaded by construction. Here the same
+//! scratch is OWNED by a [`ChunkGen`], one per worker: there are no statics with
+//! interior mutability and no thread locals anywhere in worldgen, so
+//! [`generate_chunk`] is callable from a rayon pool and N workers generating N
+//! chunks produce exactly what one worker generating them in sequence would.
+//! `tests/worldgen_purity.rs` asserts that rather than assuming it.
+
+use crate::config::{CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, SEA_LEVEL_Y};
+use crate::sim::biomes::{ColumnProfile, column_profile_at};
+use crate::sim::decor::structures::StructureDecorator;
+use crate::sim::decor::trees::TreeDecorator;
+use crate::sim::decor::{DecorContext, Decorator, ores::OreDecorator};
+use crate::sim::materials::{CellId, block};
+use crate::sim::noise::Noise;
+
+use super::caves::{Carve, CaveColumn, CaveLattice, carve_exact, cave_column_at, strata_exact};
+use super::features::LANDMARK_DECORATOR;
+use super::heightmap::{Heightmap, shore_weight_at};
+use super::layers::{AIR, cap_at, liquid_at, solid_at, ug_fade_at};
+
+// Material codes resolved once (the registry is fixed at compile time — the
+// TypeScript paid a `codeOf` lookup at module load for the same thing).
+const WATER: CellId = block::WATER;
+
+/// The shared deterministic noise for a seed — for biome/atmosphere sampling.
+///
+/// The TypeScript memoised one instance per seed in a module-level pair of
+/// `let`s, because building the permutation tables is not free and every
+/// `generateChunk` call went through it. Here the instance is owned by whoever
+/// needs it — [`ChunkGen`] holds one for the life of a world — so this is a
+/// plain constructor and callers keep the result rather than re-asking.
+pub fn world_noise(seed: u32) -> Noise {
+    Noise::new(seed)
+}
+
+// --- Decorations -------------------------------------------------------------
+// Everything non-columnar (trees, ores, structures) lives behind the decorator
+// registry in `sim::decor`. Each pass authors from a positional origin and every
+// chunk it can touch recomputes it independently — see `decor` for why that
+// rule is not optional.
+// Order is load-bearing. Trees and ores are terrain dressing and go first;
+// structures are built things and overwrite them. `landmarks` runs LAST because
+// its features are landform-scale (an island is terrain, a lake replaces it, a
+// mineshaft cuts through it) and its templates are the largest built things in
+// the world — both should win over a tree that grew where they now stand.
+pub const DECORATORS: [&dyn Decorator; 4] = [
+    &TreeDecorator,
+    &OreDecorator,
+    &StructureDecorator,
+    &LANDMARK_DECORATOR,
+];
+
+/// Terrain material at an absolute cell — the ARBITRARY-COORDINATE PROBE.
+///
+/// [`ChunkGen::generate`] does NOT go through here: it runs the same decisions
+/// against a per-chunk coarse lattice, which is an order of magnitude cheaper
+/// per cell. This path evaluates every low-frequency field exactly instead, so
+/// it works anywhere without a chunk loaded — which is what a feature or
+/// structure pass needs when it probes "what is at (x, y)?" outside the chunk it
+/// is writing.
+///
+/// The two can disagree by at most the lattice interpolation error, and only on
+/// cells within a hair of a threshold. `generate_chunk` is the authority on what
+/// the terrain IS; treat this as an oracle for placement, and have feature
+/// passes overwrite what they find rather than assume it.
+pub fn material_at(noise: &Noise, wcx: i32, wcy: i32, col: &ColumnProfile, surf: i32) -> CellId {
+    let depth = wcy - surf;
+    if depth < 0 {
+        return if wcy >= SEA_LEVEL_Y { WATER } else { AIR };
+    }
+
+    let cc = cave_column_at(noise, wcx, surf, col);
+
+    if f64::from(depth) < col.cap_thickness {
+        if cc.breaches && carve_exact(noise, wcx, wcy, depth, &cc) != Carve::Solid {
+            return AIR;
+        }
+        return cap_at(noise, wcx, wcy, depth, col, shore_weight_at(surf));
+    }
+
+    let c = carve_exact(noise, wcx, wcy, depth, &cc);
+    if c == Carve::Air {
+        return AIR;
+    }
+    let u = ug_fade_at(depth, col);
+    let bd = band_depth(depth, &cc);
+    if c != Carve::Solid {
+        return liquid_at(noise, wcx, wcy, bd, col, u);
+    }
+    let strata = if bd >= f64::from(DEEP_DEPTH) {
+        strata_exact(noise, wcx, wcy)
+    } else {
+        0.0
+    };
+    solid_at(noise, wcx, wcy, bd, col, u, strata)
+}
+
+/// Material is selected by BAND DEPTH, the same shifted depth `caves` carves
+/// against, or the rock would change band at a different line from the caves and
+/// every interface would show as a double edge.
+///
+/// FRACTIONAL, and it has to stay that way. The obvious port is to floor it, on
+/// the grounds that every band test in `layers` is `bd >= T` against an integer
+/// `T` and `floor(bd) >= T ⟺ bd >= T`. That is true of the tests and false of the
+/// module: `solid_at` also reads the band depth CONTINUOUSLY, in the ramp that
+/// hardens the crust to obsidian over the last 45 cells above `UNDERWORLD_FLOOR`.
+/// Flooring there quantises a dither probability that is only 1/45 per cell wide,
+/// and it shows up as roughly one cell in 3000 of the underworld crust taking the
+/// wrong rock. (Measured: it was the only disagreement between this port and the
+/// TypeScript over 226 304 cells.)
+#[inline]
+fn band_depth(depth: i32, cc: &CaveColumn) -> f64 {
+    f64::from(depth) + cc.band_shift
+}
+
+/// One worker's worldgen scratch: the noise, the heightmap memo, the cave
+/// lattice and the per-column tables, all owned.
+///
+/// Build one per thread and keep it — [`Noise::new`] fills a permutation table
+/// and [`Heightmap`] is ~48 KiB of memo, neither of which a chunk generation
+/// should pay for. Nothing inside is observable from outside: two `ChunkGen`s on
+/// the same seed produce identical chunks, and a single one produces the same
+/// chunk whatever it generated before. That is checks 1 and 8 of the purity
+/// suite, and it is the whole reason this is a struct instead of a module.
+pub struct ChunkGen {
+    seed: u32,
+    noise: Noise,
+    heightmap: Heightmap,
+    lattice: CaveLattice,
+    // The former module-level `COL_*` scratch. Sized once at construction and
+    // reused by every `generate` call; the only allocation a chunk generation
+    // performs is its own output array.
+    col_profile: Vec<ColumnProfile>,
+    col_cave: Vec<CaveColumn>,
+    col_surf: Vec<i32>,
+    col_shore: Vec<f64>,
+}
+
+impl ChunkGen {
+    /// A generator for one world seed.
+    pub fn new(seed: u32) -> ChunkGen {
+        let noise = Noise::new(seed);
+        // `ColumnProfile` has no meaningful zero — it is a blend of biomes — so
+        // the tables are seeded with a real profile and overwritten in pass 1
+        // before anything reads them.
+        let seed_profile = column_profile_at(&noise, 0);
+        // One entry per COLUMN of a chunk, not per cell.
+        let n = CHUNK_CELLS as usize;
+        ChunkGen {
+            seed,
+            noise,
+            heightmap: Heightmap::new(),
+            lattice: CaveLattice::new(),
+            col_profile: vec![seed_profile; n],
+            col_cave: vec![CaveColumn::default(); n],
+            col_surf: vec![0; n],
+            col_shore: vec![0.0; n],
+        }
+    }
+
+    /// The world seed this generator is pinned to.
+    #[inline]
+    pub fn seed(&self) -> u32 {
+        self.seed
+    }
+
+    /// The noise this generator resolves against.
+    #[inline]
+    pub fn noise(&self) -> &Noise {
+        &self.noise
+    }
+
+    /// The memoising heightmap this generator owns — the surface row for any
+    /// absolute column, warm for the chunk just generated.
+    #[inline]
+    pub fn heightmap(&mut self) -> &mut Heightmap {
+        &mut self.heightmap
+    }
+
+    /// Generate one chunk's material as a fresh `CHUNK_CELLS²` array from
+    /// absolute coordinates. This is the unit a streaming chunk store requests
+    /// on demand.
+    ///
+    /// Signature is fixed: (chunk_x, chunk_y) in, materials out, no neighbour
+    /// reads, no hidden state.
+    pub fn generate(&mut self, chunk_x: i32, chunk_y: i32) -> Vec<CellId> {
+        let base_x = chunk_x * CHUNK_CELLS;
+        let base_y = chunk_y * CHUNK_CELLS;
+        let mut out = vec![AIR; (CHUNK_CELLS * CHUNK_CELLS) as usize];
+        let chunk_bottom = base_y + CHUNK_CELLS;
+
+        // --- Pass 1: per-column profile, ground line, cave parameters --------
+        // Climate, biome blend, underground layer blend, surface height and the
+        // cave column parameters all depend on the column only. `lattice_from`
+        // tracks the highest row any column could need a cave field at — the cap
+        // bottom normally, or the ground line itself where a surface chasm can
+        // breach the topsoil.
+        let mut lattice_from = f64::INFINITY;
+        for lx in 0..CHUNK_CELLS {
+            let wcx = base_x + lx;
+            let col = column_profile_at(&self.noise, wcx);
+            let detail = self.heightmap.surface_detail_at(&self.noise, wcx, &col);
+            let cc = cave_column_at(&self.noise, wcx, detail.surf, &col);
+            let from = f64::from(detail.surf) + if cc.breaches { 0.0 } else { col.cap_thickness };
+            if from < lattice_from {
+                lattice_from = from;
+            }
+            let i = lx as usize;
+            self.col_profile[i] = col;
+            self.col_surf[i] = detail.surf;
+            self.col_shore[i] = detail.shore;
+            self.col_cave[i] = cc;
+        }
+
+        // --- Pass 2: the cave lattice, only if this chunk has anything to carve
+        // Sky chunks — the majority of what a streaming window touches while the
+        // player walks — skip 7 fields × 81 samples entirely.
+        let carving = f64::from(chunk_bottom) > lattice_from;
+        if carving {
+            self.lattice.fill(&self.noise, base_x, base_y);
+        }
+
+        // --- Pass 3: the vertical scan ---------------------------------------
+        for lx in 0..CHUNK_CELLS {
+            let i0 = lx as usize;
+            let wcx = base_x + lx;
+            let col = self.col_profile[i0];
+            let cc = self.col_cave[i0];
+            let surf = self.col_surf[i0];
+            let shore = self.col_shore[i0];
+
+            // Sky and sea. Everything above the ground line is air, except where
+            // the ground line fell below sea level — then the gap is water, which
+            // is the entire lake/ocean mechanism. `out` arrives zeroed and AIR is
+            // 0, so the air run costs nothing at all: skip straight to the first
+            // water row.
+            let ground_ly = surf - base_y;
+            let sky_end = ground_ly.clamp(0, CHUNK_CELLS);
+            let sea_ly = SEA_LEVEL_Y - base_y;
+            let mut ly = sea_ly.clamp(0, sky_end);
+            while ly < sky_end {
+                out[(ly * CHUNK_CELLS + lx) as usize] = WATER;
+                ly += 1;
+            }
+
+            // Topsoil cap. `depth < capThickness` with a fractional thickness, so
+            // the loop bound is the ceiling of the fractional bottom row.
+            let cap_bottom = (f64::from(surf) + col.cap_thickness - f64::from(base_y)).ceil();
+            let cap_end = if cap_bottom > f64::from(CHUNK_CELLS) {
+                CHUNK_CELLS
+            } else {
+                cap_bottom as i32
+            };
+            while ly < cap_end {
+                let wcy = base_y + ly;
+                let depth = wcy - surf;
+                // Only columns that can host a surface chasm pay for a carve test
+                // up here.
+                if carving
+                    && cc.breaches
+                    && self
+                        .lattice
+                        .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc)
+                        != Carve::Solid
+                {
+                    ly += 1;
+                    continue; // already AIR
+                }
+                out[(ly * CHUNK_CELLS + lx) as usize] =
+                    cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                ly += 1;
+            }
+
+            // Underground.
+            while ly < CHUNK_CELLS {
+                let wcy = base_y + ly;
+                let depth = wcy - surf;
+                let c = self
+                    .lattice
+                    .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc);
+                if c == Carve::Air {
+                    ly += 1;
+                    continue; // already AIR
+                }
+                let i = (ly * CHUNK_CELLS + lx) as usize;
+                let u = ug_fade_at(depth, &col);
+                let bd = band_depth(depth, &cc);
+                if c != Carve::Solid {
+                    out[i] = liquid_at(&self.noise, wcx, wcy, bd, &col, u);
+                    ly += 1;
+                    continue;
+                }
+                let strata = if bd >= f64::from(DEEP_DEPTH) {
+                    self.lattice.strata_at(lx, ly)
+                } else {
+                    0.0
+                };
+                out[i] = solid_at(&self.noise, wcx, wcy, bd, &col, u, strata);
+                ly += 1;
+            }
+        }
+
+        self.decorate(base_x, base_y, &mut out);
+        out
+    }
+
+    /// Run every registered decoration pass over one chunk's material array.
+    fn decorate(&mut self, base_x: i32, base_y: i32, out: &mut [CellId]) {
+        let mut ctx = DecorContext::new(
+            &self.noise,
+            self.seed,
+            base_x,
+            base_y,
+            out,
+            &mut self.heightmap,
+        );
+        for d in DECORATORS {
+            d.decorate(&mut ctx);
+        }
+    }
+}
+
+/// Generate one chunk from absolute chunk coordinates and a seed.
+///
+/// Convenience over [`ChunkGen`] for a caller that generates one chunk and
+/// throws the machinery away. It builds a whole `Noise` and a whole heightmap
+/// memo per call, so anything generating chunks in bulk — the streaming path,
+/// the benches, the dump tool — should hold a [`ChunkGen`] instead.
+pub fn generate_chunk(chunk_x: i32, chunk_y: i32, seed: u32) -> Vec<CellId> {
+    ChunkGen::new(seed).generate(chunk_x, chunk_y)
+}
+
+// --- Spawn -------------------------------------------------------------------
+
+/// How far either side of the requested column [`spawn_point`] will look.
+const SPAWN_SEARCH: i32 = 512;
+/// How far above sea level the ground has to be to count as dry land.
+const SPAWN_CLEARANCE: i32 = 4;
+/// The column the TypeScript defaulted to.
+pub const SPAWN_COL: i32 = 8;
+
+/// A world-pixel position.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpawnPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Spawn point (world px) for a fresh world.
+///
+/// Now that oceans exist, a fixed column is a coin flip between a beach and the
+/// sea floor. The search walks outward from `spawn_col` for the nearest column
+/// whose ground line clears sea level by a few cells — still a pure function of
+/// (seed, spawn_col), still no neighbour state, just a deterministic scan of a
+/// deterministic field.
+///
+/// (`spawn_col` was a defaulted parameter in the TypeScript; pass [`SPAWN_COL`]
+/// for the same behaviour.)
+pub fn spawn_point(seed: u32, spawn_col: i32) -> SpawnPoint {
+    let noise = world_noise(seed);
+    let mut hm = Heightmap::new();
+    let mut col = spawn_col;
+    let mut surf = hm.surface_row_at(&noise, col, None);
+    let mut r = 1;
+    while r <= SPAWN_SEARCH && surf > SEA_LEVEL_Y - SPAWN_CLEARANCE {
+        let right = hm.surface_row_at(&noise, spawn_col + r, None);
+        if right <= SEA_LEVEL_Y - SPAWN_CLEARANCE {
+            col = spawn_col + r;
+            surf = right;
+            break;
+        }
+        let left = hm.surface_row_at(&noise, spawn_col - r, None);
+        if left <= SEA_LEVEL_Y - SPAWN_CLEARANCE {
+            col = spawn_col - r;
+            surf = left;
+            break;
+        }
+        r += 1;
+    }
+    SpawnPoint {
+        x: (col * CELL_SIZE) as f32,
+        y: ((surf - 6) * CELL_SIZE) as f32,
+    }
+}
+
+// (`generateWorld` is not ported: it was a phase-1 shim that blitted chunks into
+// a finite `CellGrid`, and this crate has no `CellGrid` — the streaming store
+// consumes `generate_chunk` directly.)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::worldgen::SEED;
+
+    const N: usize = (CHUNK_CELLS * CHUNK_CELLS) as usize;
+
+    #[test]
+    fn a_chunk_is_a_full_square_of_known_materials() {
+        let c = generate_chunk(0, 2, SEED);
+        assert_eq!(c.len(), N);
+        assert!(
+            c.iter()
+                .all(|&m| (m as usize) < crate::sim::materials::MAT_R.len())
+        );
+    }
+
+    #[test]
+    fn sky_is_empty_and_the_floor_is_solid() {
+        let mut g = ChunkGen::new(SEED);
+        // Far above any possible surface: nothing but air.
+        let sky = g.generate(0, -8);
+        assert!(sky.iter().all(|&m| m == AIR), "the sky has something in it");
+        // Below UNDERWORLD_FLOOR (640 cells / 32 = chunk row 20 and beyond,
+        // measured from a surface near row 48): bedrock, no holes.
+        let floor = g.generate(0, 40);
+        assert!(
+            floor.iter().all(|&m| m != AIR),
+            "the world has a hole in its floor"
+        );
+    }
+
+    #[test]
+    fn one_generator_and_a_fresh_one_agree() {
+        // The cheap version of purity check 1, kept here so a broken memo fails
+        // the unit suite too and not only the integration one.
+        let mut g = ChunkGen::new(SEED);
+        for (cx, cy) in [(0, 0), (-2, 5), (7, 12), (0, 0)] {
+            assert_eq!(g.generate(cx, cy), generate_chunk(cx, cy, SEED));
+        }
+    }
+
+    #[test]
+    fn spawn_is_on_dry_land_or_the_search_ran_out() {
+        let p = spawn_point(SEED, SPAWN_COL);
+        let noise = world_noise(SEED);
+        let mut hm = Heightmap::new();
+        let col = (p.x as i32) / CELL_SIZE;
+        let surf = hm.surface_row_at(&noise, col, None);
+        assert_eq!(p.y as i32, (surf - 6) * CELL_SIZE);
+        assert!(surf <= SEA_LEVEL_Y - SPAWN_CLEARANCE, "spawned in the sea");
+    }
+}

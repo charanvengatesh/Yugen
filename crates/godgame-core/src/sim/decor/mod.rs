@@ -37,6 +37,26 @@ use crate::sim::materials::{CellId, EMPTY, MAT_COLLIDE};
 use crate::sim::noise::Noise;
 use crate::sim::worldgen::heightmap::Heightmap;
 
+/// Where a decorator's writes land.
+///
+/// [`Sink::Chunk`] is the shipping path and the only one worldgen builds. The
+/// TypeScript could fabricate a `DecorContext` whose `plot` members were
+/// arbitrary closures, and the determinism suite leaned on that to ask a pass
+/// "which cells would you write?" without giving it a chunk; a struct with a
+/// `&mut [CellId]` in it cannot be fabricated that way, so the second shape is
+/// named here instead of being conjured at the call site.
+enum Sink<'a> {
+    /// The chunk being generated, row-major, `CHUNK_CELLS` square.
+    Chunk(&'a mut [CellId]),
+    /// Record every plotted cell as an ABSOLUTE coordinate and write nothing.
+    ///
+    /// Deliberately not clipped to the context's own chunk: the caller asking is
+    /// asking precisely what this pass believes belongs OUTSIDE the chunk it was
+    /// pointed at, which is what makes the reach check in the purity suite
+    /// possible. `peek` reads as empty, exactly as the TypeScript's `() => 0`.
+    Record(&'a mut Vec<(i32, i32, CellId)>),
+}
+
 /// Everything a decorator is allowed to know, and nothing else.
 ///
 /// The absence of a "read a neighbouring chunk" method is the design. So is the
@@ -49,8 +69,8 @@ pub struct DecorContext<'a> {
     pub base_x: i32,
     /// Absolute cell y of this chunk's top-left.
     pub base_y: i32,
-    /// The chunk being generated, row-major, `CHUNK_CELLS` square.
-    out: &'a mut [CellId],
+    /// Where plotted cells go.
+    sink: Sink<'a>,
     /// Surface rows come from here, never from a chunk's contents.
     heightmap: &'a mut Heightmap,
 }
@@ -70,7 +90,32 @@ impl<'a> DecorContext<'a> {
             seed,
             base_x,
             base_y,
-            out,
+            sink: Sink::Chunk(out),
+            heightmap,
+        }
+    }
+
+    /// A context that RECORDS what a pass would write instead of writing it.
+    ///
+    /// `base_x`/`base_y` still name the chunk the pass believes it is painting —
+    /// that is what its loop clamps and origin scans key off — but the plots are
+    /// collected as absolute coordinates rather than clipped to it. Asking a
+    /// NEIGHBOUR what it thinks belongs in this chunk is the whole point, and it
+    /// is what the landmark-reach check in the purity suite is built on.
+    pub fn recording(
+        noise: &'a Noise,
+        seed: u32,
+        base_x: i32,
+        base_y: i32,
+        into: &'a mut Vec<(i32, i32, CellId)>,
+        heightmap: &'a mut Heightmap,
+    ) -> DecorContext<'a> {
+        DecorContext {
+            noise,
+            seed,
+            base_x,
+            base_y,
+            sink: Sink::Record(into),
             heightmap,
         }
     }
@@ -93,8 +138,14 @@ impl<'a> DecorContext<'a> {
     /// Write a cell if it lands inside the chunk being generated; else discard.
     #[inline]
     pub fn plot(&mut self, wcx: i32, wcy: i32, code: CellId) {
-        if let Some(i) = self.index(wcx, wcy) {
-            self.out[i] = code;
+        let idx = self.index(wcx, wcy);
+        match &mut self.sink {
+            Sink::Chunk(out) => {
+                if let Some(i) = idx {
+                    out[i] = code;
+                }
+            }
+            Sink::Record(rec) => rec.push((wcx, wcy, code)),
         }
     }
 
@@ -102,10 +153,16 @@ impl<'a> DecorContext<'a> {
     /// must not eat rock.
     #[inline]
     pub fn plot_if_empty(&mut self, wcx: i32, wcy: i32, code: CellId) {
-        if let Some(i) = self.index(wcx, wcy)
-            && self.out[i] == EMPTY
-        {
-            self.out[i] = code;
+        let idx = self.index(wcx, wcy);
+        match &mut self.sink {
+            Sink::Chunk(out) => {
+                if let Some(i) = idx
+                    && out[i] == EMPTY
+                {
+                    out[i] = code;
+                }
+            }
+            Sink::Record(rec) => rec.push((wcx, wcy, code)),
         }
     }
 
@@ -113,10 +170,16 @@ impl<'a> DecorContext<'a> {
     /// replacing rock.
     #[inline]
     pub fn plot_if_solid(&mut self, wcx: i32, wcy: i32, code: CellId) {
-        if let Some(i) = self.index(wcx, wcy)
-            && MAT_COLLIDE[self.out[i] as usize] != 0
-        {
-            self.out[i] = code;
+        let idx = self.index(wcx, wcy);
+        match &mut self.sink {
+            Sink::Chunk(out) => {
+                if let Some(i) = idx
+                    && MAT_COLLIDE[out[i] as usize] != 0
+                {
+                    out[i] = code;
+                }
+            }
+            Sink::Record(rec) => rec.push((wcx, wcy, code)),
         }
     }
 
@@ -124,7 +187,10 @@ impl<'a> DecorContext<'a> {
     /// outside it reads as empty, because this chunk genuinely does not know.
     #[inline]
     pub fn peek(&self, wcx: i32, wcy: i32) -> CellId {
-        self.index(wcx, wcy).map_or(EMPTY, |i| self.out[i])
+        match &self.sink {
+            Sink::Chunk(out) => self.index(wcx, wcy).map_or(EMPTY, |i| out[i]),
+            Sink::Record(_) => EMPTY,
+        }
     }
 
     /// Surface row for an absolute column — recomputed, never read from a chunk.

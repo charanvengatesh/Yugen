@@ -14,3 +14,9 @@ rayon.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 serde_json = "1"
+
+# The worldgen microbench is a criterion binary, not a libtest one: chunk
+# generation is measured in microseconds and libtest's timer cannot see it.
+[[bench]]
+name = "worldgen"
+harness = false

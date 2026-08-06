@@ -11,6 +11,7 @@
 //! keyword in Rust 2024.)
 
 pub mod caves;
+pub mod chunk;
 pub mod containers;
 pub mod features;
 pub mod fields;
@@ -19,3 +20,11 @@ pub mod layers;
 pub mod loot;
 pub mod spline;
 pub mod structs;
+
+// The orchestrator is the face of the subsystem: `sim::worldgen::generate_chunk`
+// is what a chunk store calls, and `chunk` is an implementation detail of where
+// it happens to live.
+pub use chunk::{
+    ChunkGen, DECORATORS, SPAWN_COL, SpawnPoint, generate_chunk, material_at, spawn_point,
+    world_noise,
+};
