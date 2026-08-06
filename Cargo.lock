@@ -2919,6 +2919,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bitflags 2.13.1",
+ "criterion",
  "godgame-core",
  "godgame-data",
  "serde_json",
@@ -6195,8 +6196,9 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "godgame-core",
- "godgame-data",
+ "proc-macro2",
+ "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]

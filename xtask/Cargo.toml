@@ -4,9 +4,22 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Repo gates: the tuning index, the mob regression check, and the aggregate `check`."
+description = "Repo gates: the tuning index, the staleness checks, and the aggregate `check`."
 publish = false
 
+# NOTHING FROM THE WORKSPACE. `cargo xtask check` has to be able to run when the
+# tree does not compile — that is the whole situation it exists for. Depending on
+# `godgame-core` would mean a broken sim crate stops the gate runner from
+# starting, and the developer gets a build error for xtask instead of the clippy
+# output that would tell them what is actually wrong. The gates reach the
+# workspace by shelling out to cargo, never by linking it.
 [dependencies]
-godgame-core.workspace = true
-godgame-data.workspace = true
+# The tier-2/tier-3 sweep parses Rust rather than pattern-matching it. See the
+# header of `src/tuning/rust_consts.rs` for what that buys and what it costs.
+syn = { version = "2", features = ["full"] }
+# Spans carry line numbers only with this feature on. Without it `Span::start()`
+# reports line 0 for everything and the index cannot point at a declaration.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+# Tier 1 reads `content/` through the same front end `contentc` uses, so the
+# record count in the index is the record count the compiler sees.
+toml = "0.9"
