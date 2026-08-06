@@ -4,10 +4,11 @@
 //!
 //! # The model
 //!
-//! One light sample per [`LIGHT_DOWNSCALE`] sim cells — a 20 world-px light cell
-//! — over the visible viewport plus a one-light-cell margin, so the small grid
-//! upscales smoothly to the screen without a seam creeping in at the edges. The
-//! look is three cheap layers stacked in order:
+//! One light sample per [`LIGHT_DOWNSCALE`] sim cells — a [`CELL_SIZE`] world-px
+//! light cell, the same lattice the art is drawn on — over the visible viewport
+//! plus a one-light-cell margin, so a camera sitting between two light cells
+//! still has a texel to cover each screen edge. The look is three cheap layers
+//! stacked in order:
 //!
 //!   1. **skylight** — flood from the top; open sky is bright, and light decays
 //!      as it descends through and behind solids so caves and the deep go dark;
@@ -33,16 +34,16 @@
 //! cache in front of a cache. The columns are simply asked for, and a stationary
 //! camera does no noise evaluation for the same reason it did not before.
 //!
-//! **The emitter census is taken here.** In the TypeScript the census was a
-//! by-product of `paintCells`, which walked every visible cell anyway. The cell
-//! pass is [`crate::cellmap`]'s shader now and walks nothing on the CPU, so
-//! [`scan_emitters`] pays for the walk explicitly. It matters: the light grid
-//! point-samples one cell in sixteen, so without it a one-cell torch is missed
-//! fifteen times out of sixteen. The scan keeps the original's dedup rule (one
-//! entry per 4-cell column group per row) and its [`EMIT_CENSUS_MAX`] cap, and
-//! publishes two parallel `&[i32]`s so [`crate::cells::EmitterCensus`] can be
-//! handed to [`LightGrid::add_census_emitters`] verbatim if the CPU blit ever
-//! becomes the thing producing one.
+//! **The emitter census is taken here — when it is taken at all.** In the
+//! TypeScript the census was a by-product of `paintCells`, which walked every
+//! visible cell anyway. The cell pass is [`crate::cellmap`]'s shader now and
+//! walks nothing on the CPU, so [`scan_emitters`] pays for the walk explicitly.
+//! It existed because a light grid coarser than the cell grid point-samples one
+//! cell in sixteen and so misses a one-cell torch fifteen times in sixteen. At
+//! [`LIGHT_DOWNSCALE`] 1 there is no gap left for it to cover and it is skipped
+//! outright — see [`CENSUS_NEEDED`], which is also why the largest single cost
+//! in `docs/PERF.md`'s light table is no longer paid. The pass and its scan are
+//! kept, tested and correct, because they are what any downscale above 1 needs.
 //!
 //! **The composite is fixed-function blending, not Canvas2D composite modes.**
 //! `globalCompositeOperation = "multiply"` over an RGBA whose alpha is the
@@ -58,8 +59,7 @@
 //!
 //! **`f32` throughout.** The TypeScript was doubles because JavaScript has
 //! nothing else. Nothing here is precision-critical: the whole output is
-//! quantised to 8 bits per channel on a grid a sixteenth of the viewport's
-//! resolution.
+//! quantised to 8 bits per channel and then to the cell lattice.
 //!
 //! # The bloom is NOT a port, and the thing it replaced is worth naming
 //!
@@ -321,35 +321,82 @@ const SKY_NIGHT: f32 = 0.22;
 /// What full daylight adds on top of [`SKY_NIGHT`].
 const SKY_DAY_GAIN: f32 = 0.78;
 
-/// What a light cell of open air costs the flood.
+/// What one SIM CELL of open air costs the flood.
 ///
-/// LIGHT IS LOST BY PASSING THROUGH MATTER, NOT BY TRAVELLING. This was 0.94 —
-/// a 6% loss per light cell of empty air. Over the 27 light rows a 1440p
-/// viewport spans that compounds to 0.19, so the bottom of the screen sat at a
+/// LIGHT IS LOST BY PASSING THROUGH MATTER, NOT BY TRAVELLING. Open air costs
+/// almost nothing — a touch of haze, so a very tall shaft still reads as deeper
+/// at the bottom. The per-light-cell figure this used to be written as was 0.94
+/// once: a 6% loss per 20 px of empty air, which over the 27 light rows a 1440p
+/// viewport spanned compounded to 0.19, so the bottom of the screen sat at a
 /// fifth of the brightness of the top with nothing in between them but sky. At
 /// noon. It also made the flood depend on where the CAMERA happened to be rather
 /// than on the world, so the same patch of ground brightened and dimmed as you
 /// walked toward it, and it put visible vertical banding in open sky wherever
 /// neighbouring columns had different surface heights.
-///
-/// Open air now costs almost nothing — a touch of haze, so a very tall shaft
-/// still reads as deeper at the bottom.
-const OPEN_DECAY: f32 = 0.99;
+const OPEN_DECAY_PER_CELL: f32 = 0.997_490_6;
 
-/// What a light cell of opaque rock costs the flood.
+/// What one SIM CELL of opaque rock costs the flood.
 ///
 /// A cave is dark because there are forty cells of stone over it, which is the
 /// reason it should be dark, and that is what makes a torch matter down there
 /// while daylight stays flat and bright up top.
-const SOLID_DECAY: f32 = 0.55;
+const SOLID_DECAY_PER_CELL: f32 = 0.861_173_5;
+
+/// What one LIGHT CELL of open air costs the flood.
+const OPEN_DECAY: f32 = over_a_light_cell(OPEN_DECAY_PER_CELL);
+
+/// What one LIGHT CELL of opaque rock costs the flood.
+const SOLID_DECAY: f32 = over_a_light_cell(SOLID_DECAY_PER_CELL);
+
+/// A per-sim-cell survival fraction compounded over one light cell.
+///
+/// # Why the decays are not written as light-cell numbers any more
+///
+/// The flood carries one value per light cell and multiplies by a decay at each
+/// step, so the decay is a per-STEP quantity — and the step is
+/// [`LIGHT_DOWNSCALE`] cells wide. The two used to be written as the compounded
+/// figures directly (0.99 open, 0.55 solid) with nothing tying them to the
+/// stride, so when the stride went from 4 cells to 1 the same literals became a
+/// FOUR TIMES FASTER loss per world px and every cave went black. Nothing in the
+/// build would have said so; the constants were correct-looking numbers about a
+/// distance that had silently changed under them.
+///
+/// A cell is the unit occlusion is quantised in — one cell is solid or it is not
+/// — so the per-cell fraction is the thing that is actually a property of the
+/// world, and the per-light-cell figure is a consequence of the sampling. This
+/// also states the model the coarse sampler was always implying: the one cell a
+/// light cell samples stands in for all [`LIGHT_DOWNSCALE`] of them, so its
+/// decay applies that many times. The old 4-cell values are reproduced exactly
+/// (0.997_490_6⁴ = 0.99, 0.861_173_5⁴ = 0.55), so this is a change of
+/// EXPRESSION at the old stride and a retune only because the stride moved.
+///
+/// A `const fn`, so the compounding happens at compile time and the flood's hot
+/// loop still multiplies by a literal. `f32::powi` is not `const`; a `while`
+/// loop of multiplies is, and for an exponent this small it is also the exact
+/// same arithmetic.
+const fn over_a_light_cell(per_cell: f32) -> f32 {
+    let mut out = 1.0;
+    let mut n = 0;
+    while n < LIGHT_DOWNSCALE {
+        out *= per_cell;
+        n += 1;
+    }
+    out
+}
 
 /// Per-CELL decay used to seed a column whose top starts below the surface.
 ///
 /// The streaming window's top may be far below the ground line. Seeding each
 /// column's carry from how deep its top sample sits below that column's own
 /// surface height keeps brightness a continuous function of absolute world
-/// coordinates, so it stays seam-free as the window scrolls. Per sim cell rather
-/// than per light cell because a surface height is a cell row.
+/// coordinates, so it stays seam-free as the window scrolls.
+///
+/// **This is the one decay that takes no [`LIGHT_DOWNSCALE`] correction, and it
+/// looks exactly like the two that do.** It is raised to a count of CELLS —
+/// `below_surface` is the difference of two cell rows — not to a count of light
+/// cells, because a surface height is a cell row. Rescaling it with the stride
+/// would be four applications of a correction the exponent already carries, and
+/// would light every deep window four times too brightly.
 const SEED_DECAY: f32 = 0.985;
 
 // --- Emissive splats ---------------------------------------------------------
@@ -364,7 +411,133 @@ const FLICKER_SWING: f32 = 0.12;
 /// breathe out of step instead of pulsing as one slab.
 const FLICKER_RATE: f32 = 5.5;
 
-/// What the four neighbours of a scalar splat get, relative to its centre.
+/// How far a splat's four arms reach, in SIM CELLS.
+///
+/// # Reach is a world distance, and it used to be written as a grid index
+///
+/// The splat is a cross: the centre, four arms, and — for a strong emitter — a
+/// far ring outside them. All three offsets were literal light-cell steps of 1
+/// and 2, which at four cells per sample meant 20 and 40 world px. At one cell
+/// per sample the same literals mean 5 and 10, so every light in the game would
+/// have kept its shape and lost three quarters of its reach: a lava lake stops
+/// lighting the cave it is in and becomes a bright sticker on the floor. That is
+/// what the first capture at this downscale actually looked like.
+///
+/// So the reaches are stated in cells and divided by the stride. Four cells is
+/// the 20 px the arms have always covered, and it is about the distance at which
+/// a glow still reads as coming from the block that cast it.
+const SPLAT_REACH_CELLS: i32 = 4;
+
+/// How far a strong emitter's far ring reaches, in SIM CELLS.
+///
+/// Twice [`SPLAT_REACH_CELLS`], as it has always been — the ring is the second
+/// step out, not a different mechanism.
+const FAR_REACH_CELLS: i32 = 8;
+
+/// How far the blur that turns splats into glow spreads, in SIM CELLS.
+///
+/// Matched to [`SPLAT_REACH_CELLS`], and that is not a coincidence to be tidied
+/// away: the blur's job is to fill the gap between a splat's centre and its
+/// arms, so if it reaches less far than an arm does the cross stops being a
+/// glow and starts being five dots with holes between them.
+///
+/// It is also the one thing here that must NOT be widened to hide the light
+/// grid's lattice any more. At one sample per cell the lattice IS the art's, and
+/// blurring it away is exactly the smooth wash this whole change exists to
+/// remove.
+const BLUR_REACH_CELLS: i32 = 4;
+
+/// [`SPLAT_REACH_CELLS`] in light cells.
+const SPLAT_REACH: i32 = in_light_cells(SPLAT_REACH_CELLS);
+
+/// [`FAR_REACH_CELLS`] in light cells.
+const FAR_REACH: i32 = in_light_cells(FAR_REACH_CELLS);
+
+/// [`BLUR_REACH_CELLS`] in light cells — the blur's radius in taps per side.
+const BLUR_REACH: i32 = in_light_cells(BLUR_REACH_CELLS);
+
+/// How soft the light's own edges are against the art's, 0..1.
+///
+/// **The dial to reach for when the lighting reads wrong at the pixel level**,
+/// and the one this module did not have. It is a fraction of a CELL: the light
+/// steps from one cell's value to the next over a ramp this wide, and is flat
+/// across the rest of the cell. 0 is a hard block edge, exactly a nearest fetch;
+/// 1 is a full bilinear upscale, which at one texel per cell is a 5 px ramp.
+/// [`LIGHT_WGSL`] is where it is applied and how.
+///
+/// # Why the answer is neither end
+///
+/// At 0 the light is drawn in exactly the art's blocks, and that is a real
+/// problem rather than the goal: a lit cell and a differently-coloured BLOCK
+/// become the same thing on screen, so the eye reads a bright patch on a wall as
+/// masonry rather than as light falling on it. Light that is quantised exactly
+/// like matter stops looking like light.
+///
+/// At 1 the light is a smooth field over the whole frame. That is what this
+/// module used to do — and at four cells per sample it was a 20 px smear, the
+/// airbrushed wash the underground was reported as having.
+///
+/// So: a ramp NARROWER than a cell. The light shares the art's lattice, which is
+/// what stops it looking pasted on, and it crosses between cells over a fraction
+/// of one, which is what keeps it distinguishable from the blocks it falls on.
+/// Below about 0.2 the ramp is under a pixel at this cell size and the dial
+/// stops doing anything the frame buffer can hold.
+const LIGHT_SOFTNESS: f32 = 0.5;
+
+/// [`LIGHT_SOFTNESS`], or a full bilinear upscale if the grid is coarser than
+/// the art.
+///
+/// Snapping a sample to its texel centre reads as "the light belongs to this
+/// block" only when a texel IS a block. At any [`LIGHT_DOWNSCALE`] above 1 the
+/// same snap would quantise the light to a lattice nothing on screen is drawn
+/// on — a hard 20 px grid at the old downscale of 4 — so the dial turns itself
+/// off and the grid goes back to interpolating, which is the least-bad thing a
+/// coarse grid can do. Derived rather than left to whoever changes the stride.
+const LIGHT_SNAP: f32 = if LIGHT_DOWNSCALE == 1 {
+    LIGHT_SOFTNESS
+} else {
+    1.0
+};
+
+const _: () = assert!(
+    LIGHT_SOFTNESS >= 0.0 && LIGHT_SOFTNESS <= 1.0,
+    "LIGHT_SOFTNESS is a fraction of a texel. Above 1 the shader would push a \
+     sample past its own texel's edge and fetch a neighbour's neighbour, which \
+     is a light field shifted off the world, not a softer one"
+);
+
+/// How far back one box pass of the blur looks, and how far forward.
+///
+/// A box of `BLUR_REACH + 1` samples. Two of them, offset against each other, is
+/// the kernel — see [`blur_one`] for why the split is uneven when the reach is
+/// odd. Split rather than one radius because an even-width box has no centre
+/// sample and the pair only lands back on one if the second leans the other way.
+const BLUR_BACK: usize = (BLUR_REACH / 2) as usize;
+
+/// See [`BLUR_BACK`].
+const BLUR_FWD: usize = (BLUR_REACH - BLUR_REACH / 2) as usize;
+
+/// A distance in sim cells as a whole number of light cells.
+///
+/// Rounded UP, so a reach authored in cells can never collapse to zero and
+/// silently delete the ring or the arm it describes; the const assert below is
+/// what catches a stride that does not divide it cleanly, which would be a
+/// reach that quietly grew instead.
+const fn in_light_cells(cells: i32) -> i32 {
+    let n = cells / LIGHT_DOWNSCALE;
+    if n < 1 { 1 } else { n }
+}
+
+const _: () = assert!(
+    SPLAT_REACH * LIGHT_DOWNSCALE == SPLAT_REACH_CELLS
+        && FAR_REACH * LIGHT_DOWNSCALE == FAR_REACH_CELLS
+        && BLUR_REACH * LIGHT_DOWNSCALE == BLUR_REACH_CELLS,
+    "a reach converted to light cells no longer converts back to the distance \
+     it was authored as — LIGHT_DOWNSCALE has to divide all three, or the grid \
+     cannot express the reach they were tuned at"
+);
+
+/// What the four arms of a scalar splat get, relative to its centre.
 const SPLAT_EDGE: f32 = 0.42;
 
 /// The declared level above which an emitter also throws a far ring.
@@ -416,15 +589,19 @@ const HEAT_RGB: [f32; 3] = [0.5, 0.16, 0.04];
 const HOT_MAX: usize = 64;
 
 /// The eight offsets a strong emitter's far ring lands on.
+///
+/// Axial at [`FAR_REACH`] and diagonal at [`SPLAT_REACH`], which is what the
+/// original's `(±2, 0)` and `(±1, ±1)` were saying: the diagonals sit one step
+/// out and the axes two, so the ring is a rough circle rather than a square.
 const FAR_RING: [(i32, i32); 8] = [
-    (-2, 0),
-    (2, 0),
-    (0, -2),
-    (0, 2),
-    (-1, -1),
-    (1, -1),
-    (-1, 1),
-    (1, 1),
+    (-FAR_REACH, 0),
+    (FAR_REACH, 0),
+    (0, -FAR_REACH),
+    (0, FAR_REACH),
+    (-SPLAT_REACH, -SPLAT_REACH),
+    (SPLAT_REACH, -SPLAT_REACH),
+    (-SPLAT_REACH, SPLAT_REACH),
+    (SPLAT_REACH, SPLAT_REACH),
 ];
 
 /// The four the census pass uses.
@@ -434,7 +611,12 @@ const FAR_RING: [(i32, i32); 8] = [
 /// a decision — but a census emitter is by definition a SMALL source, a torch
 /// and not a magma chamber, and the narrower ring is the better answer for one.
 /// Kept, and written down, rather than silently unified.
-const FAR_RING_AXIAL: [(i32, i32); 4] = [(-2, 0), (2, 0), (0, -2), (0, 2)];
+const FAR_RING_AXIAL: [(i32, i32); 4] = [
+    (-FAR_REACH, 0),
+    (FAR_REACH, 0),
+    (0, -FAR_REACH),
+    (0, FAR_REACH),
+];
 
 // --- Census ------------------------------------------------------------------
 
@@ -448,10 +630,28 @@ pub const EMIT_CENSUS_MAX: usize = 512;
 /// Cells per census dedup group along a row.
 ///
 /// One entry per group per row, so a wide lava surface cannot flood the list and
-/// starve a torch on the far side of the view. Four is the light grid's own
-/// downscale: two emitters closer together than this land in the same light cell
-/// and would be deduplicated by the splat pass regardless.
+/// starve a torch on the far side of the view. The light grid's own downscale:
+/// two emitters closer together than this land in the same light cell and would
+/// be deduplicated by the splat pass regardless.
 const CENSUS_GROUP: i32 = LIGHT_DOWNSCALE;
+
+/// Whether the census is worth taking at all at this [`LIGHT_DOWNSCALE`].
+///
+/// The census exists to find the emitters the downscaled sampler steps OVER. At
+/// a downscale of 1 it steps over nothing: [`LightGrid::add_emissive`] visits
+/// every cell under the grid, which is precisely the rect [`scan_emitters`]
+/// walks, and it keys off a level that is a superset of the one the scan keys
+/// off. Every census entry would therefore be a SECOND splat of a source already
+/// splatted — and, since the scan stops at [`EMIT_CENSUS_MAX`], a second splat
+/// of only the first 512 of them, which draws a hard seam across a lava lake at
+/// the point the cap bites. Not a glow.
+///
+/// Skipping it also deletes `scan_emitters` from the frame, which `docs/PERF.md`
+/// §8.3 names as the largest single cost in the light pass — the one place it
+/// says to look first if the light ever has to shrink. Going to one sample per
+/// cell is what makes the coarse grid's compensating scan redundant, so the
+/// resolution increase buys the scan's whole cost back.
+const CENSUS_NEEDED: bool = LIGHT_DOWNSCALE > 1;
 
 // --- Bloom -------------------------------------------------------------------
 
@@ -527,10 +727,12 @@ const BLOOM_SIGMA_CELLS: f32 = 1.5;
 /// It was briefly halved to 0.15 in response to a report that the glow underground
 /// was too strong and too smooth. That was the wrong knob, and the measurement is
 /// worth recording so nobody reaches for it again: with this set to **0.0** the
-/// reported haze is unchanged. What produces it is the COLOUR grid — one texel
-/// per `LIGHT_DOWNSCALE` cells, upscaled smoothly — not this pass. See
-/// [`COLOUR_GAIN`] for the strength dial and `LIGHT_DOWNSCALE` for the
-/// resolution.
+/// reported haze was unchanged. What produced it was the COLOUR grid, which at
+/// the time was one texel per four cells and interpolated across all twenty of
+/// their pixels — not this pass. [`LIGHT_DOWNSCALE`] is 1 now and
+/// [`LIGHT_SOFTNESS`] bounds the interpolation to a fraction of ONE cell, which
+/// is what actually answered that report; [`COLOUR_GAIN`] is the strength dial
+/// if the coloured cast ever needs one again.
 const BLOOM_INTENSITY: f32 = 0.3;
 
 /// Where the bloom's gather pass sits in camera order.
@@ -638,6 +840,8 @@ pub struct LightGrid {
     light: Vec<f32>,
     /// Ping-pong scratch for the separable blur.
     scratch: Vec<f32>,
+    /// One running column sum per grid column, for the blur's vertical pass.
+    acc: Vec<f32>,
 
     /// COLOURED light, accumulated separately from the scalar grid.
     ///
@@ -687,6 +891,7 @@ impl LightGrid {
             lh,
             light: vec![0.0; n],
             scratch: vec![0.0; n],
+            acc: vec![0.0; lw.max(1) as usize],
             lr: vec![0.0; n],
             lg: vec![0.0; n],
             lb: vec![0.0; n],
@@ -894,10 +1099,12 @@ impl LightGrid {
 
     /// Splat the emitters the census found, deduplicated per light cell.
     ///
-    /// The downscaled sampling loop above catches BULK emitters — a lava lake
-    /// fills every block it is sampled in — but by construction cannot see a
-    /// one-cell torch, because it only looks at one cell in sixteen. This pass
-    /// covers the gap.
+    /// A downscaled sampling loop catches BULK emitters — a lava lake fills
+    /// every block it is sampled in — but by construction cannot see a one-cell
+    /// torch, because it only looks at one cell in `LIGHT_DOWNSCALE` squared.
+    /// This pass covers that gap. At a downscale of 1 there is no gap and no
+    /// census is taken at all; see [`CENSUS_NEEDED`] for why feeding this one
+    /// anyway would double every emitter rather than add nothing.
     ///
     /// Deduplicated per LIGHT CELL: several census entries commonly land in the
     /// same one (a 6-cell campfire, a torch beside a lantern), and splatting
@@ -989,11 +1196,11 @@ impl LightGrid {
     /// never run at all.
     pub fn blur(&mut self) {
         let (lw, lh) = (self.lw, self.lh);
-        blur_one(&mut self.light, &mut self.scratch, lw, lh);
+        blur_one(&mut self.light, &mut self.scratch, &mut self.acc, lw, lh);
         if self.colour_dirty {
-            blur_one(&mut self.lr, &mut self.scratch, lw, lh);
-            blur_one(&mut self.lg, &mut self.scratch, lw, lh);
-            blur_one(&mut self.lb, &mut self.scratch, lw, lh);
+            blur_one(&mut self.lr, &mut self.scratch, &mut self.acc, lw, lh);
+            blur_one(&mut self.lg, &mut self.scratch, &mut self.acc, lw, lh);
+            blur_one(&mut self.lb, &mut self.scratch, &mut self.acc, lw, lh);
         }
     }
 
@@ -1054,8 +1261,15 @@ impl LightGrid {
 }
 
 /// Light-grid size for a view: the visible rect, rounded up, plus a one-cell
-/// margin each side so the smooth upscale has something to interpolate toward
-/// instead of clamping at the screen edge.
+/// margin each side.
+///
+/// The margin is what covers the camera sitting BETWEEN two light cells: the
+/// grid's origin is floored to the lattice, so the view can hang up to one light
+/// cell off each far edge, and without the spare column there the composite quad
+/// would stop short of the screen. It also gives the upscale a value to
+/// interpolate toward rather than clamping at the frame edge — a second reason
+/// that used to be the stated one, and that now covers [`LIGHT_SOFTNESS`] of a
+/// cell rather than a whole 20 px texel.
 pub fn grid_size(view: View) -> (i32, i32) {
     let stride = light_stride_px();
     let ceil = |px: i32| (px.max(0) + stride - 1) / stride + 2;
@@ -1067,13 +1281,19 @@ pub const fn light_stride_px() -> i32 {
     CELL_SIZE * LIGHT_DOWNSCALE
 }
 
-/// Additive centre plus 4-neighbour spread, clamped to 1.
+/// Additive centre plus four arms at [`SPLAT_REACH`], clamped to 1.
+///
+/// Five writes whatever the stride: the arms move further out in light cells as
+/// the grid gets finer, but there are still four of them. What fills the gap
+/// between the centre and an arm is [`blur_one`], whose radius is the same
+/// distance — that pairing is why a cross of five deltas reads as a glow and not
+/// as five dots, and it is why the two reaches have to move together.
 fn splat(buf: &mut [f32], lw: i32, lh: i32, lx: i32, ly: i32, core: f32, edge: f32) {
     add(buf, lw, lh, lx, ly, core);
-    add(buf, lw, lh, lx - 1, ly, edge);
-    add(buf, lw, lh, lx + 1, ly, edge);
-    add(buf, lw, lh, lx, ly - 1, edge);
-    add(buf, lw, lh, lx, ly + 1, edge);
+    add(buf, lw, lh, lx - SPLAT_REACH, ly, edge);
+    add(buf, lw, lh, lx + SPLAT_REACH, ly, edge);
+    add(buf, lw, lh, lx, ly - SPLAT_REACH, edge);
+    add(buf, lw, lh, lx, ly + SPLAT_REACH, edge);
 }
 
 /// Clamped additive write into a light cell. Out of range is a no-op.
@@ -1085,27 +1305,102 @@ fn add(buf: &mut [f32], lw: i32, lh: i32, x: i32, y: i32, v: f32) {
     buf[i] = (buf[i] + v).min(1.0);
 }
 
-/// Horizontal then vertical `[1, 2, 1] / 4`, edges clamped to themselves.
+/// A triangle blur of radius [`BLUR_REACH`], edges clamped to themselves.
 ///
-/// `scratch` is the caller's ping-pong buffer; it comes in dirty and goes out
-/// dirty, which is the whole point of it being owned by the grid rather than
-/// allocated per pass.
-fn blur_one(a: &mut [f32], scratch: &mut [f32], lw: i32, lh: i32) {
+/// # Four box passes, and why not nine taps
+///
+/// A triangle kernel IS a box convolved with a box, so the whole blur is four
+/// runs of a sliding window: two along the rows and two down the columns. At
+/// radius 1 that is `[1, 2, 1] / 4` exactly, the kernel this pass has always
+/// run; at radius 4 it is `[1..5..1] / 25`. The uneven `BLUR_BACK`/`BLUR_FWD`
+/// split is what keeps the pair CENTRED when the box has an even width — the
+/// first pass leans forward by half a sample and the second leans back by the
+/// same half, and the two cancel. Getting that wrong shifts the entire light
+/// field half a cell against the art, which is the one error this arrangement
+/// can make and the reason the offsets are named rather than inlined.
+///
+/// The obvious implementation is `2 * BLUR_REACH + 1` taps per cell per axis,
+/// and it was written that way first. It costs the reach: nine taps at radius 4
+/// measured **171 µs** for one frame's four grids, 80% of the entire light
+/// solve, and it would have got worse the moment anyone widened the glow. A
+/// sliding window is O(1) in the radius — three float ops per cell per pass
+/// whatever the reach — so the look and the cost are no longer the same dial.
+///
+/// `scratch` is the caller's ping-pong buffer and `acc` its column accumulator,
+/// one entry per grid column. Both come in dirty and go out dirty, which is the
+/// whole point of them being owned by the grid rather than allocated per pass:
+/// the vertical window has to carry a running sum per column, and walking the
+/// grid column by column to avoid that would read every cache line `h` times.
+fn blur_one(a: &mut [f32], scratch: &mut [f32], acc: &mut [f32], lw: i32, lh: i32) {
     let (w, h) = (lw as usize, lh as usize);
+    box_rows(a, scratch, w, h, BLUR_BACK, BLUR_FWD);
+    box_rows(scratch, a, w, h, BLUR_FWD, BLUR_BACK);
+    box_cols(a, scratch, acc, w, h, BLUR_BACK, BLUR_FWD);
+    box_cols(scratch, a, acc, w, h, BLUR_FWD, BLUR_BACK);
+}
+
+/// One box pass along the rows, window `[x - back, x + fwd]`, edges clamped.
+///
+/// The output is clamped to 0..1 as well as the window. A running sum adds and
+/// subtracts the same values back out over a whole row, so it drifts by a few
+/// ulps where a fresh sum of taps would not — enough to leave a `-1e-8` in a
+/// grid every other pass in this module is entitled to assume is a fraction.
+/// The clamp is two ops per cell and buys back an invariant.
+fn box_rows(src: &[f32], dst: &mut [f32], w: usize, h: usize, back: usize, fwd: usize) {
+    let inv = 1.0 / (back + fwd + 1) as f32;
+    let last = w as isize - 1;
     for y in 0..h {
-        let row = y * w;
-        for x in 0..w {
-            let l = a[row + x.saturating_sub(1)];
-            let r = a[row + (x + 1).min(w - 1)];
-            scratch[row + x] = (l + a[row + x] * 2.0 + r) * 0.25;
+        let row = &src[y * w..y * w + w];
+        let at = |x: isize| row[x.clamp(0, last) as usize];
+
+        let mut sum = 0.0;
+        for d in 0..=(back + fwd) {
+            sum += at(d as isize - back as isize);
+        }
+        for (x, out) in dst[y * w..y * w + w].iter_mut().enumerate() {
+            *out = (sum * inv).clamp(0.0, 1.0);
+            sum += at((x + fwd + 1) as isize) - at(x as isize - back as isize);
+        }
+    }
+}
+
+/// One box pass down the columns, window `[y - back, y + fwd]`, edges clamped.
+///
+/// Row-major throughout: `acc` holds one running sum per column, so the walk is
+/// still linear over both buffers and the vertical pass costs what the
+/// horizontal one does.
+fn box_cols(
+    src: &[f32],
+    dst: &mut [f32],
+    acc: &mut [f32],
+    w: usize,
+    h: usize,
+    back: usize,
+    fwd: usize,
+) {
+    let inv = 1.0 / (back + fwd + 1) as f32;
+    let last = h as isize - 1;
+    let row_at = |y: isize| (y.clamp(0, last) as usize) * w;
+
+    acc[..w].fill(0.0);
+    for d in 0..=(back + fwd) {
+        let r = row_at(d as isize - back as isize);
+        for (a, s) in acc[..w].iter_mut().zip(&src[r..r + w]) {
+            *a += *s;
         }
     }
     for y in 0..h {
-        let row = y * w;
-        let up = y.saturating_sub(1) * w;
-        let down = (y + 1).min(h - 1) * w;
-        for x in 0..w {
-            a[row + x] = (scratch[up + x] + scratch[row + x] * 2.0 + scratch[down + x]) * 0.25;
+        let add = row_at((y + fwd + 1) as isize);
+        let sub = row_at(y as isize - back as isize);
+        let out = &mut dst[y * w..y * w + w];
+        for (((o, a), plus), minus) in out
+            .iter_mut()
+            .zip(acc[..w].iter_mut())
+            .zip(&src[add..add + w])
+            .zip(&src[sub..sub + w])
+        {
+            *o = (*a * inv).clamp(0.0, 1.0);
+            *a += *plus - *minus;
         }
     }
 }
@@ -1466,21 +1761,44 @@ pub fn bake_vignette(view: View, depth: f32, day: f32, out: &mut [u8]) {
 /// The one shader every light quad uses: sample, tint, hand it to the blend.
 ///
 /// Held as a string rather than a `.wgsl` beside the module because it carries
-/// no logic — all of the arithmetic is baked into the textures by
+/// almost no logic — all of the arithmetic is baked into the textures by
 /// [`LightGrid::bake_shadow`], [`LightGrid::bake_colour`] and [`bake_vignette`],
 /// which is what makes those decisions testable on the CPU. `cells.wgsl` earns
-/// its own file by being a real shading model; four lines of passthrough does
+/// its own file by being a real shading model; a passthrough and a uv nudge does
 /// not.
+///
+/// # The uv nudge IS the softness dial
+///
+/// `softness` is the one thing this shader decides, and it decides it by moving
+/// the SAMPLE POINT rather than by changing the filter. Every one of these
+/// textures is sampled linearly. Pulling the sample toward its own texel's
+/// centre by `1 - softness` narrows the band over which the filter is allowed to
+/// interpolate: at 0 every sample lands exactly on a texel centre and the result
+/// is bit-for-bit a nearest fetch; at 1 nothing moves and it is a plain bilinear
+/// upscale; in between, the light steps from cell to cell over a ramp
+/// `softness` of a cell wide and is flat across the rest.
+///
+/// That is a continuous dial between "the light is drawn in the same blocks as
+/// the art" and "the light is a smooth field over it", and it exists because
+/// both extremes are wrong in the same picture: a fully snapped light is
+/// indistinguishable from a differently-coloured BLOCK, and a fully smooth one
+/// is the airbrushed wash this module spent a change removing. See
+/// [`LIGHT_SOFTNESS`].
 const LIGHT_WGSL: &str = r#"
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var light_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var light_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> tint: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> softness: vec4<f32>;
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(light_texture, light_sampler, mesh.uv) * tint;
+    let dim = vec2<f32>(textureDimensions(light_texture));
+    let texel = mesh.uv * dim;
+    let centre = floor(texel) + vec2<f32>(0.5);
+    let uv = mix(centre, texel, softness.x) / dim;
+    return textureSample(light_texture, light_sampler, uv) * tint;
 }
 "#;
 
@@ -1544,10 +1862,13 @@ macro_rules! light_material {
         $(#[$meta])*
         #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
         pub struct $name {
-            /// The grid or sprite this quad samples. Sampled LINEARLY — the one
-            /// place in this game that is not nearest — because the whole point
-            /// of a light grid a sixteenth of the viewport's size is that it
-            /// upscales smoothly.
+            /// The grid or ramp this quad samples.
+            ///
+            /// Every one of them carries a LINEAR sampler — the game's one
+            /// `default_nearest` override, and no longer for the reason it was
+            /// first taken. How hard-edged the result is belongs to `softness`
+            /// below, which needs a filter underneath it that can interpolate at
+            /// all; see [`new_light_texture`].
             #[texture(0)]
             #[sampler(1)]
             pub texture: Handle<Image>,
@@ -1555,6 +1876,13 @@ macro_rules! light_material {
             /// per-channel freedom the flat washes need.
             #[uniform(2)]
             pub tint: Vec4,
+            /// How far this quad's sampling is allowed to cross a texel edge,
+            /// in `x`; see [`LIGHT_WGSL`] and [`LIGHT_SOFTNESS`]. `yzw` are
+            /// unused — a WGSL uniform pads a scalar to 16 bytes regardless, so
+            /// a `Vec4` costs what an `f32` would have and says the padding is
+            /// deliberate.
+            #[uniform(3)]
+            pub softness: Vec4,
         }
 
         impl Material2d for $name {
@@ -1889,21 +2217,34 @@ fn setup(
     // everything else and the tint uniform carries the whole signal.
     let white = images.add(new_light_texture(1, 1));
 
+    // Which quads get the softness dial and which are pinned open. The two
+    // light grids and the bloom are all one texel per CELL, so snapping their
+    // samples toward a texel centre snaps them to the art's own blocks. The
+    // vignette is one texel per 16 VIEW px and the wash is a single texel: there
+    // is no lattice under either to snap to, and a dial that quantised the
+    // vignette would band a ramp whose entire job is to be smooth.
+    let snap = Vec4::splat(LIGHT_SNAP);
+    let smooth = Vec4::ONE;
+
     let shadow_mat = shadow_materials.add(LightShadowMaterial {
         texture: shadow.clone(),
         tint: Vec4::ONE,
+        softness: snap,
     });
     let vignette_mat = shadow_materials.add(LightShadowMaterial {
         texture: vignette.clone(),
         tint: Vec4::ONE,
+        softness: smooth,
     });
     let colour_mat = glow_materials.add(LightGlowMaterial {
         texture: colour.clone(),
         tint: Vec4::ONE,
+        softness: snap,
     });
     let wash_mat = glow_materials.add(LightGlowMaterial {
         texture: white,
         tint: Vec4::ZERO,
+        softness: smooth,
     });
     // Set ONCE, here, and never touched again for the life of the process. The
     // strength of the bloom is a constant; the pass this replaced re-tinted up
@@ -1911,6 +2252,11 @@ fn setup(
     let bloom_mat = glow_materials.add(LightGlowMaterial {
         texture: bloom.clone(),
         tint: Vec4::new(BLOOM_INTENSITY, BLOOM_INTENSITY, BLOOM_INTENSITY, 1.0),
+        // One texel per cell, like the two grids above, so the glow answers to
+        // the same dial. It used to be pinned hard by a `nearest` sampler on the
+        // texture; that is this value at 0, and there is no reason the bloom
+        // should be the one layer whose hardness cannot be tuned with the rest.
+        softness: snap,
     });
 
     let quad = meshes.add(Rectangle::default());
@@ -2035,11 +2381,20 @@ fn quad_bundle<M: Material2d>(
 /// function applied on the way in would silently change the arithmetic
 /// [`LightGrid::bake_shadow`] worked out.
 ///
-/// Linear sampling is the whole trick, and the reason the game's one
-/// `default_nearest` sampler is overridden here. The grid is one texel per 20
-/// world px; nearest sampling would put a hard 20px lattice over the entire
-/// frame. The texel centres land exactly on the light cells' own sample centres,
-/// so the interpolation is between the two values it should be between.
+/// # Linear, and the game's one `default_nearest` override, for a NEW reason
+///
+/// The old reason was that the grid was one texel per 20 world px and nearest
+/// would have laid a hard 20 px lattice over the frame. True, and no longer the
+/// situation: a texel is a cell now. The reason it is still linear is that
+/// [`LIGHT_WGSL`] needs a filter it can dial — it snaps the sample point toward
+/// the texel centre by `1 - LIGHT_SOFTNESS`, and a NEAREST sampler would make
+/// every value of that dial identical. The hardness of the light lives in one
+/// tunable number instead of in a choice between two samplers, which is what
+/// lets it be a fraction of a cell rather than all or nothing.
+///
+/// Used for the two light grids and, at a softness pinned to 1, for the vignette
+/// and the washes: neither of those is on the cell lattice, so neither has
+/// anything to snap to.
 fn new_light_texture(w: i32, h: i32) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -2068,26 +2423,26 @@ fn new_light_texture(w: i32, h: i32) -> Image {
 /// texture**, and `TEXTURE_BINDING`, which is what lets the composite quad read
 /// it back. `COPY_DST` because [`Image::resize`] writes through it.
 ///
-/// The sampler is NEAREST, and the argument for it is the whole reason this
-/// texture is sized in cells.
+/// # The sampler, and why it stopped being the place this was decided
 ///
-/// It was linear first, on the reasoning that glow is the one quantity in a
+/// It was LINEAR first, on the reasoning that glow is the one quantity in a
 /// frame that ought to be smooth. That reasoning was sound and the result was
-/// wrong: a smoothly-interpolated haze over ore that is drawn in hard 5px blocks
-/// reads as a photographic effect pasted onto pixel art, which is exactly the
+/// wrong: a smoothly-interpolated haze over ore drawn in hard 5px blocks reads
+/// as a photographic effect pasted onto pixel art, which is exactly the
 /// complaint [`crate::sky`] answered by quantising the sun to the same grid.
+/// So it became NEAREST, on the ground that one texel here is `CELL_SIZE` world
+/// px — the SAME lattice the cells are drawn on — so snapping the glow to it
+/// makes a lit block glow as a block rather than stamping a foreign grid.
 ///
-/// One texel here is `CELL_SIZE` world px — the SAME lattice the cells are drawn
-/// on, not a second one. Nearest therefore does not stamp a competing grid; it
-/// snaps the glow to the grid the art already uses, so a lit block glows as a
-/// block. That is what makes this different from [`new_light_texture`], which
-/// must stay linear: its texels are 20 px, four times the art's, and nearest
-/// there really would lay a foreign lattice over the frame.
+/// Both of those are arguments about how far a glow may bleed past the block
+/// that cast it, and the honest answer to that turned out not to be either 0 px
+/// or a whole texel. It is [`LIGHT_SOFTNESS`], applied by [`LIGHT_WGSL`] on the
+/// composite quad — so the sampler here is linear because that is the filter the
+/// dial needs underneath it, and nearest is what the dial does at 0.
 ///
 /// The composite still resolves into the 640x400 buffer and the buffer is still
 /// blitted with the game's one nearest sampler, so nothing about the edges of
-/// the art changes either way. What changed is whether the GLOW has edges, and
-/// in a game made of squares it should.
+/// the art changes either way. What is tunable is whether the GLOW has edges.
 fn new_bloom_target(w: i32, h: i32) -> Image {
     let size = Extent3d {
         width: w.max(1) as u32,
@@ -2107,7 +2462,7 @@ fn new_bloom_target(w: i32, h: i32) -> Image {
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
-        sampler: ImageSampler::nearest(),
+        sampler: ImageSampler::linear(),
         ..default()
     };
     image.resize(size);
@@ -2193,16 +2548,20 @@ fn solve_light(
 
     // The census walks the visible cells at FULL resolution, plus a cell of
     // slack on each side so a torch straddling the edge still lights what is on
-    // screen.
-    let cell = CELL_SIZE as f32;
-    scan_emitters(
-        cells,
-        (rect.x / cell).floor() as i32 - 1,
-        (rect.y / cell).floor() as i32 - 1,
-        (rect.w / cell).ceil() as i32 + 2,
-        (rect.h / cell).ceil() as i32 + 2,
-        &mut pass.census,
-    );
+    // screen. Only when the solve is coarser than that walk and can miss
+    // something in it — see `CENSUS_NEEDED`. When it is not, `pass.census` is
+    // never filled and stays the empty scan `solve` treats as "no census".
+    if CENSUS_NEEDED {
+        let cell = CELL_SIZE as f32;
+        scan_emitters(
+            cells,
+            (rect.x / cell).floor() as i32 - 1,
+            (rect.y / cell).floor() as i32 - 1,
+            (rect.w / cell).ceil() as i32 + 2,
+            (rect.h / cell).ceil() as i32 + 2,
+            &mut pass.census,
+        );
+    }
 
     // Split the borrow: `solve` needs the grid mutably and the census by
     // reference, and they are two fields of the same resource.
@@ -2440,11 +2799,27 @@ mod tests {
         grid.lh = 16;
         grid.light = vec![0.0; n];
         grid.scratch = vec![0.0; n];
+        grid.acc = vec![0.0; 16];
         grid.lr = vec![0.0; n];
         grid.lg = vec![0.0; n];
         grid.lb = vec![0.0; n];
         grid.seen = vec![false; n];
         grid
+    }
+
+    /// The absolute cell a light cell samples, on either axis.
+    ///
+    /// Every test below that places a block "where the light grid will see it"
+    /// goes through this. Written out rather than hard-coded because the answer
+    /// moves with [`LIGHT_DOWNSCALE`], and a suite that pins cell 18 to light
+    /// cell 4 is a suite that only tests one downscale.
+    fn sample_cell(l: i32) -> i32 {
+        l * LIGHT_DOWNSCALE + LIGHT_DOWNSCALE / 2
+    }
+
+    /// Whether the sampling loop looks at this cell coordinate at all.
+    fn on_sample_lattice(c: i32) -> bool {
+        c.rem_euclid(LIGHT_DOWNSCALE) == LIGHT_DOWNSCALE / 2
     }
 
     fn noon(ox: i32, oy: i32) -> LightFrame {
@@ -2500,18 +2875,53 @@ mod tests {
 
     #[test]
     fn light_decays_far_faster_through_rock_than_through_air() {
+        // Twelve CELLS of rock, however many light rows that happens to be.
+        // Occlusion is a property of the world, so the assertion has to be about
+        // a world distance: pinning it to a count of light rows is what let the
+        // decays mean four different things at four different downscales.
+        const DEEP_CELLS: i32 = 12;
+        let rows = DEEP_CELLS / LIGHT_DOWNSCALE;
+
         let g = world(64, 64, 0); // solid from the very top
         let mut light = solver();
         light.compute_skylight(&g, noon(0, 0));
 
         let first = light.light_at(4, 0);
-        let fourth = light.light_at(4, 3);
-        let expected = first * SOLID_DECAY.powi(3);
+        let deep = light.light_at(4, rows);
+        let expected = first * SOLID_DECAY.powi(rows);
         assert!(
-            (fourth - expected).abs() < 1e-4,
-            "expected {expected} four light rows into rock, got {fourth}"
+            (deep - expected).abs() < 1e-4,
+            "expected {expected} {DEEP_CELLS} cells into rock, got {deep}"
         );
-        assert!(fourth < first * 0.2, "rock has to actually occlude");
+        assert!(
+            deep < first * 0.2,
+            "rock has to actually occlude: {first} at the top, {deep} \
+             {DEEP_CELLS} cells down"
+        );
+    }
+
+    #[test]
+    fn the_decays_are_the_same_loss_per_world_px_at_any_downscale() {
+        // THE regression this file is one half of. `OPEN_DECAY` and
+        // `SOLID_DECAY` are per light cell, so at four cells per sample they
+        // were 0.99 and 0.55 — and those two literals, left alone, would have
+        // meant four times the loss per world px the day the stride changed.
+        // Compounding over twelve cells is the same number however the twelve
+        // are grouped, and that is the invariant worth failing a build over.
+        const CELLS: i32 = 12;
+        let steps = CELLS / LIGHT_DOWNSCALE;
+        for (per_light_cell, historical, name) in [
+            (OPEN_DECAY, 0.99f32, "open"),
+            (SOLID_DECAY, 0.55f32, "solid"),
+        ] {
+            let ours = per_light_cell.powi(steps);
+            let theirs = historical.powi(CELLS / 4);
+            assert!(
+                (ours - theirs).abs() < 1e-4,
+                "{name} air/rock lost {ours} over {CELLS} cells; the 4-cell \
+                 stride this was tuned at lost {theirs}"
+            );
+        }
     }
 
     #[test]
@@ -2520,11 +2930,13 @@ mod tests {
         // brightest solid in its column; a pass that decayed first would make it
         // darker than the air above by the full solid factor, and the whole
         // world would read as overcast dusk at noon.
-        let g = world(64, 64, 8);
+        // The floor is placed ON the row light row 2 samples, so light row 1 is
+        // the last air row and light row 2 is the first solid one at every
+        // downscale.
+        let g = world(64, 64, sample_cell(2));
         let mut light = solver();
         light.compute_skylight(&g, noon(0, 0));
 
-        // Light rows sample cells 2, 6, 10, ... — row 2 is the first solid one.
         let air_above = light.light_at(4, 1);
         let ground = light.light_at(4, 2);
         assert!(
@@ -2560,18 +2972,18 @@ mod tests {
     fn an_emitter_lights_its_own_cell_and_its_four_neighbours() {
         let id = an_emitter(0.0);
         let mut g = air(64, 64);
-        // Light cell (4, 4) samples cell (18, 18) — the standard half-offset.
-        g.set(18, 18, id);
+        g.set(sample_cell(4), sample_cell(4), id);
         let mut light = solver();
         light.add_emissive(&g, noon(0, 0));
 
         let centre = light.light_at(4, 4);
+        let r = SPLAT_REACH;
         assert!(centre > 0.0, "the emitter did not light its own cell");
-        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        for (dx, dy) in [(-r, 0), (r, 0), (0, -r), (0, r)] {
             let edge = light.light_at(4 + dx, 4 + dy);
             assert!(
                 (edge - centre * SPLAT_EDGE).abs() < 1e-4,
-                "neighbour ({dx}, {dy}) got {edge}, expected {}",
+                "arm ({dx}, {dy}) got {edge}, expected {}",
                 centre * SPLAT_EDGE
             );
         }
@@ -2582,7 +2994,7 @@ mod tests {
         } else {
             0.0
         };
-        assert!((light.light_at(3, 3) - diagonal).abs() < 1e-4);
+        assert!((light.light_at(4 - r, 4 - r) - diagonal).abs() < 1e-4);
     }
 
     #[test]
@@ -2592,28 +3004,31 @@ mod tests {
         // chamber and a glowing mushroom lit the same volume.
         let strong = an_emitter(FAR_SPLAT_LEVEL);
         let mut g = air(64, 64);
-        g.set(18, 18, strong);
+        g.set(sample_cell(4), sample_cell(4), strong);
         let mut light = solver();
         light.add_emissive(&g, noon(0, 0));
 
-        assert!(light.light_at(6, 4) > 0.0, "the far ring is missing");
+        assert!(
+            light.light_at(4 + FAR_REACH, 4) > 0.0,
+            "the far ring is missing"
+        );
         assert_eq!(
-            light.light_at(7, 4),
+            light.light_at(4 + FAR_REACH + 1, 4),
             0.0,
             "the cast reached past its radius"
         );
-        assert_eq!(light.light_at(4, 7), 0.0);
+        assert_eq!(light.light_at(4, 4 + FAR_REACH + 1), 0.0);
 
         // ...and a weak one does not throw the ring at all.
         let weak = (1..MAT_COUNT as CellId)
             .find(|&id| emitter(id).emits() && emitter(id).level <= FAR_SPLAT_LEVEL);
         if let Some(weak) = weak {
             let mut g = air(64, 64);
-            g.set(18, 18, weak);
+            g.set(sample_cell(4), sample_cell(4), weak);
             let mut light = solver();
             light.add_emissive(&g, noon(0, 0));
             assert_eq!(
-                light.light_at(6, 4),
+                light.light_at(4 + FAR_REACH, 4),
                 0.0,
                 "a weak emitter must not throw the far ring"
             );
@@ -2647,9 +3062,11 @@ mod tests {
     #[test]
     fn residual_heat_glows_warm_but_only_above_the_threshold() {
         let mut g = air(64, 64);
-        // Two light cells apart, so neither splat lands on the other's centre.
-        let at_threshold = (18 * 64 + 18) as usize;
-        let boiling = (18 * 64 + 38) as usize;
+        // Five light cells apart, so neither splat lands on the other's centre
+        // or in its far ring.
+        let at = |lx: i32, ly: i32| (sample_cell(ly) * 64 + sample_cell(lx)) as usize;
+        let at_threshold = at(4, 4);
+        let boiling = at(9, 4);
         g.temp[at_threshold] = HEAT_THRESHOLD as u8;
         g.temp[boiling] = u8::MAX;
 
@@ -2706,7 +3123,7 @@ mod tests {
         // ...and go dirty the moment something does, even if it is only heat —
         // the case the hot list alone would miss.
         let mut warm = world(64, 64, 8);
-        warm.temp[(18 * 64 + 18) as usize] = 200;
+        warm.temp[(sample_cell(4) * 64 + sample_cell(4)) as usize] = 200;
         light.add_emissive(&warm, noon(0, 0));
         assert!(light.colour_dirty());
         assert!(light.hot().is_empty(), "warm rock is not an emitter");
@@ -2716,22 +3133,31 @@ mod tests {
     fn the_census_splat_is_deduplicated_per_light_cell() {
         let id = an_emitter(0.0);
         let mut g = air(64, 64);
-        // Four cells that all fall in light cell (4, 4).
-        for cx in 16..20 {
-            g.set(cx, 18, id);
+        // Every cell of light cell (4, 4), listed twice. At a downscale of 1
+        // there is only one such cell, and the rule being pinned — several
+        // entries in one light cell make ONE splat — has to hold for that case
+        // too, so the list is doubled rather than assumed to be four wide.
+        let cy = sample_cell(4);
+        let xs: Vec<i32> = (0..LIGHT_DOWNSCALE)
+            .chain(0..LIGHT_DOWNSCALE)
+            .map(|d| 4 * LIGHT_DOWNSCALE + d)
+            .collect();
+        let ys = vec![cy; xs.len()];
+        for &cx in &xs {
+            g.set(cx, cy, id);
         }
         let frame = noon(0, 0);
 
         let mut four = solver();
         four.add_emissive(&air(64, 64), frame); // clear, no emitters sampled
-        four.add_census_emitters(&g, &[16, 17, 18, 19], &[18, 18, 18, 18], frame);
+        four.add_census_emitters(&g, &xs, &ys, frame);
 
         // The FIRST entry in the group wins, phase and all — the flicker is
         // hashed from the entry's own absolute cell, so which one survives the
         // dedup is observable and this pins it.
         let mut one = solver();
         one.add_emissive(&air(64, 64), frame);
-        one.add_census_emitters(&g, &[16], &[18], frame);
+        one.add_census_emitters(&g, &xs[..1], &ys[..1], frame);
 
         // One splat, not four: four stacked splats of the same source would
         // blow the cell out to white.
@@ -2742,7 +3168,7 @@ mod tests {
             one.light_at(4, 4)
         );
         assert_eq!(four.hot().len(), 1, "one light cell, one hot entry");
-        assert_eq!(four.hot()[0], [16, 18]);
+        assert_eq!(four.hot()[0], [xs[0], cy]);
     }
 
     #[test]
@@ -2751,8 +3177,9 @@ mod tests {
         // scan and the splat must not leave a ghost light behind.
         let frame = noon(0, 0);
         let mut light = solver();
+        let at = sample_cell(4);
         light.add_emissive(&air(64, 64), frame);
-        light.add_census_emitters(&air(64, 64), &[18], &[18], frame);
+        light.add_census_emitters(&air(64, 64), &[at], &[at], frame);
         assert_eq!(light.light_at(4, 4), 0.0);
         assert!(light.hot().is_empty());
     }
@@ -2764,7 +3191,8 @@ mod tests {
         let g = air(64, 64);
         light.add_emissive(&g, frame);
         // Far left, far right, far above, far below.
-        light.add_census_emitters(&g, &[-400, 4000, 18, 18], &[18, 18, -400, 4000], frame);
+        let at = sample_cell(4);
+        light.add_census_emitters(&g, &[-400, 4000, at, at], &[at, at, -400, 4000], frame);
         for ly in 0..light.rows() {
             for lx in 0..light.cols() {
                 assert_eq!(light.light_at(lx, ly), 0.0, "({lx}, {ly}) was lit");
@@ -2777,7 +3205,7 @@ mod tests {
         let mut light = solver();
         let (lw, lh) = (light.cols(), light.rows());
         light.light.fill(0.5);
-        blur_one(&mut light.light, &mut light.scratch, lw, lh);
+        blur_one(&mut light.light, &mut light.scratch, &mut light.acc, lw, lh);
         for (i, v) in light.light.iter().enumerate() {
             assert!(
                 (v - 0.5).abs() < 1e-6,
@@ -2788,14 +3216,44 @@ mod tests {
         light.light.fill(0.0);
         let centre = (8 * lw + 8) as usize;
         light.light[centre] = 1.0;
-        blur_one(&mut light.light, &mut light.scratch, lw, lh);
+        blur_one(&mut light.light, &mut light.scratch, &mut light.acc, lw, lh);
+        let r = BLUR_REACH;
         assert!(light.light[centre] < 1.0, "the spike did not spread");
-        assert!(light.light_at(7, 8) > 0.0 && light.light_at(9, 8) > 0.0);
-        assert!(light.light_at(8, 7) > 0.0 && light.light_at(8, 9) > 0.0);
+        assert!(light.light_at(8 - r, 8) > 0.0 && light.light_at(8 + r, 8) > 0.0);
+        assert!(light.light_at(8, 8 - r) > 0.0 && light.light_at(8, 8 + r) > 0.0);
         // Two separable passes reach the diagonals too, which is what rounds a
         // cross-shaped splat into a glow.
-        assert!(light.light_at(7, 7) > 0.0);
-        assert_eq!(light.light_at(5, 8), 0.0, "it spread further than one cell");
+        assert!(light.light_at(8 - r, 8 - r) > 0.0);
+        assert_eq!(
+            light.light_at(8 - r - 1, 8),
+            0.0,
+            "it spread past the blur's radius"
+        );
+
+        // And the impulse response sums to one — the pass may move light around
+        // but must never create or destroy any. The flat-field check above says
+        // the same thing where the clamp hides it; this says it where a shifted
+        // or mis-normalised box pair would show.
+        let total: f32 = light.light.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 1e-5,
+            "a unit spike blurred to {total}"
+        );
+
+        // The kernel is CENTRED. Two boxes of even width, both leaning the same
+        // way, would blur perfectly well and put the whole light field half a
+        // cell off the art.
+        assert!(
+            (light.light_at(8 - r, 8) - light.light_at(8 + r, 8)).abs() < 1e-6
+                && (light.light_at(8, 8 - r) - light.light_at(8, 8 + r)).abs() < 1e-6,
+            "the blur is lopsided: {:?}",
+            (
+                light.light_at(8 - r, 8),
+                light.light_at(8 + r, 8),
+                light.light_at(8, 8 - r),
+                light.light_at(8, 8 + r)
+            )
+        );
     }
 
     #[test]
@@ -2935,32 +3393,47 @@ mod tests {
     }
 
     #[test]
-    fn the_emitter_scan_finds_a_single_cell_torch_the_light_grid_would_miss() {
+    fn a_single_cell_torch_is_lit_wherever_it_sits_in_its_light_cell() {
+        // THE contract the census exists to keep, stated so that it holds at
+        // every downscale rather than at four. A coarse grid steps over fifteen
+        // cells in sixteen and the census covers them; a grid of one sample per
+        // cell steps over nothing and takes no census at all. Either way a torch
+        // is lit, and the test that only knew the first arrangement said the
+        // second was broken.
         let id = an_emitter(0.0);
-        let mut g = air(64, 64);
-        // Cell (17, 19) is NOT a light-grid sample point — the grid samples the
-        // cell at offset 2 in each block of 4. This is the fifteen-in-sixteen
-        // case the census exists for.
-        g.set(17, 19, id);
+        // The far corner of light cell (4, 4), and its sample centre. At a
+        // downscale of 1 they are the same cell, which is the whole point.
+        let corner = 4 * LIGHT_DOWNSCALE + LIGHT_DOWNSCALE - 1;
+        for (cx, cy) in [(corner, corner), (sample_cell(4), sample_cell(4))] {
+            let mut g = air(64, 64);
+            g.set(cx, cy, id);
+            let (lx, ly) = (
+                cx.div_euclid(LIGHT_DOWNSCALE),
+                cy.div_euclid(LIGHT_DOWNSCALE),
+            );
+            let frame = noon(0, 0);
 
-        let mut light = solver();
-        light.add_emissive(&g, noon(0, 0));
-        assert_eq!(
-            light.light_at(4, 4),
-            0.0,
-            "the downscaled sampler should have missed it"
-        );
+            let mut light = solver();
+            light.add_emissive(&g, frame);
+            assert_eq!(
+                light.light_at(lx, ly) > 0.0,
+                on_sample_lattice(cx) && on_sample_lattice(cy),
+                "the sampling loop found ({cx}, {cy}) exactly when it looks there"
+            );
 
-        let mut scan = EmitterScan::default();
-        scan_emitters(&g, 0, 0, 64, 64, &mut scan);
-        assert_eq!(scan.len(), 1);
-        assert_eq!((scan.x()[0], scan.y()[0]), (17, 19));
+            if CENSUS_NEEDED {
+                let mut scan = EmitterScan::default();
+                scan_emitters(&g, 0, 0, 64, 64, &mut scan);
+                assert_eq!(scan.len(), 1);
+                assert_eq!((scan.x()[0], scan.y()[0]), (cx, cy));
+                light.add_census_emitters(&g, scan.x(), scan.y(), frame);
+            }
 
-        light.add_census_emitters(&g, scan.x(), scan.y(), noon(0, 0));
-        assert!(
-            light.light_at(4, 4) > 0.0,
-            "the census did not light the torch"
-        );
+            assert!(
+                light.light_at(lx, ly) > 0.0,
+                "({cx}, {cy}) was never lit by any pass"
+            );
+        }
     }
 
     #[test]
@@ -3112,18 +3585,25 @@ mod tests {
         // order `solve` runs them, over a world with sky, ground, a cave, a
         // torch in the cave and a wall the torch has warmed. Nothing may leave
         // 0..1 and nothing may be NaN.
+        // Laid out in LIGHT CELLS and converted, so the scene lands on the
+        // solver's fixed 16x16 grid at any downscale instead of only at the one
+        // the cell coordinates were written for.
+        let step = LIGHT_DOWNSCALE;
+        let n = 16 * step;
+        let last = step - 1; // the far corner of a light cell, off the lattice
         let id = an_emitter(0.0);
-        let mut g = world(128, 128, 40);
-        for y in 44..56 {
-            for x in 20..60 {
+        let mut g = world(n, n, 5 * step);
+        for y in 6 * step..12 * step {
+            for x in 2 * step..14 * step {
                 g.set(x, y, EMPTY);
             }
         }
-        g.set(33, 50, id); // a torch, off the sample lattice on purpose
-        g.temp[(50 * 128 + 34) as usize] = 220; // and a hot wall beside it
+        let (tx, ty) = (4 * step + last, 9 * step + last);
+        g.set(tx, ty, id); // a torch, as far off the sample lattice as it gets
+        g.temp[((ty * n) + 6 * step + last) as usize] = 220; // a hot wall beside it
 
         let mut scan = EmitterScan::default();
-        scan_emitters(&g, 0, 0, 128, 128, &mut scan);
+        scan_emitters(&g, 0, 0, n, n, &mut scan);
         let mut light = solver();
         light.solve(&g, noon(0, 0), scan.x(), scan.y());
 

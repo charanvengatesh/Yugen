@@ -58,11 +58,14 @@
 //!
 //! **The hot list is found here.** Embers key off actual lava on screen rather
 //! than off the biome, and the TypeScript got that list free from the lighting
-//! pass, which had already visited every emissive cell. `crate::light` is not
-//! written yet, so [`scan_hot`] walks the view on the light grid's own stride
-//! ([`LIGHT_DOWNSCALE`]) and applies the light pass's own emit rule. It samples
-//! the same cells under the same cap, so when lighting lands this becomes a
-//! borrow of its hot list and the ember rate does not move.
+//! pass, which had already visited every emissive cell. [`scan_hot`] walks the
+//! view itself instead, on [`HOT_STRIDE_CELLS`], applying the light pass's emit
+//! rule.
+//!
+//! It was written to mirror the light grid's stride exactly, so that lighting
+//! could later hand it a hot list for free. That is no longer the plan: the
+//! light grid now samples every cell, and following it would cost 16x for a
+//! number that only sets an ember rate. See [`HOT_STRIDE_CELLS`].
 //!
 //! **The clock is read, never advanced.** [`WorldClock`] is owned and ticked by
 //! [`crate::daynight::DayNightPlugin`], which is the only thing in the app that
@@ -89,7 +92,7 @@
 
 use bevy::prelude::*;
 
-use godgame_core::config::{CELL_SIZE, LIGHT_DOWNSCALE, SEED, View};
+use godgame_core::config::{CELL_SIZE, SEED, View};
 use godgame_core::sim::biomes::{
     BIOME_COUNT, Biome, Mix, UG_COUNT, UndergroundLayerId, Weather, biome_mix_at,
     underground_mix_at,
@@ -748,19 +751,38 @@ pub fn emit_level(id: CellId) -> f32 {
     }
 }
 
+/// Cells between hot-list samples.
+///
+/// **Deliberately its own number, not [`LIGHT_DOWNSCALE`].** It was that
+/// constant, from when this stood in for a lighting pass that did not exist yet
+/// and had to find the same cells the light grid would. Both facts have since
+/// stopped being true: the lighting pass exists, and it does not sample on a
+/// stride any more — `LIGHT_DOWNSCALE` went to 1 so light could sit on the art's
+/// own grid.
+///
+/// Following it there cost 16x for nothing. This scan does not want a faithful
+/// mirror of the solver; it wants a sparse "roughly where is it hot" for an
+/// EMBER RATE, and it is capped at [`HOT_MAX`] anyway. Measured, the coupled
+/// version went 1.26 us -> 17.69 us per frame, and worse than the cost: the cap
+/// then covered a sixteenth of the area, so ember spawns bunched toward the
+/// top-left of the view instead of spreading across it.
+///
+/// 4 is the value this scan was tuned at and is what keeps the ember rate where
+/// it has always been.
+const HOT_STRIDE_CELLS: i32 = 4;
+
 /// Fill `out` with the emissive cells in view, capped at [`HOT_MAX`].
 ///
-/// Strided by [`LIGHT_DOWNSCALE`] and sampling the stride's centre cell, which
-/// is where the light grid samples: this stands in for the lighting pass's hot
-/// list, so it must find the same cells rather than merely similar ones. A lava
-/// pool one cell wide can therefore be missed, exactly as the lighting pass
-/// misses it, and it will be missed CONSISTENTLY — the lattice is anchored to
-/// the world and not to the camera, so a hot cell does not blink as the view
-/// scrolls a pixel.
+/// Strided by [`HOT_STRIDE_CELLS`] and sampling the stride's centre cell. A lava
+/// pool one cell wide can therefore be missed, and it will be missed
+/// CONSISTENTLY — the lattice is anchored to the world and not to the camera, so
+/// a hot cell does not blink as the view scrolls a pixel. That consistency is
+/// the property that matters here, not completeness: this feeds how many embers
+/// drift up, not what is lit.
 pub fn scan_hot(grid: &CellGrid, view: ViewRect, out: &mut Vec<WorldCell>) {
     out.clear();
 
-    let step = LIGHT_DOWNSCALE;
+    let step = HOT_STRIDE_CELLS;
     let half = step / 2;
     let cell = CELL_SIZE as f32;
     let lx0 = div_floor((view.x / cell).floor() as i32, step);

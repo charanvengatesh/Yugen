@@ -224,6 +224,25 @@ derived from the real zoom policy rather than hard-coded.
 
 ### The light pass, which is where the cost is
 
+> **Superseded.** Every figure in this section was measured at
+> `LIGHT_DOWNSCALE = 4`, when the light grid stored one sample per 4 cells. It
+> is now **1** — light sits on the art's own lattice — which is 16x the light
+> cells. Re-measured on the same machine and viewport: the solve is **136.9 µs**
+> (skylight 16.6, emissive 23.9, blur 98.7), and the whole light stack is
+> **~161 µs, 1.93% of an 8.33 ms frame**, against 27.8 µs / 0.33% below.
+>
+> Two things kept that affordable and are worth knowing before optimising here
+> again. `scan_emitters` is **no longer run at all** at downscale 1 — the
+> emissive splat now visits exactly the rect the scan walked, so every census
+> entry would have been a second splat of an already-splatted source. And the
+> blur was reimplemented: written the obvious way at the new resolution it
+> measured **171 µs alone**, so it is now four sliding-window passes, which is
+> O(1) in the radius rather than O(radius).
+>
+> The numbers below are left as measured rather than deleted, because the
+> reasoning attached to them is still the reasoning, and because a perf document
+> that quietly rewrites history teaches nothing about what changed.
+
 | | Run A | Run B | Notes |
 |---|---|---|---|
 | `scan_emitters` (view rect) | **11.02 µs** | 11.24 µs | full-res walk over 14 904 cells |
@@ -450,7 +469,14 @@ justification is what is wrong, and a future reader following its advice would
 spend effort on a non-problem. Left for the file's owner; this is a source
 change and outside what this task may touch.
 
-### 8.3 `scan_emitters` is the light pass's largest cost
+### 8.3 `scan_emitters` is the light pass's largest cost — RESOLVED, by deletion
+
+> **No longer true, and no longer run.** At `LIGHT_DOWNSCALE = 1` the emissive
+> splat visits exactly the rect this scan walked, so the census became a second
+> splat of an already-splatted source — and past its 512 cap, of only the first
+> 512, which drew a visible seam across a large lava lake. It is skipped
+> entirely, which refunds the 11 µs below. The finding was correct when written;
+> the fix was to make the pass unnecessary rather than faster.
 
 Not a bug — a cost-distribution fact that contradicts the obvious guess.
 
