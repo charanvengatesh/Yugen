@@ -5,4 +5,8 @@
 //! the worldgen purity suite and the benches never link a renderer.
 
 pub mod config;
+pub mod entities;
+pub mod input;
+pub mod interact;
+pub mod physics;
 pub mod sim;

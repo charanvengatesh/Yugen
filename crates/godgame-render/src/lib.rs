@@ -12,6 +12,12 @@
 //! | [`world::WorldSimPlugin`] | the owned `Level` / `WindowManager` / `Automata` and the 120 Hz fixed schedule |
 //! | [`lowres::LowResPlugin`] | the offscreen buffer, the two cameras, the upscale blit |
 //! | [`cellmap::CellMapPlugin`] | the cell-id texture, the shading tables, and the quad that draws the window |
+//! | [`input::InputPlugin`] | keyboard and mouse onto `Intent`, the dig/place brush, and who drives the view |
+//!
+//! [`input`] is in this crate and not in the binary because it is the other half
+//! of the same boundary the rest of the crate is: `godgame-core` may not know
+//! what a `KeyCode` is, so something between it and Bevy has to, and that thing
+//! belongs with the other Bevy-facing translations rather than in a `main.rs`.
 //!
 //! [`GodGameRenderPlugin`] is all three, which is what the binary wants.
 //!
@@ -31,11 +37,13 @@ use bevy::app::{PluginGroup, PluginGroupBuilder};
 
 pub mod cellmap;
 pub mod cells;
+pub mod input;
 pub mod lowres;
 pub mod world;
 
 /// The whole render/sim stack: the owned world and its fixed schedule, the
-/// low-res target, and the cell pass that draws the window into it.
+/// low-res target, the cell pass that draws the window into it, and the input
+/// that moves the view and edits the cells.
 pub struct GodGameRenderPlugin;
 
 impl PluginGroup for GodGameRenderPlugin {
@@ -44,5 +52,6 @@ impl PluginGroup for GodGameRenderPlugin {
             .add(world::WorldSimPlugin)
             .add(lowres::LowResPlugin)
             .add(cellmap::CellMapPlugin)
+            .add(input::InputPlugin)
     }
 }
