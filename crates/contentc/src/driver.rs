@@ -9,8 +9,8 @@
 use crate::emit::{Foreign, assign_kind_codes, compile};
 use crate::error::Result;
 use crate::lock::Lock;
-use crate::parser::{RawRecord, parse_file};
 use crate::schemas::{Kind, kinds};
+use crate::toml_in::{RawRecord, parse_file};
 use crate::{bail, err};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -59,7 +59,7 @@ fn sources(layout: &Layout, kind: &Kind) -> Result<Vec<PathBuf>> {
         .map_err(|e| err!("cannot read {}: {e}", dir.display()))?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == kind.ext))
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
         .collect();
     out.sort();
     Ok(out)
@@ -104,7 +104,7 @@ pub fn run() -> Result<RunResult> {
         let paths = sources(&layout, kind)?;
         let mut records = Vec::new();
         for p in &paths {
-            records.extend(parse_file(p, &layout.content)?);
+            records.extend(parse_file(p, &layout.content, &kind.schema.kind)?);
         }
         // Tombstoned ids stay referenceable: a retired item that some block
         // still lists as a drop should degrade to the placeholder def, not fail
@@ -155,6 +155,22 @@ pub fn run() -> Result<RunResult> {
     }
 
     files.push(("crates/godgame-data/src/lib.rs".to_string(), lib_rs(&all)));
+
+    // Format the generated Rust before anyone compares it to disk.
+    //
+    // Without this, `--check` fails on a pristine checkout forever: the tree is
+    // rustfmt'd, the emitter is not, and every run reports six stale files. A
+    // gate that always fires is a gate people learn to ignore, which is worse
+    // than not having one. Formatting here also means the emitter never has to
+    // think about line width or trailing commas.
+    for (path, source) in &mut files {
+        if path.ends_with(".rs") {
+            *source = rustfmt(source);
+        }
+    }
+
+    // The lock is JSON with its own byte-stable writer, so it is added after
+    // formatting rather than being excluded by the filter above.
     files.push((rel(&layout.root, &layout.lock), next_lock.to_json()));
 
     Ok(RunResult {
@@ -162,6 +178,40 @@ pub fn run() -> Result<RunResult> {
         warnings,
         counts,
     })
+}
+
+/// Run generated source through `rustfmt`, or return it unchanged.
+///
+/// Falling back rather than failing is deliberate: `rustfmt` is a toolchain
+/// component that a minimal CI image can be missing, and the compiler's job is
+/// to produce correct tables. An unformatted table is ugly; a build that cannot
+/// run without an optional component is broken.
+fn rustfmt(source: &str) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let Ok(mut child) = Command::new("rustfmt")
+        .args(["--edition", "2024", "--emit", "stdout", "--quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return source.to_string();
+    };
+
+    if let Some(mut stdin) = child.stdin.take()
+        && stdin.write_all(source.as_bytes()).is_err()
+    {
+        return source.to_string();
+    }
+
+    match child.wait_with_output() {
+        Ok(out) if out.status.success() => {
+            String::from_utf8(out.stdout).unwrap_or_else(|_| source.to_string())
+        }
+        _ => source.to_string(),
+    }
 }
 
 /// `godgame-data`'s root module. Generated too, so adding a kind is still one

@@ -1,0 +1,216 @@
+# Terrain — the rock, soil and stone-family blocks the world is carved out of.
+# `empty` (code 0) lives here because it is terrain's absence, and because the
+# cell grid's zero value has to be a real record like everything else.
+
+# Air still conducts (heat crosses a gap) and sheds slowly, so a flame on one
+# side of a one-cell hole still warms the other. Nothing to dig, hence hardness 0.
+[empty]
+name = "Air"
+state = "empty"
+color = [0, 0, 0]
+colorVar = 0
+hardness = 0.0
+heat.conduct = 26
+heat.cool = 2
+
+[stone]
+name = "Stone"
+state = "solid"
+color = [96, 92, 84]
+colorVar = 16
+texture = "layered"
+edge = 150
+hardness = 3.0
+blastResist = 2.0
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 56
+drop = [{ item = "stone_chunk", count = 1 }]
+
+[dirt]
+name = "Dirt"
+state = "solid"
+color = [120, 82, 48]
+colorVar = 18
+texture = "grain"
+edge = 30
+hardness = 1.0
+blastResist = 0.6
+tags = ["soil", "diggable", "buildable"]
+heat.conduct = 34
+
+[sand]
+name = "Sand"
+state = "powder"
+color = [222, 196, 120]
+colorVar = 22
+texture = "grain"
+edge = 12
+density = 2.0
+hardness = 0.5
+blastResist = 0.4
+tags = ["soil", "diggable", "buildable"]
+heat.conduct = 40
+heat.meltAt = 50
+heat.meltInto = "glass"
+
+# Sand that has drunk water: heavier, and it bakes back to dry sand.
+[wetSand]
+name = "Wet Sand"
+state = "powder"
+color = [168, 140, 92]
+colorVar = 18
+texture = "grain"
+edge = 18
+density = 2.4
+hardness = 0.6
+blastResist = 0.4
+tags = ["soil", "diggable", "buildable"]
+heat.conduct = 46
+heat.cool = 3
+heat.meltAt = 30
+heat.meltInto = "sand"
+
+[sandstone]
+name = "Sandstone"
+state = "solid"
+color = [200, 175, 120]
+colorVar = 14
+texture = "layered"
+edge = 120
+hardness = 2.0
+blastResist = 1.6
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 46
+heat.meltAt = 62
+heat.meltInto = "glass"
+
+[glass]
+name = "Glass"
+state = "solid"
+color = [180, 212, 226]
+colorVar = 6
+texture = "glassy"
+edge = 175
+hardness = 0.6
+blastResist = 0.2
+tags = ["diggable", "buildable"]
+heat.conduct = 34
+
+[basalt]
+name = "Basalt"
+state = "solid"
+color = [56, 52, 60]
+colorVar = 12
+texture = "layered"
+edge = 165
+hardness = 3.5
+blastResist = 3.0
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 56
+
+[obsidian]
+name = "Obsidian"
+state = "solid"
+color = [38, 30, 52]
+colorVar = 14
+texture = "glassy"
+edge = 210
+hardness = 9.0
+blastResist = 12.0
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 60
+
+[ash]
+name = "Ash"
+state = "powder"
+color = [92, 88, 86]
+colorVar = 16
+texture = "grain"
+edge = 8
+density = 1.2
+hardness = 0.3
+blastResist = 0.3
+tags = ["soil", "diggable"]
+heat.conduct = 22
+
+[snow]
+name = "Snow"
+state = "powder"
+color = [236, 240, 250]
+colorVar = 8
+texture = "grain"
+edge = 20
+density = 0.6
+hardness = 0.3
+blastResist = 0.3
+tags = ["ice", "diggable", "buildable"]
+heat.conduct = 28
+heat.cool = 7
+heat.meltAt = 14
+heat.meltInto = "water"
+
+[ice]
+name = "Ice"
+state = "solid"
+color = [120, 170, 240]
+colorVar = 18
+texture = "crystalline"
+edge = 190
+surface = "ice"
+hardness = 1.5
+blastResist = 0.5
+tags = ["ice", "diggable", "buildable"]
+heat.conduct = 40
+heat.cool = 6
+heat.meltAt = 25
+heat.meltInto = "water"
+
+[packedIce]
+name = "Packed Ice"
+state = "solid"
+color = [150, 196, 236]
+colorVar = 12
+texture = "crystalline"
+edge = 175
+surface = "ice"
+hardness = 2.0
+blastResist = 0.8
+tags = ["ice", "diggable", "buildable"]
+heat.conduct = 34
+heat.cool = 7
+heat.meltAt = 38
+heat.meltInto = "water"
+
+# Deep-cave crystal. Glows enough to read a cavern by (lightEmit is raised above
+# the value `emissive` would derive — the bloom is subtle, the light is not).
+[crystal]
+name = "Crystal"
+state = "solid"
+color = [152, 112, 232]
+colorVar = 16
+texture = "crystalline"
+shimmer = 150
+edge = 200
+emissive = 0.5
+lightEmit = 7
+hardness = 5.0
+blastResist = 2.0
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 50
+drop = [{ item = "crystal_shard", count = [2, 4] }]
+
+[wood]
+name = "Wood"
+state = "solid"
+color = [150, 100, 55]
+colorVar = 20
+texture = "fibrous"
+edge = 110
+hardness = 1.5
+blastResist = 0.8
+tags = ["diggable", "buildable"]
+flammable.igniteChance = 0.06
+flammable.burnTime = 90
+flammable.burnsInto = "smoke"
+heat.conduct = 18
+heat.igniteAt = 35

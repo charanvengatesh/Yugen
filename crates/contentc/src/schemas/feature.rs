@@ -1,4 +1,4 @@
-//! The `feature` schema — the contract for `content/worldgen/*.feature`.
+//! The `feature` schema — the contract for `content/worldgen/*.toml`.
 //!
 //! A `struct` is a TEMPLATE: the content file says what every cell is. A
 //! `feature` is PARAMETRIC: the content file declares the knobs — how big, how
@@ -327,9 +327,9 @@ pub fn schema() -> Schema {
         // A retired feature keeps its code so a save's "seen features" set still
         // resolves. rarity 0 means the placement grid can never host it.
         tombstone: vec![
-            ("name".into(), "(removed)".into()),
-            ("kind".into(), "oreblob".into()),
-            ("place".into(), "underground".into()),
+            ("name".into(), "\"(removed)\"".into()),
+            ("kind".into(), "\"oreblob\"".into()),
+            ("place".into(), "\"underground\"".into()),
             ("cellW".into(), "4096".into()),
             ("rarity".into(), "0".into()),
             ("reachX".into(), "0".into()),

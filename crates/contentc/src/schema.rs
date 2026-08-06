@@ -2,16 +2,16 @@
 //!
 //! A schema is data: a record of dotted field name -> descriptor. It is the
 //! single source of truth for three things that must never disagree —
-//! validation of the `.block` text, the shape of the emitted Rust struct, and
+//! validation of the authored TOML, the shape of the emitted Rust struct, and
 //! which flat tables get built. Adding a field to a schema is therefore the
 //! whole job of adding a field to the game.
 //!
-//! Types are written in the notation of FORMAT.md §2 (`int`, `chance`,
+//! Types are written in the notation of FORMAT.md §3 (`int`, `chance`,
 //! `list<ref(block)>`, `enum(a|b|c)`) and parsed here, so the doc and the code
 //! cannot drift.
 
 use crate::error::{ContentError, Loc, Result};
-use crate::parser::{RawRecord, RawValue};
+use crate::toml_in::{RawRecord, RawValue};
 use crate::value::{Def, Value};
 use crate::{bail, err};
 use std::cell::RefCell;
@@ -69,8 +69,8 @@ pub fn parse_type(src: &str) -> Result<TypeNode> {
         ));
     }
 
-    // `ref?(kind)` is a preference chain: `cap dirt|mud|stone` takes the first
-    // id that exists, which keeps content additive.
+    // `ref?(kind)` is a preference chain: `cap = ["dirt", "mud", "stone"]` takes
+    // the first id that exists, which keeps content additive.
     if let Some(rest) = s.strip_prefix("ref") {
         let (chain, rest) = match rest.strip_prefix('?') {
             Some(r) => (true, r),
@@ -120,7 +120,7 @@ pub type RowFn = Box<dyn Fn(&Def, &TableCtx) -> Option<Vec<String>>>;
 pub type DefaultFn = Box<dyn Fn(&Def) -> Option<Value>>;
 pub type CheckFn = Box<dyn Fn(&Value) -> Option<String>>;
 
-/// One flat array indexed by code (FORMAT.md §5).
+/// One flat array indexed by code (FORMAT.md §7).
 pub struct HotArray {
     /// Exported symbol name, e.g. `MAT_DENSITY`. Frozen — hot paths import it.
     pub name: String,
@@ -132,7 +132,7 @@ pub struct HotArray {
     pub value: TableFn,
 }
 
-/// A packed pair matrix, `NAME[a * COUNT + b]` (FORMAT.md §5).
+/// A packed pair matrix, `NAME[a * COUNT + b]` (FORMAT.md §7).
 pub struct Matrix {
     pub name: String,
     pub doc: Option<String>,
@@ -155,7 +155,7 @@ pub enum FieldDefault {
 
 #[derive(Default)]
 pub struct Field {
-    /// FORMAT.md §2 type notation.
+    /// FORMAT.md §3 type notation.
     pub ty: String,
     /// Doc comment carried onto the emitted struct — say WHY, not what.
     pub doc: Option<String>,
@@ -303,9 +303,11 @@ pub struct Schema {
     pub tables: Vec<HotArray>,
     pub matrices: Vec<Matrix>,
     pub constants: Vec<BitConstants>,
-    /// Raw field values used to synthesise the placeholder def for a tombstoned
-    /// id (FORMAT.md §4). It only has to satisfy the schema's required fields —
-    /// nothing should ever be looking at it, but old saves still index it.
+    /// Field values used to synthesise the placeholder def for a tombstoned id
+    /// (`content/ids.lock.json`), spelled as TOML source — `"\"empty\""`, `"[255, 0, 255]"`
+    /// — so they are coerced by exactly the same code path as an authored file
+    /// and cannot drift from it. It only has to satisfy the schema's required
+    /// fields; nothing should ever be looking at it, but old saves still index it.
     pub tombstone: Vec<(String, String)>,
 }
 
@@ -472,7 +474,7 @@ pub fn resolve_record(schema: &Schema, rec: &RawRecord, ctx: &ResolveCtx) -> Res
         if key == "id" || schema.field(key).is_some() {
             continue;
         }
-        let loc = &rec.fields.get(key).unwrap()[0].loc;
+        let loc = &rec.fields.get(key).unwrap().loc;
         bail!(loc, "unknown {} field '{key}'", schema.kind);
     }
 
@@ -529,36 +531,31 @@ fn resolve_field(
     schema: &Schema,
     key: &str,
     field: &Field,
-    occ: Option<&[RawValue]>,
+    occ: Option<&RawValue>,
     def: &Def,
     rec: &RawRecord,
     ctx: &ResolveCtx,
 ) -> Result<Option<Value>> {
     let node = parse_type(&field.ty)?;
 
-    if let Some(o) = occ
-        && o.len() > 1
-        && node != TypeNode::Record
-    {
-        bail!(
-            &o[1].loc,
-            "'{key}' is set {} times but is not a list-of-records",
-            o.len()
-        );
-    }
-
     if node == TypeNode::Record {
-        let Some(o) = occ else {
+        let Some(raw) = occ else {
             return Ok(apply_default(field, def));
         };
-        let mut out = Vec::with_capacity(o.len());
-        for raw in o {
-            out.push(resolve_sub_record(key, field, raw, ctx)?);
+        // Both spellings of FORMAT.md §4 — an inline array of inline tables and
+        // a run of `[[id.key]]` blocks — parse to exactly this, which is why the
+        // choice between them is purely about whether an entry has a body.
+        let Some(entries) = raw.value.as_array() else {
+            bail!(&raw.loc, "'{key}' must be an array of tables");
+        };
+        let mut out = Vec::with_capacity(entries.len());
+        for entry in entries {
+            out.push(resolve_sub_record(key, field, entry, &raw.loc, ctx)?);
         }
         return Ok(Some(Value::Records(out)));
     }
 
-    let Some(o) = occ else {
+    let Some(raw) = occ else {
         let dflt = apply_default(field, def);
         if dflt.is_none() && field.required {
             bail!(&rec.loc, "{} '{}' is missing '{key}'", schema.kind, rec.id);
@@ -566,18 +563,14 @@ fn resolve_field(
         return Ok(dflt);
     };
 
-    let raw = &o[0];
     if node == TypeNode::Text {
-        let Some(lines) = &raw.lines else {
-            bail!(&raw.loc, "'{key}' needs a '|' block");
+        let Some(body) = raw.value.as_str() else {
+            bail!(&raw.loc, "'{key}' needs a ''' body");
         };
-        return Ok(Some(Value::Text(lines.clone())));
+        return Ok(Some(Value::Text(text_lines(body))));
     }
-    let Some(text) = &raw.text else {
-        bail!(&raw.loc, "'{key}' is not a text block field");
-    };
 
-    let value = coerce(&node, text, field, &raw.loc, ctx)?;
+    let value = coerce(&node, &raw.value, field, &raw.loc, ctx)?;
     if let Some(check) = &field.check
         && let Some(bad) = check(&value)
     {
@@ -586,160 +579,92 @@ fn resolve_field(
     Ok(Some(value))
 }
 
-/// `drop item=stone_chunk count=1..3 chance=50%` — one record on one line.
+/// A `text` body: one entry per line of a TOML literal multiline string.
 ///
-/// An element may also carry a heredoc body, which is how a sprite frame gets
-/// both its attributes and its pixels on one occurrence:
+/// TOML has already dropped the newline immediately after the opening `'''`, so
+/// the only one left to drop is the one the closing `'''` sits on — plus any
+/// blank lines before it. Blank lines inside a body are FRAME SEPARATORS, and a
+/// separator at the end separates nothing; the old heredoc trimmed them the same
+/// way, which is why every frame count in the parity snapshot still matches.
+fn text_lines(body: &str) -> Vec<String> {
+    let mut lines: Vec<String> = body.split('\n').map(str::to_string).collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+/// One `record[]` entry: `{ item = "stone_chunk", count = [1, 3], chance = 0.5 }`,
+/// or the same table written as a `[[id.drop]]` block.
 ///
-/// ```text
-/// art.seq  state=run mode=phase |
-///   .4
-///   32
-/// ```
+/// A sub-field declared `text` is the entry's multiline body — sprite `frames`
+/// is the only shape in the tree — and is the reason the table-array spelling
+/// exists at all. Every other sub-field is validated with `enum`, `required` and
+/// `default` behaving exactly as they do on a top-level field, which is the
+/// point: an element is a record, not a blob of attributes.
 ///
-/// At most one sub-field may be declared `text`; it binds from the body, and
-/// every other sub-field still comes from the `key=value` pairs with `enum`,
-/// `required` and `default` checked exactly as before. Keeping the attributes in
-/// pair syntax rather than inventing a nested mini-DSL inside the body is the
-/// whole point — compile-time validation is what this compiler is for.
-fn resolve_sub_record(key: &str, field: &Field, raw: &RawValue, ctx: &ResolveCtx) -> Result<Def> {
+/// Sub-fields deliberately do NOT run their `check` constraint, matching what
+/// the DSL front end did — the constraint is declared for top-level fields and
+/// running it here would newly reject content the snapshot says is valid.
+fn resolve_sub_record(
+    key: &str,
+    field: &Field,
+    raw: &toml::Value,
+    loc: &Loc,
+    ctx: &ResolveCtx,
+) -> Result<Def> {
     let Some(fields) = &field.fields else {
         bail!("'{key}' is record[] but declares no fields");
     };
-    let parts = split_pairs(raw.text.as_deref().unwrap_or(""), &raw.loc)?;
+    let Some(table) = raw.as_table() else {
+        bail!(loc, "'{key}' entries must be tables");
+    };
     let mut out = Def::new();
 
-    for (k, _) in &parts {
+    for k in table.keys() {
         if !fields.iter().any(|(name, _)| name == k) {
-            bail!(&raw.loc, "unknown '{key}' attribute '{k}'");
+            bail!(loc, "unknown '{key}' attribute '{k}'");
         }
     }
 
     for (k, sub) in fields {
         let node = parse_type(&sub.ty)?;
-        let given = parts
-            .iter()
-            .find(|(name, _)| name == k)
-            .map(|(_, v)| v.as_str());
+        let given = table.get(k);
 
-        // A `text` sub-field is the body, never a pair. Writing it as `k=...` is
-        // a misunderstanding worth naming rather than letting `coerce` reject it
-        // with the generic "text fields need a '|' block".
         if node == TypeNode::Text {
-            if given.is_some() {
-                bail!(
-                    &raw.loc,
-                    "'{key}' attribute '{k}=' is a text field — write it as the '|' body"
-                );
-            }
-            match &raw.lines {
+            match given {
                 None => {
                     let dflt = apply_default(sub, &out);
                     if dflt.is_none() && sub.required {
-                        bail!(&raw.loc, "'{key}' is missing its '{k}' '|' block");
+                        bail!(loc, "'{key}' is missing its '{k}' ''' body");
                     }
                     if let Some(d) = dflt {
                         out.insert(k.clone(), d);
                     }
                 }
-                Some(lines) => out.insert(k.clone(), Value::Text(lines.clone())),
+                Some(v) => {
+                    let Some(body) = v.as_str() else {
+                        bail!(loc, "'{key}' attribute '{k}' must be a ''' string");
+                    };
+                    out.insert(k.clone(), Value::Text(text_lines(body)));
+                }
             }
             continue;
         }
 
-        let Some(text) = given else {
+        let Some(v) = given else {
             let dflt = apply_default(sub, &out);
             if dflt.is_none() && sub.required {
-                bail!(&raw.loc, "'{key}' is missing '{k}='");
+                bail!(loc, "'{key}' is missing '{k}'");
             }
             if let Some(d) = dflt {
                 out.insert(k.clone(), d);
             }
             continue;
         };
-        out.insert(k.clone(), coerce(&node, text, sub, &raw.loc, ctx)?);
+        out.insert(k.clone(), coerce(&node, v, sub, loc, ctx)?);
     }
 
-    Ok(out)
-}
-
-/// Tokenize `a=1 b="two words" c=3` respecting quotes.
-///
-/// Mirrors a global regex scan: text between matches is skipped rather than
-/// rejected, and only a source that yields no pairs at all is an error.
-fn split_pairs(src: &str, loc: &Loc) -> Result<Vec<(String, String)>> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    let bytes = src.as_bytes();
-    let mut i = 0usize;
-    let mut consumed = 0usize;
-
-    while i < bytes.len() {
-        // A key must start at an identifier character.
-        if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        let mut j = i;
-        while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-            j += 1;
-        }
-        if j >= bytes.len() || bytes[j] != b'=' {
-            i = j.max(start + 1);
-            continue;
-        }
-        let name = &src[start..j];
-        let mut k = j + 1;
-
-        let value = if k < bytes.len() && bytes[k] == b'"' {
-            // `"(?:[^"\\]|\\.)*"`
-            let mut buf = String::new();
-            k += 1;
-            let mut closed = false;
-            while k < bytes.len() {
-                let c = bytes[k];
-                if c == b'\\' && k + 1 < bytes.len() {
-                    buf.push(src[k + 1..].chars().next().unwrap());
-                    k += 1 + src[k + 1..].chars().next().unwrap().len_utf8();
-                    continue;
-                }
-                if c == b'"' {
-                    k += 1;
-                    closed = true;
-                    break;
-                }
-                let ch = src[k..].chars().next().unwrap();
-                buf.push(ch);
-                k += ch.len_utf8();
-            }
-            if !closed {
-                // An unterminated quote never matched the pattern at all, so the
-                // scan simply moves on from just after the key.
-                i = j + 1;
-                continue;
-            }
-            buf
-        } else {
-            // `\S+`
-            let vs = k;
-            while k < bytes.len() && !(bytes[k] as char).is_whitespace() {
-                k += 1;
-            }
-            if k == vs {
-                i = j + 1;
-                continue;
-            }
-            src[vs..k].to_string()
-        };
-
-        consumed += k - start;
-        out.push((name.to_string(), value));
-        i = k;
-    }
-
-    if consumed == 0 && !src.trim().is_empty() {
-        bail!(loc, "expected 'key=value' pairs, got '{src}'");
-    }
     Ok(out)
 }
 
@@ -747,72 +672,69 @@ fn split_pairs(src: &str, loc: &Loc) -> Result<Vec<(String, String)>> {
 // Scalar coercion
 // ---------------------------------------------------------------------------
 
-fn is_infinity(s: &str) -> Option<f64> {
-    let t = s.trim();
-    let (sign, rest) = match t.as_bytes().first() {
-        Some(b'-') => (-1.0, &t[1..]),
-        Some(b'+') => (1.0, &t[1..]),
-        _ => (1.0, t),
-    };
-    let lower = rest.to_ascii_lowercase();
-    if lower == "inf" || lower == "infinity" {
-        Some(sign * f64::INFINITY)
-    } else {
-        None
+/// What FORMAT.md calls a value, for a type-mismatch message.
+fn spelling(v: &toml::Value) -> &'static str {
+    match v {
+        toml::Value::Integer(_) => "an integer",
+        toml::Value::Float(_) => "a float",
+        toml::Value::Boolean(_) => "a bool",
+        toml::Value::String(_) => "a string",
+        toml::Value::Array(_) => "an array",
+        toml::Value::Table(_) => "a table",
+        toml::Value::Datetime(_) => "a datetime",
     }
 }
 
-/// `Number(s)` with the pieces this format actually uses.
+fn wanted(v: &toml::Value, want: &str, loc: &Loc) -> ContentError {
+    err!(loc, "expected {want}, got {}", spelling(v))
+}
+
+/// The numeric reading of a TOML scalar. An integer widens to a float, because
+/// `fps = 8` and `fps = 8.0` are the same tuning decision written two ways.
+fn num(v: &toml::Value, loc: &Loc) -> Result<f64> {
+    match v {
+        toml::Value::Integer(n) => Ok(*n as f64),
+        toml::Value::Float(f) => Ok(*f),
+        other => Err(wanted(other, "a number", loc)),
+    }
+}
+
+/// Validate one typed TOML value against one schema type (FORMAT.md §3).
 ///
-/// The empty string reads as 0, matching `Number("")`, because a bare key with
-/// no value has always meant zero here rather than an error.
-fn num(src: &str, loc: &Loc) -> Result<f64> {
-    let s = src.trim();
-    if let Some(v) = is_infinity(s) {
-        return Ok(v);
-    }
-    if s.is_empty() {
-        return Ok(0.0);
-    }
-    let parsed = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        i64::from_str_radix(hex, 16).ok().map(|n| n as f64)
-    } else {
-        s.parse::<f64>().ok()
-    };
-    match parsed {
-        Some(n) if n.is_finite() => Ok(n),
-        _ => Err(err!(loc, "'{src}' is not a number")),
-    }
-}
-
+/// This is where the format stops being syntax and starts being content: every
+/// range check, closed variant set and compile-time reference is enforced here
+/// and nowhere else, so a value that reaches `Value` has already been proven to
+/// mean something.
 fn coerce(
     node: &TypeNode,
-    text: &str,
+    raw: &toml::Value,
     field: &Field,
     loc: &Loc,
     ctx: &ResolveCtx,
 ) -> Result<Value> {
     match node {
-        TypeNode::Int => {
-            let n = num(text, loc)?;
-            if n.fract() != 0.0 {
-                bail!(loc, "'{text}' is not an integer");
-            }
-            Ok(Value::Int(n as i64))
-        }
-        // Infinity is meaningful here: an unbreakable block's hardness.
-        TypeNode::Float => match is_infinity(text) {
-            Some(v) => Ok(Value::Float(v)),
-            None => Ok(Value::Float(num(text, loc)?)),
+        TypeNode::Int => match raw {
+            toml::Value::Integer(n) => Ok(Value::Int(*n)),
+            // `3.0` is a whole number spelled as a float; `3.5` is a mistake.
+            toml::Value::Float(f) if f.fract() == 0.0 && f.is_finite() => Ok(Value::Int(*f as i64)),
+            toml::Value::Float(f) => Err(err!(loc, "'{f}' is not an integer")),
+            other => Err(wanted(other, "an int", loc)),
         },
-        TypeNode::Bool => match text.trim().to_ascii_lowercase().as_str() {
-            "true" | "yes" | "on" => Ok(Value::Bool(true)),
-            "false" | "no" | "off" => Ok(Value::Bool(false)),
-            _ => Err(err!(loc, "'{text}' is not a bool")),
+        // Infinity is meaningful here — an unbreakable block's hardness — and
+        // TOML spells it `inf`, so nothing special is needed to carry it.
+        TypeNode::Float => Ok(Value::Float(num(raw, loc)?)),
+        TypeNode::Bool => match raw {
+            toml::Value::Boolean(b) => Ok(Value::Bool(*b)),
+            other => Err(wanted(other, "a bool", loc)),
         },
-        TypeNode::Str => Ok(Value::Str(text.to_string())),
+        TypeNode::Str => match raw {
+            toml::Value::String(s) => Ok(Value::Str(s.clone())),
+            other => Err(wanted(other, "a string", loc)),
+        },
         TypeNode::Enum(values) => {
-            let v = text.trim();
+            let Some(v) = raw.as_str() else {
+                return Err(wanted(raw, "a string", loc));
+            };
             if !values.iter().any(|x| x == v) {
                 bail!(loc, "'{v}' must be one of: {}", values.join(" "));
             }
@@ -829,58 +751,56 @@ fn coerce(
             }
         }
         TypeNode::Chance => {
-            let t = text.trim();
-            let v = match t.strip_suffix('%') {
-                Some(pct) => num(pct, loc)? / 100.0,
-                None => num(t, loc)?,
-            };
+            let v = num(raw, loc)?;
             if !(0.0..=1.0).contains(&v) {
-                bail!(loc, "chance '{text}' is outside 0..1");
+                bail!(loc, "chance '{v}' is outside 0..1");
             }
             Ok(Value::Float(v))
         }
-        TypeNode::Range => {
-            let t = text.trim();
-            // `^(\S+)\.\.(\S+)$` — both halves must be whitespace-free, so
-            // `1 .. 3` is not a range.
-            if let Some(dots) = t.find("..") {
-                let (a, b) = (&t[..dots], &t[dots + 2..]);
-                if !a.is_empty()
-                    && !b.is_empty()
-                    && !a.chars().any(char::is_whitespace)
-                    && !b.chars().any(char::is_whitespace)
-                {
-                    return Ok(Value::Range(num(a, loc)?, num(b, loc)?));
-                }
+        TypeNode::Range => match raw {
+            // A bare number widens to `[n, n]`, so "exactly one" needs no
+            // ceremony and every consumer still reads a pair.
+            toml::Value::Integer(_) | toml::Value::Float(_) => {
+                let n = num(raw, loc)?;
+                Ok(Value::Range(n, n))
             }
-            let n = num(t, loc)?;
-            Ok(Value::Range(n, n))
-        }
-        TypeNode::Color => color(text, loc),
-        TypeNode::Ref { kind, chain } => reference(kind, *chain, text, field, loc, ctx),
+            toml::Value::Array(a) if a.len() == 2 => {
+                Ok(Value::Range(num(&a[0], loc)?, num(&a[1], loc)?))
+            }
+            toml::Value::Array(a) => Err(err!(loc, "a range is [min, max], got {} items", a.len())),
+            other => Err(wanted(other, "a range", loc)),
+        },
+        TypeNode::Color => color(raw, loc),
+        TypeNode::Ref { kind, chain } => reference(kind, *chain, raw, field, loc, ctx),
         TypeNode::List(of) => {
-            let items: Vec<&str> = text
-                .split([' ', '\t', ','])
-                .filter(|s| !s.is_empty())
-                .collect();
+            let Some(items) = raw.as_array() else {
+                return Err(wanted(raw, "an array", loc));
+            };
             let mut out = Vec::with_capacity(items.len());
             for it in items {
                 out.push(coerce(of, it, field, loc, ctx)?);
             }
             Ok(Value::List(out))
         }
-        TypeNode::Text => Err(err!(loc, "text fields need a '|' block")),
-        TypeNode::Record => Err(err!(loc, "record[] fields cannot be inline")),
+        TypeNode::Text => Err(err!(loc, "text fields need a ''' body")),
+        TypeNode::Record => Err(err!(loc, "record[] fields need an array of tables")),
     }
 }
 
-fn color(text: &str, loc: &Loc) -> Result<Value> {
-    let t = text.trim();
-    if let Some(hex) = t.strip_prefix('#') {
+/// `[96, 92, 84]` or `"#605c54"` — three channels, two spellings.
+///
+/// The hex form survived the move off the DSL because it is what an artist
+/// pastes out of a colour picker, and the triple survived because it is what a
+/// value tuned by hand against its neighbours looks like.
+fn color(raw: &toml::Value, loc: &Loc) -> Result<Value> {
+    if let Some(t) = raw.as_str() {
+        let Some(hex) = t.strip_prefix('#') else {
+            bail!(loc, "'{t}' is not #rgb or #rrggbb");
+        };
         let d: Vec<char> = hex.chars().collect();
         let hx = |s: &str| u8::from_str_radix(s, 16).ok();
+        let mut out = [0u8; 3];
         if d.len() == 3 {
-            let mut out = [0u8; 3];
             for (i, slot) in out.iter_mut().enumerate() {
                 let pair: String = [d[i], d[i]].iter().collect();
                 let Some(v) = hx(&pair) else {
@@ -891,7 +811,6 @@ fn color(text: &str, loc: &Loc) -> Result<Value> {
             return Ok(Value::Color(out));
         }
         if d.len() == 6 {
-            let mut out = [0u8; 3];
             for (i, slot) in out.iter_mut().enumerate() {
                 let Some(v) = hx(&hex[i * 2..i * 2 + 2]) else {
                     bail!(loc, "'{t}' is not #rgb or #rrggbb")
@@ -903,12 +822,11 @@ fn color(text: &str, loc: &Loc) -> Result<Value> {
         bail!(loc, "'{t}' is not #rgb or #rrggbb");
     }
 
-    let parts: Vec<&str> = t
-        .split([' ', '\t', ','])
-        .filter(|s| !s.is_empty())
-        .collect();
+    let Some(parts) = raw.as_array() else {
+        return Err(wanted(raw, "a colour", loc));
+    };
     if parts.len() != 3 {
-        bail!(loc, "colour needs 3 channels: '{t}'");
+        bail!(loc, "colour needs 3 channels: {} given", parts.len());
     }
     let mut out = [0u8; 3];
     for (i, p) in parts.iter().enumerate() {
@@ -921,18 +839,42 @@ fn color(text: &str, loc: &Loc) -> Result<Value> {
     Ok(Value::Color(out))
 }
 
+/// A `ref(kind)` is one id; a `ref?(kind)` is a preference chain, written as an
+/// array, that takes the first id which exists.
+///
+/// The chain is what keeps content additive: a record may name a material a
+/// later pass will add and degrade gracefully until it does. A single-candidate
+/// chain stays a plain string, because most of them have only one candidate and
+/// wrapping those in brackets would be noise.
 fn reference(
     kind: &str,
     chain: bool,
-    text: &str,
+    raw: &toml::Value,
     field: &Field,
     loc: &Loc,
     ctx: &ResolveCtx,
 ) -> Result<Value> {
-    let candidates: Vec<&str> = if chain {
-        text.split('|').map(str::trim).collect()
+    let candidates: Vec<&str> = match raw {
+        toml::Value::String(s) => vec![s.as_str()],
+        toml::Value::Array(a) if chain && !a.is_empty() => {
+            let mut out = Vec::with_capacity(a.len());
+            for c in a {
+                let Some(s) = c.as_str() else {
+                    return Err(wanted(c, "an id", loc));
+                };
+                out.push(s);
+            }
+            out
+        }
+        toml::Value::Array(_) if chain => bail!(loc, "a preference chain cannot be empty"),
+        other => return Err(wanted(other, "an id", loc)),
+    };
+    // How the value is spelled back in a message: one id bare, a chain as the
+    // array it was written as.
+    let text = if candidates.len() == 1 {
+        candidates[0].to_string()
     } else {
-        vec![text.trim()]
+        format!("{candidates:?}")
     };
     let first = candidates[0].to_string();
 
@@ -1016,37 +958,45 @@ mod tests {
         assert!(parse_type("wat").is_err());
     }
 
-    #[test]
-    fn colours_accept_both_notations() {
-        assert_eq!(
-            color("#a0f", &loc()).unwrap(),
-            Value::Color([0xaa, 0x00, 0xff])
-        );
-        assert_eq!(
-            color("#49b077", &loc()).unwrap(),
-            Value::Color([0x49, 0xb0, 0x77])
-        );
-        assert_eq!(
-            color("12, 34 56", &loc()).unwrap(),
-            Value::Color([12, 34, 56])
-        );
-        assert!(color("#12345", &loc()).is_err());
-        assert!(color("1 2", &loc()).is_err());
-        assert!(color("1 2 300", &loc()).is_err());
+    /// `v = <toml>` — the one-value document every test below coerces.
+    fn v(src: &str) -> toml::Value {
+        let t: toml::Table = format!("v = {src}").parse().unwrap();
+        t["v"].clone()
     }
 
     #[test]
-    fn chance_accepts_percent_and_fraction_but_not_out_of_range() {
+    fn colours_accept_both_notations() {
+        assert_eq!(
+            color(&v("\"#a0f\""), &loc()).unwrap(),
+            Value::Color([0xaa, 0x00, 0xff])
+        );
+        assert_eq!(
+            color(&v("\"#49b077\""), &loc()).unwrap(),
+            Value::Color([0x49, 0xb0, 0x77])
+        );
+        assert_eq!(
+            color(&v("[12, 34, 56]"), &loc()).unwrap(),
+            Value::Color([12, 34, 56])
+        );
+        assert!(color(&v("\"#12345\""), &loc()).is_err());
+        assert!(color(&v("[1, 2]"), &loc()).is_err());
+        assert!(color(&v("[1, 2, 300]"), &loc()).is_err());
+    }
+
+    #[test]
+    fn chance_is_a_fraction_and_is_range_checked() {
         let regs = HashMap::new();
         let c = ctx_of(&regs);
         let f = Field::new("chance");
-        let got = coerce(&TypeNode::Chance, "6%", &f, &loc(), &c).unwrap();
-        assert_eq!(got, Value::Float(0.06));
         assert_eq!(
-            coerce(&TypeNode::Chance, "0.5", &f, &loc(), &c).unwrap(),
-            Value::Float(0.5)
+            coerce(&TypeNode::Chance, &v("0.06"), &f, &loc(), &c).unwrap(),
+            Value::Float(0.06)
         );
-        assert!(coerce(&TypeNode::Chance, "150%", &f, &loc(), &c).is_err());
+        assert_eq!(
+            coerce(&TypeNode::Chance, &v("1"), &f, &loc(), &c).unwrap(),
+            Value::Float(1.0)
+        );
+        assert!(coerce(&TypeNode::Chance, &v("1.5"), &f, &loc(), &c).is_err());
     }
 
     #[test]
@@ -1055,13 +1005,14 @@ mod tests {
         let c = ctx_of(&regs);
         let f = Field::new("range");
         assert_eq!(
-            coerce(&TypeNode::Range, "1..3", &f, &loc(), &c).unwrap(),
+            coerce(&TypeNode::Range, &v("[1, 3]"), &f, &loc(), &c).unwrap(),
             Value::Range(1.0, 3.0)
         );
         assert_eq!(
-            coerce(&TypeNode::Range, "4", &f, &loc(), &c).unwrap(),
+            coerce(&TypeNode::Range, &v("4"), &f, &loc(), &c).unwrap(),
             Value::Range(4.0, 4.0)
         );
+        assert!(coerce(&TypeNode::Range, &v("[1, 2, 3]"), &f, &loc(), &c).is_err());
     }
 
     #[test]
@@ -1069,10 +1020,37 @@ mod tests {
         let regs = HashMap::new();
         let c = ctx_of(&regs);
         let f = Field::new("float");
-        let v = coerce(&TypeNode::Float, "inf", &f, &loc(), &c).unwrap();
-        assert_eq!(v, Value::Float(f64::INFINITY));
-        let v = coerce(&TypeNode::Float, "-Infinity", &f, &loc(), &c).unwrap();
-        assert_eq!(v, Value::Float(f64::NEG_INFINITY));
+        let got = coerce(&TypeNode::Float, &v("inf"), &f, &loc(), &c).unwrap();
+        assert_eq!(got, Value::Float(f64::INFINITY));
+        let got = coerce(&TypeNode::Float, &v("-inf"), &f, &loc(), &c).unwrap();
+        assert_eq!(got, Value::Float(f64::NEG_INFINITY));
+    }
+
+    #[test]
+    fn a_type_mismatch_is_rejected_rather_than_guessed_at() {
+        let regs = HashMap::new();
+        let c = ctx_of(&regs);
+        assert!(coerce(&TypeNode::Int, &v("3.5"), &Field::new("int"), &loc(), &c).is_err());
+        assert!(
+            coerce(
+                &TypeNode::Bool,
+                &v("\"yes\""),
+                &Field::new("bool"),
+                &loc(),
+                &c
+            )
+            .is_err()
+        );
+        assert!(coerce(&TypeNode::Str, &v("7"), &Field::new("string"), &loc(), &c).is_err());
+        // An int is a legal spelling of a whole float, and the reverse.
+        assert_eq!(
+            coerce(&TypeNode::Float, &v("8"), &Field::new("float"), &loc(), &c).unwrap(),
+            Value::Float(8.0)
+        );
+        assert_eq!(
+            coerce(&TypeNode::Int, &v("8.0"), &Field::new("int"), &loc(), &c).unwrap(),
+            Value::Int(8)
+        );
     }
 
     #[test]
@@ -1081,7 +1059,7 @@ mod tests {
         regs.insert("block".to_string(), HashSet::from(["stone".to_string()]));
         let c = ctx_of(&regs);
         let f = Field::new("ref?(block)");
-        let got = reference("block", true, "mud|stone", &f, &loc(), &c).unwrap();
+        let got = reference("block", true, &v("[\"mud\", \"stone\"]"), &f, &loc(), &c).unwrap();
         assert_eq!(got, Value::Str("stone".into()));
         assert!(c.warnings.borrow().is_empty());
     }
@@ -1092,9 +1070,19 @@ mod tests {
         regs.insert("block".to_string(), HashSet::new());
         let c = ctx_of(&regs);
         let f = Field::new("ref?(block)");
-        let got = reference("block", true, "mud|slush", &f, &loc(), &c).unwrap();
+        let got = reference("block", true, &v("[\"mud\", \"slush\"]"), &f, &loc(), &c).unwrap();
         assert_eq!(got, Value::Str("slush".into()));
         assert_eq!(c.warnings.borrow().len(), 1);
+    }
+
+    #[test]
+    fn a_single_candidate_chain_stays_a_plain_string() {
+        let mut regs = HashMap::new();
+        regs.insert("block".to_string(), HashSet::from(["stone".to_string()]));
+        let c = ctx_of(&regs);
+        let f = Field::new("ref?(block)");
+        let got = reference("block", true, &v("\"stone\""), &f, &loc(), &c).unwrap();
+        assert_eq!(got, Value::Str("stone".into()));
     }
 
     #[test]
@@ -1103,16 +1091,14 @@ mod tests {
         regs.insert("block".to_string(), HashSet::new());
         let c = ctx_of(&regs);
         let f = Field::new("ref(block)");
-        assert!(reference("block", false, "mud", &f, &loc(), &c).is_err());
+        assert!(reference("block", false, &v("\"mud\""), &f, &loc(), &c).is_err());
     }
 
     #[test]
-    fn pairs_respect_quotes_and_reject_junk_only_input() {
-        let p = split_pairs(r#"item=stone count=1..3 name="two words""#, &loc()).unwrap();
-        assert_eq!(p.len(), 3);
-        assert_eq!(p[2], ("name".to_string(), "two words".to_string()));
-        assert!(split_pairs("no pairs here", &loc()).is_err());
-        // An empty attribute list is legal — the body carries everything.
-        assert!(split_pairs("", &loc()).unwrap().is_empty());
+    fn a_body_loses_only_its_closing_blank_lines() {
+        assert_eq!(text_lines(".4\n32\n\n1.\n"), [".4", "32", "", "1."]);
+        // Trailing spaces are transparent cells, not formatting.
+        assert_eq!(text_lines("ab  \ncd\n"), ["ab  ", "cd"]);
+        assert!(text_lines("").is_empty());
     }
 }

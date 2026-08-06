@@ -20,7 +20,8 @@ pub fn schema() -> Schema {
         tables: vec![ /* derived HotArrays that read >1 field */ ],
         matrices: vec![],
         constants: vec![],
-        tombstone: vec![("name".into(), "(removed)".into()), /* ... */],
+        // Values spelled as TOML source, coerced by the same code as a real file.
+        tombstone: vec![("name".into(), "\"(removed)\"".into()), /* ... */],
     }
 }
 ```
@@ -45,9 +46,19 @@ pub fn schema() -> Schema {
 | `check: (v) => msg \| undefined` | `.check(\|v\| ...Option<String>)`, or `.between(0.0, 255.0)` for a range |
 | `hot: true` + `hotArray` | `.hot(vec![table(...)])` — always a `Vec`, even for one |
 
-Type notation is unchanged from FORMAT.md: `int`, `float`, `bool`, `string`,
-`color`, `range`, `chance`, `text`, `record[]`, `list<T>`, `enum(a|b|c)`,
-`ref(kind)`, `ref?(kind)`.
+Type notation is FORMAT.md §3: `int`, `float`, `bool`, `string`, `color`,
+`range`, `chance`, `text`, `record[]`, `list<T>`, `enum(a|b|c)`, `ref(kind)`,
+`ref?(kind)`. How each is SPELLED in a content file is FORMAT.md's table; the
+descriptor only names the type.
+
+Two of them constrain how a record can be laid out, because TOML does:
+
+- `text` is a `'''` literal multiline string. Declare it on a `record[]`
+  sub-field and every entry has to be written as a `[[id.key]]` block, which
+  TOML requires to come after the record's ordinary keys.
+- `record[]` is an array of tables — `key = [{ ... }]` inline, or a run of
+  `[[id.key]]` blocks. The compiler accepts both and cannot tell them apart, so
+  the choice is purely about whether an entry carries a body.
 
 ## Tables
 

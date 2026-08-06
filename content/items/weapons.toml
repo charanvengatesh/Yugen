@@ -10,35 +10,35 @@
 # 0.62s commitment per swing and a knockback that will shove a target off a ledge
 # you were standing on.
 
-@item sword_traveler
-name      Traveler Sword
-category  weapon
-color     168 172 180
-icon      icon_sword_traveler
-stack     1
-tier      0
-value     40
-desc      Light, quick, and honest about what it is.
-tags      sword
-weapon.damage     8
-weapon.knockback  90
-weapon.swingTime  0.34
-craft     in="copper_bar wood_log" n="2 1" out=1 station=workbench
+[sword_traveler]
+name = "Traveler Sword"
+category = "weapon"
+color = [168, 172, 180]
+icon = "icon_sword_traveler"
+stack = 1
+tier = 0
+value = 40
+desc = "Light, quick, and honest about what it is."
+tags = ["sword"]
+weapon.damage = 8.0
+weapon.knockback = 90.0
+weapon.swingTime = 0.34
+craft = [{ in = ["copper_bar", "wood_log"], n = [2, 1], out = 1, station = "workbench" }]
 
-@item sword_king
-name      King's Sword
-category  weapon
-color     226 198 104
-icon      icon_sword_king
-stack     1
-tier      4
-value     2400
-desc      Every hit takes a heart. Slow enough that you have to mean it.
-tags      sword gem relic
-weapon.damage     25
-weapon.knockback  240
-weapon.swingTime  0.62
-craft     in="gold_bar iron_bar gem" n="3 2 3" out=1 station=anvil
+[sword_king]
+name = "King's Sword"
+category = "weapon"
+color = [226, 198, 104]
+icon = "icon_sword_king"
+stack = 1
+tier = 4
+value = 2400
+desc = "Every hit takes a heart. Slow enough that you have to mean it."
+tags = ["sword", "gem", "relic"]
+weapon.damage = 25.0
+weapon.knockback = 240.0
+weapon.swingTime = 0.62
+craft = [{ in = ["gold_bar", "iron_bar", "gem"], n = [3, 2, 3], out = 1, station = "anvil" }]
 
 # --- Ranged -----------------------------------------------------------------
 #
@@ -74,83 +74,85 @@ craft     in="gold_bar iron_bar gem" n="3 2 3" out=1 station=anvil
 # Every rung sits BELOW the melee weapon of its own tier, on purpose. Range is
 # already the reward; a bow that also out-damaged a sword would end melee.
 
-@item sling
-name      Sling
-category  weapon
-color     150 122 92
-icon      icon_sling
-stack     1
-tier      0
-value     25
-desc      A pouch and two cords. Ammunition is whatever the floor is made of.
-tags      bow
-weapon.damage          5
-weapon.knockback       40
-weapon.swingTime       0.75
-weapon.ranged          true
-weapon.projectileSpeed 380
+[sling]
+name = "Sling"
+category = "weapon"
+color = [150, 122, 92]
+icon = "icon_sling"
+stack = 1
+tier = 0
+value = 25
+desc = "A pouch and two cords. Ammunition is whatever the floor is made of."
+tags = ["bow"]
+weapon.damage = 5.0
+weapon.knockback = 40.0
+weapon.swingTime = 0.75
+weapon.ranged = true
+weapon.projectileSpeed = 380.0
 # Deliberately `stone_chunk` rather than a bespoke pellet: the point of the
 # sling is that it is the ranged weapon you can always feed, in a game where
 # stone is the floor of every plan.
-weapon.ammo            stone_chunk
-craft     in="hide vine_coil" n="2 1" out=1 station=hand
+weapon.ammo = ["stone_chunk"]
+craft = [{ in = ["hide", "vine_coil"], n = [2, 1], out = 1, station = "hand" }]
 
-@item bow
-name      Bow
-category  weapon
-color     176 132 72
-icon      icon_bow
-stack     1
-tier      1
-value     140
-desc      Draw, hold, and let the distance do the work.
-tags      bow wood
-weapon.damage          6
-weapon.knockback       70
-weapon.swingTime       0.55
-weapon.ranged          true
-weapon.projectileSpeed 560
+[bow]
+name = "Bow"
+category = "weapon"
+color = [176, 132, 72]
+icon = "icon_bow"
+stack = 1
+tier = 1
+value = 140
+desc = "Draw, hold, and let the distance do the work."
+tags = ["bow", "wood"]
+weapon.damage = 6.0
+weapon.knockback = 70.0
+weapon.swingTime = 0.55
+weapon.ranged = true
+weapon.projectileSpeed = 560.0
 # A LIST, best first — not a `|` chain. A chain asks "which of these exists?"
 # and collapses to one winner at compile time; ammo is the other question,
 # "which of these do you actually have", which can only be answered at the
 # moment of firing. So a quiver of iron arrows is spent before the flint ones
 # without the player having to swap anything.
-weapon.ammo            arrow_iron arrow
-craft     in="wood_log rope" n="3 2" out=1 station=workbench
+weapon.ammo = ["arrow_iron", "arrow"]
+craft = [{ in = ["wood_log", "rope"], n = [3, 2], out = 1, station = "workbench" }]
 
 # --- Ammunition -------------------------------------------------------------
 # `material`, not `weapon`: you never hold an arrow as your active tool. The
 # weapon group on these is data the launcher reads, which is exactly what the
 # additive contract above is for.
 
-@item arrow
-name      Arrow
-category  material
-color     198 178 140
-icon      icon_arrow
-stack     99
-tier      0
-value     1
-desc      A shaft, a flint head, and no illusions about either.
-tags      ammo
-weapon.damage 4
+[arrow]
+name = "Arrow"
+category = "material"
+color = [198, 178, 140]
+icon = "icon_arrow"
+stack = 99
+tier = 0
+value = 1
+desc = "A shaft, a flint head, and no illusions about either."
+tags = ["ammo"]
+weapon.damage = 4.0
 # Eight per craft, at hand, from two things the surface hands you. Ammunition
 # that has to be rationed turns a ranged weapon into a melee weapon you are bad
 # at, so the flint tier is priced to be spent freely.
-craft     in="wood_log flint" n="1 1" out=8 station=hand
+craft = [
+    { in = ["wood_log", "flint"], n = [1, 1], out = 8, station = "hand" },
 # Bone is the cave route, for the run where you have gone down further than you
 # have gone out. Skeletons drop it, so the thing shooting at you resupplies you.
-craft     in="bone flint" n="1 1" out=6 station=hand
+    { in = ["bone", "flint"], n = [1, 1], out = 6, station = "hand" },
+]
 
-@item arrow_iron
-name      Iron Arrow
-category  material
-color     186 186 190
-icon      icon_arrow_iron
-stack     99
-tier      2
-value     6
-desc      Heavy enough that the wind stops having an opinion.
-tags      ammo
-weapon.damage 9
-craft     in="wood_log iron_bar" n="2 1" out=8 station=anvil
+[arrow_iron]
+name = "Iron Arrow"
+category = "material"
+color = [186, 186, 190]
+icon = "icon_arrow_iron"
+stack = 99
+tier = 2
+value = 6
+desc = "Heavy enough that the wind stops having an opinion."
+tags = ["ammo"]
+weapon.damage = 9.0
+craft = [{ in = ["wood_log", "iron_bar"], n = [2, 1], out = 8, station = "anvil" }]

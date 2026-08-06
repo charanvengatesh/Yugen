@@ -1,4 +1,4 @@
-//! The content compiler: lexer -> parser -> schema -> emit.
+//! The content compiler: TOML -> schema -> emit.
 //!
 //! Compiles the records under `content/` into the Rust tables in
 //! `godgame-data`. A schema is data — a record of dotted field name to
@@ -9,12 +9,11 @@
 pub mod driver;
 pub mod emit;
 pub mod error;
-pub mod lexer;
 pub mod lock;
 pub mod names;
-pub mod parser;
 pub mod schema;
 pub mod schemas;
+pub mod toml_in;
 pub mod value;
 
 pub use error::{ContentError, Loc, Result};

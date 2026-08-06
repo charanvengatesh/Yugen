@@ -1,0 +1,72 @@
+# Desert and savanna. Both pieces are SEALED: no door, no shaft, nothing but
+# solid sandstone between you and the cache. That is the point — a pyramid you
+# can walk into is scenery, a pyramid you have to breach is a landmark.
+
+# `sink 4` drops the whole template four rows, which buries the widest course
+# and puts the tomb properly under the sand. The pyramid still reads as a
+# pyramid because the anchor is its bottom row, not its apex.
+[desert_pyramid]
+name = "Sunken Pyramid"
+place = "surface"
+rarity = 0.55
+weight = 2.0
+biomes = ["desert", "savanna"]
+anchor = "bottom_center"
+sink = 4
+flatness = 5
+mirror = false
+legend = [
+    { c = "N", block = "sandstone" },
+    { c = "K", block = "spike" },
+    { c = "L", block = ["goldOre", "gemOre", "ironOre"], mark = "loot" },
+]
+body = '''
+__________N__________
+_________NNN_________
+________NNNNN________
+_______NNNNNNN_______
+______NNN...NNN______
+_____NNN..K..NNN_____
+____NNN.......NNN____
+___NNNN.NNNNN.NNNN___
+__NNNNNNNNNNNNNNNNN__
+_NNNNNNNNNNNNNNNNNNN_
+NNNNNNNNNNNNNNNNNNNNN
+_NNNNNNNNNNNNNNNNNNN_
+_N.................N_
+_N..K....L....K....N_
+_NNNNNNNNNNNNNNNNNNN_
+'''
+
+# The marker you navigate by. Rows 2..3 are one drum of the shaft, repeated
+# 1..4 times, so obelisks range from a stump to something visible across a dune
+# field — and the reliquary at the foot is buried by `sink` either way.
+[desert_obelisk]
+name = "Obelisk"
+place = "surface"
+rarity = 0.4
+weight = 1.0
+biomes = ["desert", "savanna", "volcanic"]
+anchor = "bottom_center"
+sink = 3
+flatness = 7
+mirror = false
+legend = [
+    { c = "N", block = "sandstone" },
+    { c = "C", block = "crystal" },
+    { c = "L", block = ["goldOre", "ironOre"], mark = "loot" },
+]
+repeat.from = 2
+repeat.rows = 2
+repeat.times = [1, 4]
+body = '''
+__C__
+_NNN_
+_NNN_
+_NNN_
+_NNN_
+NNNNN
+N.L.N
+N...N
+NNNNN
+'''

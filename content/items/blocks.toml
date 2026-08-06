@@ -1,0 +1,299 @@
+# Placeables — the build palette, as things you actually carry.
+#
+# ONE ITEM PER BUILDABLE BLOCK is the invariant here (see the `buildable` tag in
+# content/blocks/*.block). It is what turns the old infinite material menu into
+# an inventory: a slot you can run out of. The four commonest non-buildable digs
+# (mud, ash, sticky, permafrost) get an item too, because a block you break a
+# hundred times on the way down should not vanish into nothing.
+#
+# `places` is the whole behaviour. Everything else is presentation.
+
+# --- Rock ------------------------------------------------------------------
+
+[gravel_pile]
+name = "Gravel"
+category = "placeable"
+color = [138, 130, 118]
+icon = "icon_block_cube"
+places = "gravel"
+stack = 99
+value = 1
+desc = "Loose enough to slump the moment it is unsupported."
+tags = ["stone", "buildable"]
+
+[sandstone_block]
+name = "Sandstone"
+category = "placeable"
+color = [200, 175, 120]
+icon = "icon_block_cube"
+places = "sandstone"
+stack = 99
+value = 2
+desc = "Sand that has had a few million years to think about it."
+tags = ["stone", "buildable"]
+craft = [{ in = ["sand_pile"], n = [4], out = 1, station = "workbench" }]
+
+[basalt_block]
+name = "Basalt"
+category = "placeable"
+color = [56, 52, 60]
+icon = "icon_block_cube"
+places = "basalt"
+stack = 99
+value = 4
+desc = "Cooled fast and dark. Harder than it looks, which is saying something."
+tags = ["stone", "buildable"]
+
+[obsidian_block]
+name = "Obsidian"
+category = "placeable"
+color = [38, 30, 52]
+icon = "icon_block_cube"
+places = "obsidian"
+stack = 99
+value = 40
+desc = "Volcanic glass. Nothing below the gem tier leaves a mark on it."
+tags = ["stone", "buildable"]
+
+[crystal_block]
+name = "Crystal Cluster"
+category = "placeable"
+color = [152, 112, 232]
+icon = "icon_block_cube"
+places = "crystal"
+stack = 99
+value = 56
+desc = "Reassembled shards. Still glows, still hums."
+tags = ["gem", "buildable"]
+craft = [{ in = ["crystal_shard"], n = [4], out = 1, station = "workbench" }]
+
+[glass_pane]
+name = "Glass"
+category = "placeable"
+color = [180, 212, 226]
+icon = "icon_block_cube"
+places = "glass"
+stack = 99
+value = 3
+desc = "Sand, held at the right temperature until it forgets it was sand."
+tags = ["buildable"]
+craft = [{ in = ["sand_pile", "coal"], n = [2, 1], out = 2, station = "furnace" }]
+
+# --- Soil ------------------------------------------------------------------
+
+[clay_lump]
+name = "Clay"
+category = "placeable"
+color = [156, 96, 74]
+icon = "icon_block_cube"
+places = "clay"
+stack = 99
+value = 2
+desc = "Red, dense, and stubbornly waterproof."
+tags = ["soil", "buildable"]
+
+[wet_sand_pile]
+name = "Wet Sand"
+category = "placeable"
+color = [168, 140, 92]
+icon = "icon_block_cube"
+places = "wetSand"
+stack = 99
+value = 1
+desc = "Holds a shape for exactly as long as it stays wet."
+tags = ["soil", "buildable"]
+
+[mud_ball]
+name = "Mud"
+category = "placeable"
+color = [68, 54, 40]
+icon = "icon_block_cube"
+places = "mud"
+stack = 99
+value = 1
+desc = "The reward for digging under a river."
+tags = ["soil"]
+
+[sticky_mud]
+name = "Sticky Mud"
+category = "placeable"
+color = [110, 80, 50]
+icon = "icon_block_cube"
+places = "sticky"
+stack = 99
+value = 2
+desc = "Grips boots. Useful on a wall, miserable on a floor."
+tags = ["soil"]
+craft = [{ in = ["slime_gel", "mud_ball"], n = [1, 2], out = 3, station = "hand" }]
+
+[ash_pile]
+name = "Ash"
+category = "placeable"
+color = [92, 88, 86]
+icon = "icon_block_cube"
+places = "ash"
+stack = 99
+value = 1
+desc = "What the burnt bands leave behind."
+tags = ["soil"]
+
+# --- Cold ------------------------------------------------------------------
+
+[snow_ball]
+name = "Snow"
+category = "placeable"
+color = [236, 240, 250]
+icon = "icon_block_cube"
+places = "snow"
+stack = 99
+value = 1
+desc = "Packs. Slides. Melts."
+tags = ["ice", "buildable"]
+
+[packed_ice]
+name = "Packed Ice"
+category = "placeable"
+color = [150, 196, 236]
+icon = "icon_block_cube"
+places = "packedIce"
+stack = 99
+value = 3
+desc = "Compressed hard enough to survive a warm afternoon."
+tags = ["ice", "buildable"]
+craft = [{ in = ["ice_shard"], n = [4], out = 1, station = "workbench" }]
+
+[permafrost_block]
+name = "Permafrost"
+category = "placeable"
+color = [104, 116, 124]
+icon = "icon_block_cube"
+places = "permafrost"
+stack = 99
+value = 2
+desc = "Soil that has not thawed within living memory."
+tags = ["soil", "ice"]
+craft = [{ in = ["frozen_core", "dirt_clod"], n = [1, 8], out = 8, station = "workbench" }]
+
+# --- Growth ----------------------------------------------------------------
+
+[moss_clump]
+name = "Moss"
+category = "placeable"
+color = [72, 122, 56]
+icon = "icon_block_cube"
+places = "moss"
+stack = 99
+value = 2
+desc = "Creeps over anything damp if you give it a tick or two."
+tags = ["plant"]
+
+[vine_coil]
+name = "Vine"
+category = "placeable"
+color = [58, 132, 62]
+icon = "icon_block_cube"
+places = "vine"
+stack = 99
+value = 2
+desc = "Grows straight down and only down."
+tags = ["plant"]
+
+# The four blocks below carry no `drop` line of their own in content/blocks/, so
+# without an item that `places` them they would be the only diggable terrain in
+# the game that yields literally nothing. One item each closes that hole.
+
+[jungle_leaf]
+name = "Jungle Canopy"
+category = "placeable"
+color = [58, 150, 62]
+icon = "icon_block_cube"
+places = "leavesJungle"
+stack = 99
+value = 1
+desc = "Broad, wet, and hiding whatever is directly above you."
+tags = ["plant"]
+
+[autumn_leaf]
+name = "Autumn Leaves"
+category = "placeable"
+color = [176, 108, 44]
+icon = "icon_block_cube"
+places = "leavesAutumn"
+stack = 99
+value = 1
+desc = "The forest, briefly, being honest about the season."
+tags = ["plant"]
+
+[cactus_pad]
+name = "Cactus Pad"
+category = "placeable"
+color = [76, 132, 82]
+icon = "icon_block_cube"
+places = "cactus"
+stack = 99
+value = 3
+desc = "Handle by the flat face. There is no flat face."
+tags = ["plant"]
+
+[mushroom_stem]
+name = "Mushroom Stem"
+category = "placeable"
+color = [198, 186, 158]
+icon = "icon_block_cube"
+places = "mushroomStem"
+stack = 99
+value = 3
+desc = "Fibrous all the way through. Not worth eating on its own."
+tags = ["plant"]
+
+[mushroom_cap]
+name = "Mushroom Cap"
+category = "placeable"
+color = [126, 78, 156]
+icon = "icon_block_cube"
+places = "mushroomCap"
+stack = 99
+value = 6
+desc = "Faintly luminous. Edible once it has been boiled into submission."
+tags = ["plant", "food"]
+
+# --- Gadgets ---------------------------------------------------------------
+
+[bounce_pad]
+name = "Bounce Pad"
+category = "placeable"
+color = [80, 220, 120]
+icon = "icon_block_cube"
+places = "bounce"
+stack = 99
+value = 18
+desc = "Returns most of what you give it, and then some."
+tags = ["buildable"]
+craft = [
+    { in = ["sticky_mud", "sapling"], n = [2, 2], out = 1, station = "workbench" },
+    { in = ["chitin", "sapling"], n = [3, 1], out = 1, station = "workbench" },
+]
+
+[conveyor_right]
+name = "Conveyor (right)"
+category = "placeable"
+color = [200, 160, 60]
+icon = "icon_block_cube"
+places = "conveyorRight"
+stack = 99
+value = 18
+desc = "Carries whatever stands on it toward the sunrise."
+tags = ["buildable"]
+craft = [{ in = ["copper_bar", "wood_log"], n = [1, 2], out = 2, station = "workbench" }]
+
+[conveyor_left]
+name = "Conveyor (left)"
+category = "placeable"
+color = [200, 160, 60]
+icon = "icon_block_cube"
+places = "conveyorLeft"
+stack = 99
+value = 18
+desc = "The same idea, pointed the other way."
+tags = ["buildable"]
+craft = [{ in = ["conveyor_right"], n = [1], out = 1, station = "workbench" }]

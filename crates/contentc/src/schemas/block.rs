@@ -1,4 +1,4 @@
-//! The `block` schema — the contract for everything in `content/blocks/*.block`.
+//! The `block` schema — the contract for everything in `content/blocks/*.toml`.
 //!
 //! This is the file that used to be the `MaterialDef` interface plus the loop at
 //! the bottom of `src/sim/materials.ts`. Both are derived from it now: the
@@ -774,8 +774,8 @@ pub fn schema() -> Schema {
         // actually rendered.
         tombstone: vec![
             ("name".into(), "\"(removed)\"".into()),
-            ("state".into(), "empty".into()),
-            ("color".into(), "255 0 255".into()),
+            ("state".into(), "\"empty\"".into()),
+            ("color".into(), "[255, 0, 255]".into()),
             ("collides".into(), "false".into()),
         ],
     }

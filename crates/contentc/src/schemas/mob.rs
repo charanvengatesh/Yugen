@@ -1,4 +1,4 @@
-//! The `mob` schema — the contract for everything in `content/mobs/*.mob`.
+//! The `mob` schema — the contract for everything in `content/mobs/*.toml`.
 //!
 //! This is the file that used to be the `Spec` interface, the `ART_*` tables and
 //! the `MOB_DEFS` array at the bottom of `src/entities/mobs/MobDefs.ts`. All
@@ -40,17 +40,21 @@
 //! that want a narrower slice than a whole band.
 //!
 //! ---- ART -------------------------------------------------------------------
-//! A pose is ONE `art.seq` record: its attributes on the line, every frame of
-//! that loop in the `|` body, frames separated by a blank line. The lexer keeps
-//! blank lines inside a block verbatim, so the source reads as a filmstrip:
+//! A pose is ONE `art.seq` record: its attributes as keys, every frame of that
+//! loop in the `frames` body, frames separated by a blank line. A TOML literal
+//! string keeps those blank lines verbatim, so the source reads as a filmstrip:
 //!
 //! ```text
-//!     art.seq  state=move mode=loop |
-//!       23
-//!       1.
+//!     [[grubling.art.seq]]
+//!     state = "move"
+//!     mode = "loop"
+//!     frames = '''
+//!     23
+//!     1.
 //!
-//!       23
-//!       .1
+//!     23
+//!     .1
+//!     '''
 //! ```
 //!
 //! The facade splits on the blank lines and checks every frame against
@@ -61,9 +65,9 @@
 //! which could carry pixels and nothing else. Making each one a `record[]`
 //! element is what lets a pose also say HOW it plays — `mode`, its own `fps`,
 //! the ambient blink timings — without inventing a parallel `art.moveMode` key
-//! per attribute, and it is the same shape the player's `@sprite` uses.
+//! per attribute, and it is the same shape the player's sprite uses.
 //!
-//! Rates: a sequence with no `fps=` inherits `art.fps`. Do NOT pre-halve the
+//! Rates: a sequence with no `fps` inherits `art.fps`. Do NOT pre-halve the
 //! idle rate in content, even though idle does play at half speed — that halving
 //! is a rendering decision the facade applies to every creature at once, and
 //! baking it into 14 files would mean 14 places to change it and 14 chances to
@@ -515,7 +519,7 @@ pub fn schema() -> Schema {
     // can grow a field the other silently lacks.
     //
     // Everything is required WITHIN the group: a record that sets no `art.*` key
-    // at all has no art object, which is how a tombstone (FORMAT.md §4) gets
+    // at all has no art object, which is how a tombstone gets
     // emitted without having to carry a sprite. The facade gives those a
     // placeholder.
     fields.extend(sprite_art_fields(SpriteArtOpts {
@@ -595,14 +599,14 @@ pub fn schema() -> Schema {
         // picker, and no `art.*` key means no art group, which the facade renders as
         // a loud magenta nothing — exactly what you want to see if one is ever drawn.
         tombstone: vec![
-            ("brain".into(), "walker".into()),
-            ("name".into(), "(removed)".into()),
+            ("brain".into(), "\"walker\"".into()),
+            ("name".into(), "\"(removed)\"".into()),
             ("maxHealth".into(), "1".into()),
             ("bodyCellsW".into(), "1".into()),
             ("bodyCellsH".into(), "1".into()),
             ("speed".into(), "0".into()),
-            ("blood".into(), "255 0 255".into()),
-            ("bands".into(), "surface".into()),
+            ("blood".into(), "[255, 0, 255]".into()),
+            ("bands".into(), "[\"surface\"]".into()),
             ("weight".into(), "0".into()),
         ],
     }

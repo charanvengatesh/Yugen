@@ -4,10 +4,14 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Compiler for the GodGame content DSL: .block/.item/.mob/.sprite/.struct/.feature into Rust tables"
+description = "Compiler for the GodGame content format: content/**/*.toml into Rust tables"
 
 [dependencies]
 thiserror.workspace = true
+# The authoring format's front end (content/FORMAT.md). Only the parse half is
+# ever used: nothing here writes TOML back out, because a round-trip would
+# rewrite the files and the comments in them are the most valuable thing there.
+toml = "0.9"
 
 [lib]
 name = "contentc"

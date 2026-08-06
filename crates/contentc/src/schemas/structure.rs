@@ -1,20 +1,20 @@
-//! The `struct` schema — the contract for everything in `content/structures/*.struct`.
+//! The `struct` schema — the contract for everything in `content/structures/*.toml`.
 //!
-//! A struct is a TEMPLATE: a `body` heredoc of glyphs plus a `legend` mapping each
-//! glyph to a block, exactly as FORMAT.md §7 describes. Everything else on the
-//! record is PLACEMENT metadata — where in the world the template is allowed to
-//! land, how often, and how it is allowed to vary.
+//! A struct is a TEMPLATE: a `body` of glyphs (FORMAT.md §5) plus a `legend`
+//! mapping each glyph to a block. Everything else on the record is PLACEMENT
+//! metadata — where in the world the template is allowed to land, how often, and
+//! how it is allowed to vary.
 //!
-//! ---- WHY THE LEGEND IS REPEATED ROWS AND NOT ONE LINE ----------------------
-//! FORMAT.md §7 sketches `legend W=wood G=glass` as a single line. That form
-//! cannot be validated: the compiler only checks an id against another kind's
-//! registry when the FIELD is declared `ref(kind)` (schema.rs `reference()`), and
-//! a whitespace list of `glyph=id` pairs is a `list<string>`, so a typo'd block id
-//! would ship as a silent hole in a building. One `legend` row per glyph makes it
-//! a `record[]` whose `block` attribute is a real `ref?(block)`, so an unknown
-//! material is a build failure at the line that named it — which is the whole
-//! reason the format has refs. The row also carries the `mark` the loot pass
-//! needs, which a bare glyph=id pair has nowhere to put.
+//! ---- WHY THE LEGEND IS A RECORD PER GLYPH AND NOT ONE MAPPING --------------
+//! The obvious spelling is one table, `legend = { W = "wood", G = "glass" }`.
+//! That form cannot be validated: the compiler only checks an id against another
+//! kind's registry when the FIELD is declared `ref(kind)` (schema.rs
+//! `reference()`), and a table of glyph -> id is a bag of strings, so a typo'd
+//! block id would ship as a silent hole in a building. One `legend` entry per
+//! glyph makes it a `record[]` whose `block` attribute is a real `ref?(block)`,
+//! so an unknown material is a build failure at the line that named it — which is
+//! the whole reason the format has refs. The entry also carries the `mark` the
+//! loot pass needs, which a bare glyph -> id pair has nowhere to put.
 //!
 //! ---- GLYPH SEMANTICS -------------------------------------------------------
 //!   `.`   force air — carve whatever terrain is here away
@@ -401,7 +401,7 @@ pub fn schema() -> Schema {
                 "legend".into(),
                 Field::new("record[]")
                     .doc(
-                        "One row per glyph: `legend c=W block=wood`. `.` `_` and space are reserved.",
+                        "One entry per glyph: `{ c = \"W\", block = \"wood\" }`. `.` `_` and space are reserved.",
                     )
                     .default(Value::Records(Vec::new()))
                     .element(
@@ -568,8 +568,8 @@ pub fn schema() -> Schema {
         // cabin at (x,y)" still resolves the id. Weight 0 and an empty body mean the
         // placement pass can never pick it and the facade skips it outright.
         tombstone: vec![
-            ("name".into(), "(removed)".into()),
-            ("place".into(), "surface".into()),
+            ("name".into(), "\"(removed)\"".into()),
+            ("place".into(), "\"surface\"".into()),
             ("rarity".into(), "0".into()),
             ("weight".into(), "0".into()),
         ],

@@ -41,13 +41,15 @@
 # =============================================================================
 # Lit from the upper left, which is where every other lit edge in this game
 # comes from (see `edge` in content/blocks/*.block).
-@sprite icon_block_cube
-cellsW    2
-cellsH    2
-pal       . #55555c #9a9aa4 #c8c8d2
-seq |
-  33
-  21
+[icon_block_cube]
+cellsW = 2
+cellsH = 2
+pal = [".", "#55555c", "#9a9aa4", "#c8c8d2"]
+[[icon_block_cube.seq]]
+frames = '''
+33
+21
+'''
 
 # =============================================================================
 # Tools — the progression ladder, and the icons the player stares at longest
@@ -61,53 +63,63 @@ seq |
 #   row 1   the haft, under the head
 #   row 2   the haft again, stepped right, so the handle reads as raked back
 
-@sprite icon_pick_traveler
-cellsW    3
-cellsH    3
-pal       . #6b4a2c #6e6458 #a89a86
-seq |
-  232
-  .1.
-  ..1
+[icon_pick_traveler]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6b4a2c", "#6e6458", "#a89a86"]
+[[icon_pick_traveler.seq]]
+frames = '''
+232
+.1.
+..1
+'''
 
-@sprite icon_pick_copper
-cellsW    3
-cellsH    3
-pal       . #6b4a2c #a35f36 #e08a52
-seq |
-  232
-  .1.
-  ..1
+[icon_pick_copper]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6b4a2c", "#a35f36", "#e08a52"]
+[[icon_pick_copper.seq]]
+frames = '''
+232
+.1.
+..1
+'''
 
-@sprite icon_pick_iron
-cellsW    3
-cellsH    3
-pal       . #6b4a2c #7e7a78 #c8c4c0
-seq |
-  232
-  .1.
-  ..1
+[icon_pick_iron]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6b4a2c", "#7e7a78", "#c8c4c0"]
+[[icon_pick_iron.seq]]
+frames = '''
+232
+.1.
+..1
+'''
 
-@sprite icon_pick_gold
-cellsW    3
-cellsH    3
-pal       . #6b4a2c #b08a2e #f0d878
-seq |
-  232
-  .1.
-  ..1
+[icon_pick_gold]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6b4a2c", "#b08a2e", "#f0d878"]
+[[icon_pick_gold.seq]]
+frames = '''
+232
+.1.
+..1
+'''
 
 # The gem pick breaks the palette rule the other four keep — a dark violet haft
 # instead of wood — because it is the end of the ladder and the only one that is
 # not a stick with a rock on it.
-@sprite icon_pick_gem
-cellsW    3
-cellsH    3
-pal       . #4a2c3a #8e2f5e #e878b4
-seq |
-  232
-  .1.
-  ..1
+[icon_pick_gem]
+cellsW = 3
+cellsH = 3
+pal = [".", "#4a2c3a", "#8e2f5e", "#e878b4"]
+[[icon_pick_gem.seq]]
+frames = '''
+232
+.1.
+..1
+'''
 
 # =============================================================================
 # Weapons
@@ -115,68 +127,80 @@ seq |
 # Blade on the rising diagonal, hilt in the bottom-left corner. Three pixels of
 # blade is enough to say "sword" as long as the guard breaks the line.
 
-@sprite icon_sword_traveler
-cellsW    3
-cellsH    3
-pal       . #5a4630 #c2c6ce #8a8e96
-seq |
-  ..2
-  .2.
-  31.
+[icon_sword_traveler]
+cellsW = 3
+cellsH = 3
+pal = [".", "#5a4630", "#c2c6ce", "#8a8e96"]
+[[icon_sword_traveler.seq]]
+frames = '''
+..2
+.2.
+31.
+'''
 
 # The King's Sword gets a fourth colour for the gem in the guard and a brighter
 # tip than its own blade tone, so at three pixels it still reads as the relic
 # rather than as a yellow traveler sword.
-@sprite icon_sword_king
-cellsW    3
-cellsH    3
-pal       . #4a3a1e #f2dc94 #fff6cc #e0508c
-seq |
-  ..3
-  .2.
-  41.
+[icon_sword_king]
+cellsW = 3
+cellsH = 3
+pal = [".", "#4a3a1e", "#f2dc94", "#fff6cc", "#e0508c"]
+[[icon_sword_king.seq]]
+frames = '''
+..3
+.2.
+41.
+'''
 
 # The bow is the one icon whose silhouette does all the work: columns 0 and 1
 # carry the limb as a `(` curve and column 2 is the string drawn straight, so
 # the two shapes cannot be confused with each other at three pixels wide.
-@sprite icon_bow
-cellsW    3
-cellsH    3
-pal       . #d8c898 #8a5c2e
-seq |
-  .21
-  2.1
-  .21
+[icon_bow]
+cellsW = 3
+cellsH = 3
+pal = [".", "#d8c898", "#8a5c2e"]
+[[icon_bow.seq]]
+frames = '''
+.21
+2.1
+.21
+'''
 
-@sprite icon_sling
-cellsW    3
-cellsH    3
-pal       . #b8a884 #7c7a78
-seq |
-  1.1
-  .1.
-  .2.
+[icon_sling]
+cellsW = 3
+cellsH = 3
+pal = [".", "#b8a884", "#7c7a78"]
+[[icon_sling.seq]]
+frames = '''
+1.1
+.1.
+.2.
+'''
 
 # Ammunition reads as a rising diagonal with a heavy end and a light end —
 # fletching bottom-left, head top-right. The two tiers differ only in the head,
 # which is exactly the difference that matters.
-@sprite icon_arrow
-cellsW    3
-cellsH    3
-pal       . #d8cfae #a0783f #6e6c74
-seq |
-  ..3
-  .2.
-  1..
+[icon_arrow]
+cellsW = 3
+cellsH = 3
+pal = [".", "#d8cfae", "#a0783f", "#6e6c74"]
+[[icon_arrow.seq]]
+frames = '''
+..3
+.2.
+1..
+'''
 
-@sprite icon_arrow_iron
-cellsW    3
-cellsH    3
-pal       . #d8cfae #a0783f #c8ccd4
-seq |
-  ..3
-  .2.
-  1..
+[icon_arrow_iron]
+cellsW = 3
+cellsH = 3
+pal = [".", "#d8cfae", "#a0783f", "#c8ccd4"]
+[[icon_arrow_iron.seq]]
+frames = '''
+..3
+.2.
+1..
+'''
 
 # =============================================================================
 # Ore, bars and stones
@@ -185,92 +209,112 @@ seq |
 # a vein reads as metal IN something rather than as a lump of metal. That is the
 # same idea `texture speckle` carries on the ore blocks themselves.
 
-@sprite icon_ore_copper
-cellsW    2
-cellsH    2
-pal       . #6e6a64 #a35f36 #e08a52
-seq |
-  13
-  21
+[icon_ore_copper]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e6a64", "#a35f36", "#e08a52"]
+[[icon_ore_copper.seq]]
+frames = '''
+13
+21
+'''
 
-@sprite icon_ore_iron
-cellsW    2
-cellsH    2
-pal       . #6e6a64 #8e8a86 #cfcbc6
-seq |
-  13
-  21
+[icon_ore_iron]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e6a64", "#8e8a86", "#cfcbc6"]
+[[icon_ore_iron.seq]]
+frames = '''
+13
+21
+'''
 
-@sprite icon_ore_gold
-cellsW    2
-cellsH    2
-pal       . #6e6a64 #b08a2e #f0d878
-seq |
-  13
-  21
+[icon_ore_gold]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e6a64", "#b08a2e", "#f0d878"]
+[[icon_ore_gold.seq]]
+frames = '''
+13
+21
+'''
 
 # Coal is not a vein, it is a lump, so it gets the solid three-pixel mass
 # instead of the checker — the shape difference is what stops a dark ore icon
 # and a coal icon being the same picture.
-@sprite icon_coal
-cellsW    2
-cellsH    2
-pal       . #1e1c20 #3a3640 #5a5464
-seq |
-  23
-  12
+[icon_coal]
+cellsW = 2
+cellsH = 2
+pal = [".", "#1e1c20", "#3a3640", "#5a5464"]
+[[icon_coal.seq]]
+frames = '''
+23
+12
+'''
 
 # BARS are a trapezoid: a lit top face narrower than the body. Three pixels, but
 # the missing top-left corner is the whole read.
-@sprite icon_bar_copper
-cellsW    2
-cellsH    2
-pal       . #a35f36 #e08a52
-seq |
-  .2
-  11
+[icon_bar_copper]
+cellsW = 2
+cellsH = 2
+pal = [".", "#a35f36", "#e08a52"]
+[[icon_bar_copper.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_bar_iron
-cellsW    2
-cellsH    2
-pal       . #8e8a86 #cfcbc6
-seq |
-  .2
-  11
+[icon_bar_iron]
+cellsW = 2
+cellsH = 2
+pal = [".", "#8e8a86", "#cfcbc6"]
+[[icon_bar_iron.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_bar_gold
-cellsW    2
-cellsH    2
-pal       . #b08a2e #f0d878
-seq |
-  .2
-  11
+[icon_bar_gold]
+cellsW = 2
+cellsH = 2
+pal = [".", "#b08a2e", "#f0d878"]
+[[icon_bar_gold.seq]]
+frames = '''
+.2
+11
+'''
 
 # Cut stones are small on purpose: three pixels with the bright facet up and to
 # the right, against the bar's three pixels with the light face flat on top.
-@sprite icon_gem
-cellsW    2
-cellsH    2
-pal       . #6e1e46 #b8407e #f0a0d0
-seq |
-  .3
-  12
+[icon_gem]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e1e46", "#b8407e", "#f0a0d0"]
+[[icon_gem.seq]]
+frames = '''
+.3
+12
+'''
 
-@sprite icon_crystal_shard
-cellsW    2
-cellsH    2
-pal       . #4a3a7a #8e6ce0 #cfb4ff
-seq |
-  .3
-  21
+[icon_crystal_shard]
+cellsW = 2
+cellsH = 2
+pal = [".", "#4a3a7a", "#8e6ce0", "#cfb4ff"]
+[[icon_crystal_shard.seq]]
+frames = '''
+.3
+21
+'''
 
-@sprite icon_flint
-cellsW    2
-cellsH    2
-pal       . #3e3c42 #6e6c74 #a8a6b0
-seq |
-  .2
-  31
+[icon_flint]
+cellsW = 2
+cellsH = 2
+pal = [".", "#3e3c42", "#6e6c74", "#a8a6b0"]
+[[icon_flint.seq]]
+frames = '''
+.2
+31
+'''
 
 # =============================================================================
 # Consumables
@@ -281,64 +325,78 @@ seq |
 # (spore cake) stays food-shaped, because what the player needs off the slot is
 # "can I eat this", and the tooltip is right there for the rest.
 
-@sprite icon_flask_fire
-cellsW    2
-cellsH    2
-pal       . #e8763a #ffc06a
-seq |
-  .2
-  11
+[icon_flask_fire]
+cellsW = 2
+cellsH = 2
+pal = [".", "#e8763a", "#ffc06a"]
+[[icon_flask_fire.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_flask_light
-cellsW    2
-cellsH    2
-pal       . #b48ad8 #f0d8ff
-seq |
-  .2
-  11
+[icon_flask_light]
+cellsW = 2
+cellsH = 2
+pal = [".", "#b48ad8", "#f0d8ff"]
+[[icon_flask_light.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_flask_haste
-cellsW    2
-cellsH    2
-pal       . #8a72b8 #cfc0f0
-seq |
-  .2
-  11
+[icon_flask_haste]
+cellsW = 2
+cellsH = 2
+pal = [".", "#8a72b8", "#cfc0f0"]
+[[icon_flask_haste.seq]]
+frames = '''
+.2
+11
+'''
 
 # Cloth wound over itself — the checker again, but in two tones of the same
 # colour rather than two different materials, which is what stops it reading as
 # an ore.
-@sprite icon_bandage
-cellsW    2
-cellsH    2
-pal       . #d8d2c0 #a89878
-seq |
-  21
-  12
+[icon_bandage]
+cellsW = 2
+cellsH = 2
+pal = [".", "#d8d2c0", "#a89878"]
+[[icon_bandage.seq]]
+frames = '''
+21
+12
+'''
 
-@sprite icon_stew
-cellsW    2
-cellsH    2
-pal       . #6a5240 #b06a3c
-seq |
-  22
-  11
+[icon_stew]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6a5240", "#b06a3c"]
+[[icon_stew.seq]]
+frames = '''
+22
+11
+'''
 
-@sprite icon_roast
-cellsW    2
-cellsH    2
-pal       . #7a4a2a #c88a52
-seq |
-  22
-  .1
+[icon_roast]
+cellsW = 2
+cellsH = 2
+pal = [".", "#7a4a2a", "#c88a52"]
+[[icon_roast.seq]]
+frames = '''
+22
+.1
+'''
 
-@sprite icon_cake
-cellsW    2
-cellsH    2
-pal       . #8a6aa8 #d8b8f0
-seq |
-  22
-  21
+[icon_cake]
+cellsW = 2
+cellsH = 2
+pal = [".", "#8a6aa8", "#d8b8f0"]
+[[icon_cake.seq]]
+frames = '''
+22
+21
+'''
 
 # =============================================================================
 # Fixtures — light, traversal, storage
@@ -347,65 +405,79 @@ seq |
 # ARE their shape: a ladder is rails and rungs, a coil is a ring, a platform is
 # a plank on legs. The light sources are masses and read fine at four pixels.
 
-@sprite icon_torch
-cellsW    2
-cellsH    2
-pal       . #7a5230 #ffc25a
-seq |
-  .2
-  .1
+[icon_torch]
+cellsW = 2
+cellsH = 2
+pal = [".", "#7a5230", "#ffc25a"]
+[[icon_torch.seq]]
+frames = '''
+.2
+.1
+'''
 
-@sprite icon_lantern
-cellsW    2
-cellsH    2
-pal       . #c8a03c #ffe8a0
-seq |
-  11
-  22
+[icon_lantern]
+cellsW = 2
+cellsH = 2
+pal = [".", "#c8a03c", "#ffe8a0"]
+[[icon_lantern.seq]]
+frames = '''
+11
+22
+'''
 
-@sprite icon_campfire
-cellsW    2
-cellsH    2
-pal       . #7a4a2a #ff9a3c
-seq |
-  .2
-  11
+[icon_campfire]
+cellsW = 2
+cellsH = 2
+pal = [".", "#7a4a2a", "#ff9a3c"]
+[[icon_campfire.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_ladder
-cellsW    3
-cellsH    3
-pal       . #8a6234 #c8a068
-seq |
-  1.1
-  222
-  1.1
+[icon_ladder]
+cellsW = 3
+cellsH = 3
+pal = [".", "#8a6234", "#c8a068"]
+[[icon_ladder.seq]]
+frames = '''
+1.1
+222
+1.1
+'''
 
-@sprite icon_rope
-cellsW    3
-cellsH    3
-pal       . #a08858 #d8c098
-seq |
-  .2.
-  1.1
-  .2.
+[icon_rope]
+cellsW = 3
+cellsH = 3
+pal = [".", "#a08858", "#d8c098"]
+[[icon_rope.seq]]
+frames = '''
+.2.
+1.1
+.2.
+'''
 
-@sprite icon_platform
-cellsW    3
-cellsH    3
-pal       . #8a6234 #c09050
-seq |
-  222
-  1.1
-  ...
+[icon_platform]
+cellsW = 3
+cellsH = 3
+pal = [".", "#8a6234", "#c09050"]
+[[icon_platform.seq]]
+frames = '''
+222
+1.1
+...
+'''
 
-@sprite icon_chest
-cellsW    3
-cellsH    3
-pal       . #7a5228 #a06e38 #e8c85a
-seq |
-  222
-  313
-  111
+[icon_chest]
+cellsW = 3
+cellsH = 3
+pal = [".", "#7a5228", "#a06e38", "#e8c85a"]
+[[icon_chest.seq]]
+frames = '''
+222
+313
+111
+'''
 
 # =============================================================================
 # Relics
@@ -414,21 +486,25 @@ seq |
 # point: nothing else the player can hold is allowed to be that bright, so the
 # Pearl is findable in a full inventory without reading a single label.
 
-@sprite icon_pearl
-cellsW    2
-cellsH    2
-pal       . #c8c2d8 #eae6f4 #ffffff
-seq |
-  32
-  21
+[icon_pearl]
+cellsW = 2
+cellsH = 2
+pal = [".", "#c8c2d8", "#eae6f4", "#ffffff"]
+[[icon_pearl.seq]]
+frames = '''
+32
+21
+'''
 
-@sprite icon_pearl_shard
-cellsW    2
-cellsH    2
-pal       . #c8c2d8 #eae6f4 #ffffff
-seq |
-  .3
-  12
+[icon_pearl_shard]
+cellsW = 2
+cellsH = 2
+pal = [".", "#c8c2d8", "#eae6f4", "#ffffff"]
+[[icon_pearl_shard.seq]]
+frames = '''
+.3
+12
+'''
 
 # =============================================================================
 # Creature drops and field materials
@@ -436,99 +512,123 @@ seq |
 
 # Two knobs on a raked shaft. It is the only icon in the file drawn as a
 # descending diagonal, which is what keeps it from reading as an arrow.
-@sprite icon_bone
-cellsW    3
-cellsH    3
-pal       . #e4dcc4
-seq |
-  11.
-  .1.
-  .11
+[icon_bone]
+cellsW = 3
+cellsH = 3
+pal = [".", "#e4dcc4"]
+[[icon_bone.seq]]
+frames = '''
+11.
+.1.
+.11
+'''
 
-@sprite icon_scrap
-cellsW    2
-cellsH    2
-pal       . #6e7686 #b0b8c8
-seq |
-  21
-  12
+[icon_scrap]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e7686", "#b0b8c8"]
+[[icon_scrap.seq]]
+frames = '''
+21
+12
+'''
 
-@sprite icon_core_ember
-cellsW    2
-cellsH    2
-pal       . #8a3010 #e86a20 #ffc060
-seq |
-  23
-  12
+[icon_core_ember]
+cellsW = 2
+cellsH = 2
+pal = [".", "#8a3010", "#e86a20", "#ffc060"]
+[[icon_core_ember.seq]]
+frames = '''
+23
+12
+'''
 
-@sprite icon_core_frozen
-cellsW    2
-cellsH    2
-pal       . #3a6a90 #6ab0e0 #d8f4ff
-seq |
-  23
-  12
+[icon_core_frozen]
+cellsW = 2
+cellsH = 2
+pal = [".", "#3a6a90", "#6ab0e0", "#d8f4ff"]
+[[icon_core_frozen.seq]]
+frames = '''
+23
+12
+'''
 
-@sprite icon_gel
-cellsW    2
-cellsH    2
-pal       . #4e9a62 #8ee0a0
-seq |
-  .2
-  11
+[icon_gel]
+cellsW = 2
+cellsH = 2
+pal = [".", "#4e9a62", "#8ee0a0"]
+[[icon_gel.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_chitin
-cellsW    2
-cellsH    2
-pal       . #6e5a3c #a8895c
-seq |
-  22
-  11
+[icon_chitin]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e5a3c", "#a8895c"]
+[[icon_chitin.seq]]
+frames = '''
+22
+11
+'''
 
-@sprite icon_hide
-cellsW    2
-cellsH    2
-pal       . #6e523a #a07a52
-seq |
-  22
-  1.
+[icon_hide]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6e523a", "#a07a52"]
+[[icon_hide.seq]]
+frames = '''
+22
+1.
+'''
 
-@sprite icon_wing
-cellsW    2
-cellsH    2
-pal       . #5a4a5e #9a86a2
-seq |
-  2.
-  12
+[icon_wing]
+cellsW = 2
+cellsH = 2
+pal = [".", "#5a4a5e", "#9a86a2"]
+[[icon_wing.seq]]
+frames = '''
+2.
+12
+'''
 
-@sprite icon_dust
-cellsW    2
-cellsH    2
-pal       . #b8a878 #f0e2b0
-seq |
-  2.
-  .1
+[icon_dust]
+cellsW = 2
+cellsH = 2
+pal = [".", "#b8a878", "#f0e2b0"]
+[[icon_dust.seq]]
+frames = '''
+2.
+.1
+'''
 
-@sprite icon_sac
-cellsW    2
-cellsH    2
-pal       . #6a4a86 #b088d0
-seq |
-  .2
-  11
+[icon_sac]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6a4a86", "#b088d0"]
+[[icon_sac.seq]]
+frames = '''
+.2
+11
+'''
 
-@sprite icon_meat
-cellsW    2
-cellsH    2
-pal       . #a86868 #d89a94
-seq |
-  22
-  11
+[icon_meat]
+cellsW = 2
+cellsH = 2
+pal = [".", "#a86868", "#d89a94"]
+[[icon_meat.seq]]
+frames = '''
+22
+11
+'''
 
-@sprite icon_sapling
-cellsW    2
-cellsH    2
-pal       . #6a4a2c #7ac04e
-seq |
-  .2
-  1.
+[icon_sapling]
+cellsW = 2
+cellsH = 2
+pal = [".", "#6a4a2c", "#7ac04e"]
+[[icon_sapling.seq]]
+frames = '''
+.2
+1.
+'''

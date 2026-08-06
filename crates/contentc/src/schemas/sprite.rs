@@ -1,8 +1,8 @@
 //! The `sprite` schema, and the reusable art fields every host splices in.
 //!
 //! There are two hosts for pixel art in this game and there will be more: the
-//! player (a standalone `@sprite`), and every creature (an `art.` group inside
-//! `@mob`). They want the SAME fields — a cell grid, a palette, a playback rate,
+//! player (a standalone `sprite` record), and every creature (an `art.` group
+//! inside a `mob`). They want the SAME fields — a cell grid, a palette, a playback rate,
 //! a list of named sequences — and a different pose vocabulary. Duplicating the
 //! field list per host is how the two quietly diverge: someone adds `variants` to
 //! one and not the other, and six months later half the art pipeline supports
@@ -13,7 +13,7 @@
 //! things that genuinely differ:
 //!
 //! ```text
-//!   prefix         ""      for a top-level @sprite, "art." for a @mob group
+//!   prefix         ""      for a top-level sprite, "art." for a mob group
 //!   states         the CLOSED pose vocabulary — a typo is a compile error
 //!   ts_alias       what the emitted union is called: AnimState / MobPose
 //!   ts_element     what the emitted element interface is called
@@ -73,7 +73,7 @@ fn cells(v: &Value) -> Option<String> {
 
 /// What a host chooses when it splices the art fields in.
 pub struct SpriteArtOpts {
-    /// "" for a top-level `@sprite`, "art." to splice into a group.
+    /// "" for a top-level sprite, "art." to splice into a group.
     pub prefix: &'static str,
     /// The closed pose vocabulary for this host. Emitted as `ts_alias`.
     pub states: &'static [&'static str],
@@ -188,8 +188,8 @@ pub fn sprite_art_fields(opts: SpriteArtOpts) -> Vec<(String, Field)> {
             format!("{p}seq"),
             Field::new("record[]")
                 .doc(
-                    "One animation sequence per occurrence, in file order. Attributes on the \
-                     line, frames in the `|` body.",
+                    "One animation sequence per entry, in file order. Attributes as keys, \
+                     frames in the `frames` body.",
                 )
                 .element(
                     opts.ts_element,
@@ -235,7 +235,7 @@ pub fn sprite_art_fields(opts: SpriteArtOpts) -> Vec<(String, Field)> {
                             "frames".to_string(),
                             Field::new("text")
                                 .doc(
-                                    "The frames, as the `|` body: `cellsH` rows per frame, frames \
+                                    "The frames, as a `'''` body: `cellsH` rows per frame, frames \
                                      separated by a blank line. Read it as a filmstrip.",
                                 )
                                 .required(),
@@ -246,17 +246,18 @@ pub fn sprite_art_fields(opts: SpriteArtOpts) -> Vec<(String, Field)> {
     ]
 }
 
-/// The pose vocabulary of the standalone `@sprite` kind — art with no creature
+/// The pose vocabulary of the standalone `sprite` kind — art with no creature
 /// attached to it.
 ///
 /// Two consumers today: the player, whose art moved out of PlayerSprite.ts so it
 /// stops being source nobody can redraw without a rebuild; and item icons, which
 /// reference a sprite id from `item.icon`. Both want exactly the same fields,
 /// which is the argument for one kind rather than an `@icon` kind that would be
-/// `@sprite` with a shorter enum.
+/// a `sprite` with a shorter enum.
 ///
 /// The pose vocabulary is the PLAYER's twelve, and `default_state: "idle"` is
-/// what lets a one-frame icon write a bare `seq |` and mean it. An icon that
+/// what lets a one-frame icon write a `seq` entry with only its `frames` and
+/// mean it. An icon that
 /// happens to animate can therefore use the whole player vocabulary; nothing
 /// reads those poses on an icon, and forbidding them would need a second kind to
 /// buy nothing.
@@ -304,10 +305,10 @@ pub fn schema() -> Schema {
         // to something rather than to nothing. One magenta cell: loud, and the
         // smallest legal sprite there is.
         tombstone: vec![
-            ("name".into(), "(removed)".into()),
+            ("name".into(), "\"(removed)\"".into()),
             ("cellsW".into(), "1".into()),
             ("cellsH".into(), "1".into()),
-            ("pal".into(), ". #ff00ff".into()),
+            ("pal".into(), "[\".\", \"#ff00ff\"]".into()),
         ],
     }
 }

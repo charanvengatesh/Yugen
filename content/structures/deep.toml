@@ -1,0 +1,50 @@
+# The underworld. `place underworld` is only offered lattice cells below
+# UNDERWORLD_DEPTH, which is 470 cells down — everything here is the reward for
+# a descent, so both records are generous with the cache and stingy with cover.
+
+[underworld_ruin]
+name = "Basalt Colonnade"
+place = "underworld"
+rarity = 0.7
+weight = 2.0
+anchor = "center"
+mirror = true
+legend = [
+    { c = "A", block = "basalt" },
+    { c = "O", block = "obsidian" },
+    { c = "K", block = "spike" },
+    { c = "L", block = ["gemOre", "goldOre"], mark = "loot" },
+    { c = "X", mark = "spawn" },
+]
+body = '''
+.A...A...A...A...
+.A...A...A...A...
+OOOOOOOOOOOOOOOOO
+.A......X......A.
+.A.....L.......A.
+.A......K......A.
+.A.............A.
+.AAAAAAAAAAAAAAA.
+'''
+
+[underworld_brazier]
+name = "Ash Brazier"
+place = "underworld"
+rarity = 0.5
+weight = 1.0
+anchor = "bottom_center"
+mirror = false
+legend = [
+    { c = "O", block = "obsidian" },
+    { c = "A", block = "basalt" },
+    { c = "J", block = "lava" },
+    { c = "L", block = "gemOre", mark = "loot" },
+]
+body = '''
+..OOO..
+.O...O.
+.O.L.O.
+.OJJJO.
+.OOOOO.
+.AAAAA.
+'''

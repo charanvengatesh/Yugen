@@ -1,10 +1,10 @@
 //! Code generation: content records -> `godgame-data/src/<kind>.rs`.
 //!
 //! Three jobs, in order:
-//!  1. assign stable numeric codes through `content/ids.lock.json` (FORMAT.md §4);
+//!  1. assign stable numeric codes through `content/ids.lock.json`;
 //!  2. validate every record against the schema, now that the id set is known,
 //!     so `ref(block)` can be checked at compile time;
-//!  3. print a deterministic Rust module (FORMAT.md §5) — sorted by code, no
+//!  3. print a deterministic Rust module (FORMAT.md §7) — sorted by code, no
 //!     timestamps, no hash-map iteration order — so a rebuild that changed
 //!     nothing produces a byte-identical file and `--check` means something.
 //!
@@ -19,8 +19,8 @@
 use crate::error::Result;
 use crate::lock::{KindLock, Lock};
 use crate::names;
-use crate::parser::{FieldMap, RawRecord, RawValue};
 use crate::schema::{ArrayKind, Field, Schema, TableCtx, TypeNode, parse_type};
+use crate::toml_in::{FieldMap, RawRecord, RawValue};
 use crate::value::{Def, Value};
 use crate::{bail, err};
 use std::collections::{HashMap, HashSet};
@@ -130,7 +130,7 @@ pub fn assign_kind_codes(kind: &str, ids: &[String], lock: &Lock) -> KindLock {
 // Compile
 // ---------------------------------------------------------------------------
 
-/// Ids of every kind, so a `ref(item)` inside a `.block` can be checked at
+/// Ids of every kind, so a `ref(item)` inside a block can be checked at
 /// compile time. Collected by a parse-only pre-pass in the driver, because kinds
 /// reference each other in both directions (a block drops an item; an item
 /// places a block) and no single compile order can satisfy that.
@@ -205,7 +205,7 @@ pub fn compile(
             })
             .cloned()
             .unwrap_or_else(|| format!("_reserved{c}"));
-        let rec = tombstone_record(schema, &id);
+        let rec = tombstone_record(schema, &id)?;
         let mut def = crate::schema::resolve_record(schema, &rec, &ctx)?;
         def.insert("code", Value::Int(c as i64));
         *slot = Some(def);
@@ -256,33 +256,37 @@ pub fn compile(
     })
 }
 
-fn tombstone_record(schema: &Schema, id: &str) -> RawRecord {
+/// The placeholder def for a retired id — the tombstone `content/ids.lock.json`
+/// keeps a code reserved for.
+///
+/// `Schema::tombstone` declares its values as TOML source text, so they go
+/// through exactly the same `coerce` the authored files do — the alternative was
+/// a second, string-spelled value syntax living on inside the compiler forever,
+/// which is the thing the format migration was for.
+fn tombstone_record(schema: &Schema, id: &str) -> Result<RawRecord> {
     let loc = crate::error::Loc {
         file: Rc::from("<tombstone>"),
         line: 0,
     };
     let mut fields = FieldMap::default();
-    for (k, v) in &schema.tombstone {
-        let text = if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
-            v[1..v.len() - 1].to_string()
-        } else {
-            v.clone()
-        };
+    for (k, spec) in &schema.tombstone {
+        let table: toml::Table = format!("v = {spec}")
+            .parse()
+            .map_err(|e| err!("{} tombstone '{k}': {e}", schema.kind))?;
         fields.push(
             k,
             RawValue {
-                text: Some(text),
-                lines: None,
+                value: table["v"].clone(),
                 loc: loc.clone(),
             },
         );
     }
-    RawRecord {
+    Ok(RawRecord {
         kind: schema.kind.clone(),
         id: id.to_string(),
         loc,
         fields,
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-//! The `item` schema — the contract for `content/items/*.item`.
+//! The `item` schema — the contract for `content/items/*.toml`.
 //!
 //! An item is what a block turns INTO when you break it, what you spend to put a
 //! block back, and what decides how deep you can break in the first place. That
@@ -24,7 +24,7 @@
 //! module quietly doubles in size.
 //!
 //! CRAFTING LIVES HERE, on the output item, as the `craft` record[] field. The
-//! `recipe` kind in FORMAT.md §3 would need a row in the kind table, which this
+//! `recipe` kind FORMAT.md's directory table would need would be a row this
 //! schema does not own; putting the recipe on the thing it produces costs one
 //! field, keeps the ingredient list under the same compile-time `ref(item)`
 //! validation, and has the pleasant property that a product and its recipe can
@@ -286,7 +286,7 @@ pub fn schema() -> Schema {
             // A LIST, not a `ref?` chain, and the difference is the whole design.
             //
             // A `ref?` preference chain (`arrow_iron|arrow`) is resolved by the
-            // COMPILER — FORMAT.md §2 is explicit that it "picks the first id that
+            // COMPILER — FORMAT.md §3 is explicit that it "takes the first id that
             // exists" — so it collapses to a single string in the emitted def and the
             // second candidate is gone before the game ever runs. That is exactly right
             // for what chains are for (content that names something a later pass will
@@ -335,7 +335,7 @@ pub fn schema() -> Schema {
                 "craft".into(),
                 Field::new("record[]")
                     .doc(
-                        "Recipes producing THIS item. Repeat the key for alternates (ore or bar, \
+                        "Recipes producing THIS item. One entry per alternate route (ore or bar, \
                          workbench or anvil). Absent = not craftable.",
                     )
                     .element(
@@ -405,8 +405,8 @@ pub fn schema() -> Schema {
         // still resolve; the def is a loud magenta nothing that stacks alone.
         tombstone: vec![
             ("name".into(), "\"(removed)\"".into()),
-            ("category".into(), "material".into()),
-            ("color".into(), "255 0 255".into()),
+            ("category".into(), "\"material\"".into()),
+            ("color".into(), "[255, 0, 255]".into()),
             ("stack".into(), "1".into()),
         ],
     }

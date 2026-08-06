@@ -134,7 +134,7 @@ pub enum Value {
     Color([u8; 3]),
     /// `a..b`, or `n` widened to `[n, n]`.
     Range(f64, f64),
-    /// A heredoc body, one entry per line.
+    /// A `'''` body, one entry per line.
     Text(Vec<String>),
     List(Vec<Value>),
     /// One or more `record[]` occurrences.
