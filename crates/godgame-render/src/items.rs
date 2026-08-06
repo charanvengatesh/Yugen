@@ -45,8 +45,6 @@
 //! point — the same item is a coloured mote at world scale and a labelled icon at
 //! UI scale, and neither drawing belongs in the other's module.
 
-use std::sync::{Arc, Mutex};
-
 use bevy::prelude::*;
 
 use godgame_core::config::STEP_DT;
@@ -66,21 +64,16 @@ use crate::world::{SimSet, SimWorld};
 /// and it must never hide the thing that is trying to bite you.
 const DROP_Z: f32 = 0.4;
 
-/// The pack, behind the handle the ammo source has to capture.
+/// What the player is carrying.
 ///
-/// See the module header for why this is shared rather than a plain resource.
-#[derive(Resource, Clone, Default)]
-pub struct Pack(Arc<Mutex<Inventory>>);
-
-impl Pack {
-    /// Borrow the pack.
-    ///
-    /// Panics on a poisoned lock, the same contract
-    /// [`godgame_core::entities::SharedPool`] and [`Creatures`] have.
-    pub fn lock(&self) -> std::sync::MutexGuard<'_, Inventory> {
-        self.0.lock().expect("inventory poisoned")
-    }
-}
+/// A PLAIN resource. It was an `Arc<Mutex<Inventory>>` for one reason: the ammo
+/// source was a `Box<dyn FnMut + 'static>` installed on the body, so it had to
+/// capture the pack, so the pack had to be owned by the closure as well as by
+/// this resource. [`AmmoSource`](godgame_core::entities::AmmoSource) is a trait
+/// borrowed for the length of one step now, `Inventory` implements it, and there
+/// is nothing left to capture.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct Pack(pub Inventory);
 
 /// The stacks lying on the floor.
 ///
@@ -113,6 +106,14 @@ impl Plugin for ItemsPlugin {
                 FixedUpdate,
                 (collect_loot, magnetise)
                     .chain()
+                    // AFTER the creatures have taken their step, or this drains
+                    // last tick's kills and a drop lands a frame late. The two
+                    // used to be unordered with respect to each other and to
+                    // serialise on a mutex Bevy could not see, so which ran first
+                    // was whatever the executor chose. Stated as `ResMut`, the
+                    // ambiguity is real and the scheduler will not resolve it for
+                    // us — which is correct, and the edge belongs here.
+                    .after(crate::mobs::step_creatures)
                     .after(PlayerSet::Step)
                     .before(SimSet::Simulate)
                     .run_if(resource_exists::<SimWorld>)
@@ -121,10 +122,6 @@ impl Plugin for ItemsPlugin {
             .add_systems(
                 Update,
                 (
-                    // `resource_added` fires on the one frame after the body is
-                    // inserted, which is the first frame there is a player to
-                    // install anything on.
-                    install_ammo_source.run_if(resource_added::<PlayerBody>),
                     sync_held_weapon.run_if(resource_exists::<PlayerBody>),
                     collect_dig_drops,
                     place_drops,
@@ -149,19 +146,6 @@ fn spawn_drop_placeholders(mut commands: Commands) {
     }
 }
 
-/// Teach the player to spend arrows out of the pack.
-///
-/// [`Inventory::spend_by_id`] has the
-/// [`AmmoSource`](godgame_core::entities::AmmoSource) signature exactly —
-/// `(&str, u32) -> u32`, returning how many were actually spent — so this
-/// closure is a lock and a forward with no judgement in it, the same shape
-/// [`crate::mobs::install_hit_test`] has. Which ids count as ammo for a given
-/// bow is the weapon's business and is already on `PlayerWeapon::ammo`.
-fn install_ammo_source(mut body: ResMut<PlayerBody>, pack: Res<Pack>) {
-    let pack = pack.clone();
-    body.set_ammo_source(Some(Box::new(move |id, n| pack.lock().spend_by_id(id, n))));
-}
-
 /// Push the held slot at the player whenever the selection or the pack changes.
 ///
 /// [`HeldWeaponSync`] is the guard, and it exists so this does not call
@@ -169,7 +153,7 @@ fn install_ammo_source(mut body: ResMut<PlayerBody>, pack: Res<Pack>) {
 /// mid-swing is a real event with real rules (see [`Player::set_weapon`]), and a
 /// host that re-pushed every frame would be firing that event constantly.
 fn sync_held_weapon(mut body: ResMut<PlayerBody>, pack: Res<Pack>, mut sync: ResMut<HeldWeapon>) {
-    if let Some(weapon) = sync.poll(&pack.lock()) {
+    if let Some(weapon) = sync.poll(&pack) {
         body.set_weapon(weapon);
     }
 }
@@ -184,19 +168,17 @@ fn sync_held_weapon(mut body: ResMut<PlayerBody>, pack: Res<Pack>, mut sync: Res
 /// The buffer is cleared whether or not every row landed, for the reason
 /// [`crate::mobs`] drains events: a report buffer nobody empties is permanently
 /// full by the time anyone reads it.
-fn collect_loot(creatures: Res<Creatures>, mut ground: ResMut<GroundItems>) {
-    let mut creatures = creatures.lock();
-    if creatures.loot_count() == 0 {
+fn collect_loot(mut creatures: ResMut<Creatures>, mut ground: ResMut<GroundItems>) {
+    if creatures.loot().is_empty() {
         return;
     }
-    // `[..loot_count()]`, for the reason `crate::mobs::step_creatures` spells
-    // out: `loot()` returns the fixed backing store and only the first
-    // `loot_count` rows are valid. This one was surviving on luck — a filler row
-    // has `count` 0, so the `n > 0` guard below was silently doing the slicing —
-    // and the identical mistake in the event drain pinned the screen shake at
-    // maximum. Reading the count is the contract; the guard is not.
-    let live = creatures.loot_count();
-    for (i, l) in creatures.loot()[..live].iter().enumerate() {
+    // `loot()` returns the VALID PREFIX. It used to return the fixed backing
+    // store with a separate `loot_count`, and this call site was surviving on
+    // luck: a filler row has `count` 0, so the `n > 0` guard below was silently
+    // doing the slicing the caller had forgotten. The identical mistake in the
+    // event drain pinned the screen shake at maximum for two milestones. The
+    // slice is the contract now; the guard is only about empty stacks.
+    for (i, l) in creatures.loot().iter().enumerate() {
         let n = l.count.max(0.0) as u32;
         if n > 0 {
             // The slot index is the bob phase, so a pile from one kill does not
@@ -231,10 +213,10 @@ fn collect_dig_drops(mut tool: ResMut<Tool>, mut ground: ResMut<GroundItems>) {
 fn magnetise(
     world: Res<SimWorld>,
     body: Res<PlayerBody>,
-    pack: Res<Pack>,
+    mut pack: ResMut<Pack>,
     mut ground: ResMut<GroundItems>,
 ) {
-    ground.update(STEP_DT, &world.level.grid, body.x, body.y, &mut pack.lock());
+    ground.update(STEP_DT, &world.level.grid, body.x, body.y, &mut pack);
 }
 
 /// Put every drop placeholder on its stack, or hide its slot.
@@ -267,49 +249,47 @@ fn place_drops(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use godgame_core::entities::AmmoSource;
     use godgame_core::items::{item_code_of, registry::ITEM_DEFS};
 
     #[test]
     fn the_ammo_seam_spends_out_of_the_pack() {
-        // The closure `install_ammo_source` installs, without a Bevy app. What is
-        // being checked is the forward and the shared handle: a closure that had
-        // captured a COPY of the inventory would report the same number and leave
-        // the pack full.
-        let pack = Pack::default();
+        // The seam is now `impl AmmoSource for Inventory` plus the borrow
+        // `crate::glue::step_the_body` hands the body, so what is checked here is
+        // that a `&mut dyn AmmoSource` pointing at THIS pack spends THIS pack.
+        // There is no longer a captured copy that could report the right number
+        // and leave the pack full — the borrow makes that unrepresentable — so
+        // the test is cheaper and the property it guarded is now structural.
+        let mut pack = Pack::default();
         let id = ITEM_DEFS[0].id;
         let code = item_code_of(id).expect("the first item is in the registry");
-        pack.lock().add(code, 10);
+        pack.add(code, 10);
 
-        let captured = pack.clone();
-        let mut ammo: godgame_core::entities::AmmoSource =
-            Box::new(move |id, n| captured.lock().spend_by_id(id, n));
-
-        assert_eq!(ammo(id, 3), 3);
-        assert_eq!(pack.lock().count_of(code), 7, "the shared pack was spent");
+        let ammo: &mut dyn AmmoSource = &mut *pack;
+        assert_eq!(ammo.spend(id, 3), 3);
+        assert_eq!(pack.count_of(code), 7, "the real pack was spent");
     }
 
     #[test]
     fn spending_more_than_is_held_takes_only_what_is_there() {
-        let pack = Pack::default();
+        let mut pack = Pack::default();
         let id = ITEM_DEFS[0].id;
         let code = item_code_of(id).expect("the first item is in the registry");
-        pack.lock().add(code, 2);
+        pack.add(code, 2);
 
-        let captured = pack.clone();
-        let mut ammo: godgame_core::entities::AmmoSource =
-            Box::new(move |id, n| captured.lock().spend_by_id(id, n));
-
-        assert_eq!(ammo(id, 5), 2, "a partial spend reports what it took");
-        assert_eq!(pack.lock().count_of(code), 0);
+        let ammo: &mut dyn AmmoSource = &mut *pack;
+        assert_eq!(ammo.spend(id, 5), 2, "a partial spend reports what it took");
+        assert_eq!(pack.count_of(code), 0);
     }
 
     #[test]
     fn an_unknown_ammo_id_spends_nothing() {
-        let pack = Pack::default();
-        let captured = pack.clone();
-        let mut ammo: godgame_core::entities::AmmoSource =
-            Box::new(move |id, n| captured.lock().spend_by_id(id, n));
-        assert_eq!(ammo("no_such_item_at_all", 1), 0);
+        // A content gap costs you the shot, not the run. The registry lookup is
+        // inside `Inventory::spend_by_id`, so this is the one place an id that
+        // does not resolve is allowed to be silent.
+        let mut pack = Pack::default();
+        let ammo: &mut dyn AmmoSource = &mut *pack;
+        assert_eq!(ammo.spend("no_such_item_at_all", 1), 0);
     }
 
     #[test]
@@ -317,20 +297,17 @@ mod tests {
         // The guard is the whole reason `sync_held_weapon` is cheap to run every
         // frame. An empty pack still pushes ONCE, because "bare hands" is a state
         // the player has to be told about exactly as much as a sword is.
-        let pack = Pack::default();
+        let mut pack = Pack::default();
         let mut sync = HeldWeaponSync::new();
-        assert!(sync.poll(&pack.lock()).is_some(), "the first poll pushes");
+        assert!(sync.poll(&pack).is_some(), "the first poll pushes");
         assert!(
-            sync.poll(&pack.lock()).is_none(),
+            sync.poll(&pack).is_none(),
             "an unchanged pack pushes nothing"
         );
 
         let code = item_code_of(ITEM_DEFS[0].id).expect("the first item is in the registry");
-        pack.lock().add(code, 1);
-        assert!(
-            sync.poll(&pack.lock()).is_some(),
-            "a changed pack pushes again"
-        );
+        pack.add(code, 1);
+        assert!(sync.poll(&pack).is_some(), "a changed pack pushes again");
     }
 
     #[test]

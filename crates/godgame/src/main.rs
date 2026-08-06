@@ -342,7 +342,7 @@ fn drive_report(
         u8::from(body.on_ground),
         grid.origin_cell_x(),
         grid.origin_cell_y(),
-        creatures.lock().count(),
+        creatures.count(),
         ground.active(),
     );
     *since = 0.0;

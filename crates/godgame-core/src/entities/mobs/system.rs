@@ -660,14 +660,30 @@ impl MobSystem {
         &self.shots
     }
 
-    /// Events raised since the last [`MobSystem::clear_events`]. Only the first
-    /// [`MobSystem::event_count`] are valid.
+    /// Events raised since the last [`MobSystem::clear_events`].
+    ///
+    /// # This returns the VALID PREFIX, and that is the whole point
+    ///
+    /// It used to hand back the fixed backing store — all [`MAX_EVENTS`] of it —
+    /// with a separate `event_count()` telling the caller how much of it meant
+    /// anything. That is a C signature, a pointer and a length, and Rust has one
+    /// type that carries both. The host drained the whole buffer, so ~14 phantom
+    /// `MobHurt` events arrived every frame at (0, 0), each worth 0.08 trauma
+    /// against a decay of 4/s: **the screen shake was pinned at maximum from the
+    /// first frame of the game.** 896 tests and a purpose-built image gate were
+    /// green, because a shaking camera still renders a varied, correctly-lit
+    /// frame. [`MobSystem::loot`] had the identical bug and was surviving on a
+    /// `count > 0` guard downstream.
+    ///
+    /// Slicing here does not merely catch that mistake — it makes it
+    /// unrepresentable. There is no longer an invalid tail to hand anybody.
     #[inline]
     pub fn events(&self) -> &[MobEvent] {
-        &self.events
+        &self.events[..self.event_count]
     }
 
-    /// How many of [`MobSystem::events`] are valid.
+    /// How many events are valid. Identical to `events().len()`; kept because it
+    /// reads better at a call site that only wants to know whether any arrived.
     #[inline]
     pub fn event_count(&self) -> usize {
         self.event_count
@@ -680,14 +696,15 @@ impl MobSystem {
         self.event_count = 0;
     }
 
-    /// Drops rolled since the last [`MobSystem::clear_loot`]. Only the first
-    /// [`MobSystem::loot_count`] are valid.
+    /// Drops rolled since the last [`MobSystem::clear_loot`].
+    ///
+    /// The valid prefix, for the reason [`MobSystem::events`] spells out.
     #[inline]
     pub fn loot(&self) -> &[MobLoot] {
-        &self.loot
+        &self.loot[..self.loot_count]
     }
 
-    /// How many of [`MobSystem::loot`] are valid.
+    /// How many drops are valid. Identical to `loot().len()`.
     #[inline]
     pub fn loot_count(&self) -> usize {
         self.loot_count
@@ -1463,9 +1480,31 @@ fn pocket_free(grid: &CellGrid, b: Aabb) -> bool {
 mod tests {
     use super::*;
     use crate::config::MAX_HEALTH;
-    use crate::entities::player::PlayerWeapon;
+    use crate::entities::player::{Loadout, NoProjectiles, PlayerWeapon};
     use crate::sim::materials::block;
     use crate::sim::worldgen::SpawnPoint;
+
+    /// One fixed step of a body with nowhere to fire.
+    ///
+    /// Every test in this module is about melee, contact damage or spawning —
+    /// never about the player's arrows — so the [`Loadout`] deliberately carries
+    /// the pool that REFUSES every shot. A test here that starts depending on a
+    /// projectile fails rather than firing into a pool nobody inspects.
+    fn step(p: &mut Player, dt: f32, grid: &CellGrid) {
+        let mut nowhere = NoProjectiles;
+        p.step(
+            dt,
+            crate::input::Intent::default(),
+            grid,
+            &mut Loadout::new(&mut nowhere),
+        );
+    }
+
+    /// A swing from a body with nowhere to fire. See [`step`].
+    fn swing(p: &mut Player) -> bool {
+        let mut nowhere = NoProjectiles;
+        p.attack(0.0, 0.0, &mut Loadout::new(&mut nowhere))
+    }
 
     /// A window at the world origin with solid rock from `floor_row` down, so
     /// world cells and local cells coincide.
@@ -1633,7 +1672,7 @@ mod tests {
         player.x = body.x;
         player.y = body.y;
         player.facing = 1.0;
-        assert!(player.attack(0.0, 0.0), "the fist is off cooldown");
+        assert!(swing(&mut player), "the fist is off cooldown");
         assert!(player.punching());
 
         let player_box = Aabb::new(player.x, player.y, PLAYER_W, PLAYER_H);
@@ -1648,9 +1687,9 @@ mod tests {
         // A NEW swing lands again.
         player.set_weapon(None);
         for _ in 0..40 {
-            player.step(1.0 / 120.0, crate::input::Intent::default(), &g);
+            step(&mut player, 1.0 / 120.0, &g);
         }
-        assert!(player.attack(0.0, 0.0));
+        assert!(swing(&mut player));
         sys.resolve_combat(slot, &mut player, player_box, true);
         assert_eq!(before - sys.pool[slot].health, one_hit * 2.0);
     }
@@ -1962,7 +2001,7 @@ mod tests {
             damage: def.max_health - 1.0 + def.armor,
             ..PlayerWeapon::default()
         }));
-        assert!(p.attack(0.0, 0.0));
+        assert!(swing(&mut p));
         sys.update(MOB_DT, &g, &mut p, 1.0);
         assert!(
             sys.pool[slot].active,
@@ -1975,12 +2014,12 @@ mod tests {
 
         // And the killing blow, on a fresh swing id.
         for _ in 0..120 {
-            p.step(1.0 / 120.0, crate::input::Intent::default(), &g);
+            step(&mut p, 1.0 / 120.0, &g);
         }
         p.x = sys.pool[slot].body.x;
         p.y = sys.pool[slot].body.y;
         p.facing = 1.0;
-        assert!(p.attack(0.0, 0.0));
+        assert!(swing(&mut p));
         sys.update(MOB_DT, &g, &mut p, 1.0);
         assert!(
             !sys.pool[slot].active,

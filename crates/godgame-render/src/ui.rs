@@ -119,7 +119,7 @@
 //! builder, every constant, and every test below is in the TypeScript's
 //! coordinates and can be read straight against the original.
 //!
-//! # SEAM (sprite.rs): item icons
+//! # Item icons, and where the sprite join lives
 //!
 //! [`IconAtlas`] is the whole of it, and it is deliberately two methods:
 //!
@@ -139,28 +139,21 @@
 //! [`paint`] overwrites `custom_size` and `color` and leaves every other field
 //! of it alone.
 //!
-//! **The join, against `sprite.rs` as it stands.** `SpriteAtlases` already has
-//! both halves — `baked.cells_w`/`cells_h`, and `SpriteAtlas::still()`, whose
-//! own doc comment calls itself "the still an item icon or a bestiary portrait
-//! wants":
+//! **The join is `impl IconAtlas for SpriteAtlases`, and it lives in
+//! [`crate::glue`].** `SpriteAtlases` had both halves already —
+//! `baked.cells_w`/`cells_h`, and `SpriteAtlas::still()`, whose own doc comment
+//! calls itself "the still an item icon or a bestiary portrait wants" — so the
+//! impl is a forward with no judgement in it. It is in `glue.rs` rather than in
+//! either neighbour because this module must never name a sprite type and
+//! `sprite.rs` has never heard of a hotbar: a file for the joins is what stops
+//! two modules that need each other from importing each other.
 //!
-//! ```ignore
-//! impl IconAtlas for SpriteAtlases {
-//!     fn icon_cells(&self, id: &str) -> Option<(i32, i32)> {
-//!         let b = &self.get(id)?.baked;
-//!         Some((b.cells_w as i32, b.cells_h as i32))
-//!     }
-//!     fn icon_sprite(&self, id: &str) -> Option<Sprite> {
-//!         Some(self.get(id)?.still())
-//!     }
-//! }
-//! ```
-//!
-//! Install it by writing [`Icons`]. Until something does, [`Icons`] is `None`
-//! and every swatch takes the flat-colour path — which is not a degraded mode
-//! but *the state the TypeScript hotbar shipped in* before any item art was
-//! authored, and the state most items are still in. Nothing here blocks on
-//! `sprite.rs` and nothing here breaks when it lands.
+//! [`Icons`] is what carries the atlas in, and `glue`'s `install_icons` writes it
+//! at `Startup`. An app that mounts [`UiPlugin`] WITHOUT
+//! [`crate::glue::GluePlugin`] leaves it `None`, and then every swatch takes the
+//! flat-colour path — which is not a degraded mode but *the state the TypeScript
+//! hotbar shipped in* before any item art was authored, and the state most items
+//! are still in. Nothing here has to know which of the two it got.
 //!
 //! # What the port changed
 //!
@@ -727,7 +720,7 @@ pub enum UiPrim {
         w: i32,
         /// Height, `cells_h * icon_scale`.
         h: i32,
-        /// The sprite id from [`ITEM_ICONS`], for [`IconAtlas::icon_image`].
+        /// The sprite id from [`ITEM_ICONS`], for [`IconAtlas::icon_sprite`].
         sprite: &'static str,
     },
 }
@@ -770,12 +763,17 @@ impl UiPrim {
     }
 }
 
-/// SEAM (sprite.rs). Where a baked item icon comes from.
+/// Where a baked item icon comes from. Implemented for `SpriteAtlases` in
+/// [`crate::glue`], which is the only place that names both sides.
 ///
 /// See the module header for the full write-up. Two methods, because the layout
 /// needs the icon's size before it can place anything and [`paint`] needs the
 /// texture afterwards; `id` is the validated sprite id already stored in
 /// [`ITEM_ICONS`].
+///
+/// The trait stays declared here even though it is implemented elsewhere: it is
+/// the shape of the question this module asks, and moving it next to its impl
+/// would make [`build_hud`] unbuildable without a sprite baker.
 ///
 /// An implementation that answers `None` to everything is a complete and correct
 /// one — see [`NoIcons`].
@@ -794,11 +792,13 @@ pub trait IconAtlas: Send + Sync + 'static {
 
 /// The empty atlas: no item has art.
 ///
-/// Not a stub for testing — this is the shipping behaviour until `sprite.rs`
-/// installs something, and it is exactly the behaviour the TypeScript hotbar had
-/// before any item art existed. Every swatch takes the flat `color` path, which
-/// the original's own comment calls "not a degraded fallback but the state the
-/// hotbar is mostly in".
+/// Not a stub for testing — this is what any app draws that has not had an atlas
+/// installed by [`crate::glue`]'s `install_icons`, and it is exactly the
+/// behaviour the TypeScript hotbar had before any item art existed. Nor is it a
+/// mode the wired game leaves behind: `item_swatch` takes the same flat path per
+/// item whenever [`ITEM_ICONS`] has no entry, atlas or no atlas. Every swatch
+/// takes the flat `color` path, which the original's own comment calls "not a
+/// degraded fallback but the state the hotbar is mostly in".
 pub struct NoIcons;
 
 impl IconAtlas for NoIcons {
@@ -1773,9 +1773,9 @@ const UI_Z_STEP: f32 = 1.0e-3;
 
 /// Which card, if any, is over the world.
 ///
-/// SEAM (scenes.rs). `Game.ts` owned this three-way choice; here it is
-/// [`crate::scenes::Scene`], which is a Bevy `States` type with these three
-/// variants under these three names. This is deliberately NOT that type:
+/// `Game.ts` owned this three-way choice; here it is [`crate::scenes::Scene`],
+/// which is a Bevy `States` type with these three variants under these three
+/// names. This is deliberately NOT that type:
 ///
 ///  * A `States` type has to be registered with `init_state` before anything can
 ///    read it, which would make [`compose`] untestable without an `App` — and
@@ -1787,17 +1787,10 @@ const UI_Z_STEP: f32 = 1.0e-3;
 ///    wrong for a plugin whose owner may not have wired a scene machine at all.
 ///
 /// One system joins them, and it belongs wherever the two plugins are wired
-/// together rather than in either of them:
-///
-/// ```ignore
-/// fn follow_scene(scene: Res<State<Scene>>, mut screen: ResMut<UiScreen>) {
-///     *screen = match scene.get() {
-///         Scene::Menu => UiScreen::Menu,
-///         Scene::Playing => UiScreen::Playing,
-///         Scene::GameOver => UiScreen::GameOver,
-///     };
-/// }
-/// ```
+/// together rather than in either of them: `follow_scene` in [`crate::glue`],
+/// which maps the three variants onto these three and writes only when they
+/// differ, so nothing watching this resource sees a change every frame. It is
+/// not restated here — a copy of it in this comment is a copy that can rot.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UiScreen {
     /// The title card. `drawMenu`.
@@ -1850,7 +1843,8 @@ impl Toast {
     }
 }
 
-/// The icon source. `None` until `sprite.rs` installs one — see [`IconAtlas`].
+/// The icon source. `None` until [`crate::glue`]'s `install_icons` writes the
+/// baked atlas in — see [`IconAtlas`].
 #[derive(Resource, Default)]
 pub struct Icons(pub Option<Box<dyn IconAtlas>>);
 
@@ -2077,7 +2071,7 @@ fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiF
             }
             prims.extend(build_hud(
                 &sources.tool.0,
-                &sources.pack.lock(),
+                &sources.pack,
                 sources.icons.get(),
                 view,
             ));

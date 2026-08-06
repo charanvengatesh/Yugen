@@ -9,29 +9,39 @@
 //! |---|---|
 //! | the fixed step | [`step_creatures`], after [`PlayerSet::Step`] |
 //! | the player, as a target | [`PlayerBody`], which is a [`MobTarget`] |
-//! | the arrow hit test | [`install_hit_test`], into [`ArrowPool`] |
+//! | the arrow hit test | [`crate::glue::step_the_body`], forwarding to [`MobSystem::hit_at`] |
 //! | the viewport | [`follow_view`], from [`LowResTarget`] |
 //!
 //! [`MobTarget`]: godgame_core::entities::mobs::MobTarget
 //!
-//! # Why the creatures are behind a lock
+//! # The creatures used to be behind a lock. They are not any more.
 //!
-//! [`Creatures`] is an `Arc<Mutex<MobSystem>>` and not a plain resource, and the
-//! reason is the hit test. A [`ShotHitTest`] is a `Box<dyn FnMut + 'static>`
-//! installed ONCE, and it fires from inside `ProjectileSystem::update` — which
-//! is itself called from inside `Player::step`, from a system that holds
-//! `ResMut<PlayerBody>` and nothing else. There is no point in that call stack
-//! where Bevy could hand a borrow of a second resource down, so the closure has
-//! to CAPTURE the creatures. The TypeScript closed over the mob system for
-//! exactly the same reason; this is that closure, with the ownership written
-//! down.
+//! [`Creatures`] was an `Arc<Mutex<MobSystem>>`, because the arrow hit test was a
+//! `Box<dyn FnMut + 'static>` installed ONCE on the pool and fired from inside
+//! `ProjectileSystem::update`, which was itself called from the last line of
+//! `Player::step`, from a system holding `ResMut<PlayerBody>` and nothing else.
+//! There was no point in that call stack where Bevy could hand a second borrow
+//! down, so the closure had to CAPTURE the creatures — and `'static` forces the
+//! capture to be owned, owned forces `Arc`, shared-mutable forces `Mutex`.
 //!
-//! [`ShotHitTest`]: godgame_core::entities::ShotHitTest
+//! Every step of that is downstream of one decision: that the pool was stepped
+//! from inside `Player::step`. It is stepped from [`crate::glue`] now, one line
+//! after the body, so the host holds both borrows and passes the creatures in as
+//! a [`ShotWorld`](godgame_core::entities::ShotWorld). Nothing captures.
 //!
-//! The lock is never contended: one schedule, and the two systems that take it
-//! run sequentially. The ordering rule is one-way and holds trivially — the
-//! arrow pool's step reaches for the creatures, and nothing the creatures own
-//! ever reaches for the arrow pool.
+//! What that bought, beyond deleting three `Arc<Mutex<_>>` types:
+//!
+//!   - **The scheduler sees the truth.** Five systems in this module took
+//!     `Res<Creatures>` and mutated through the lock. Bevy read that as five
+//!     shared borrows and ran them concurrently on the multithreaded executor;
+//!     the lock then serialised them at runtime, invisibly. They are `Res` and
+//!     `ResMut` honestly now, so the four that only read genuinely run at once.
+//!   - **A lock-order inversion is gone.** [`place_shots`] took the creature lock
+//!     and then the arrow lock; the hit-test path took them the other way round.
+//!     Nothing deadlocked only because Bevy happens to run `RunFixedMainLoop` and
+//!     `Update` as separate schedules — an accident of the engine's layout, not an
+//!     invariant anyone had stated, and not something the single-threaded test
+//!     named for it could ever have caught.
 //!
 //! # The art
 //!
@@ -83,8 +93,6 @@
 //! ECS's archetypes, and at 32 mobs the whole set fits in a cache line's worth of
 //! transforms. The glow quads are a second pool on the same terms, on the same
 //! terms [`crate::light`]'s bloom sprites are.
-
-use std::sync::{Arc, Mutex};
 
 use bevy::asset::uuid_handle;
 use bevy::camera::visibility::NoFrustumCulling;
@@ -167,9 +175,14 @@ const SHOT_GLOW_PAD_PX: f32 = 1.0;
 /// Nocturnal creatures thin out to 15% weight in full daylight rather than
 /// vanishing, so this changes the mix and never the fact of spawning.
 ///
-/// SEAM (M7): the day/night cycle is the lighting milestone's, and until it
-/// lands this holds at [`Daylight::default`]. When it arrives it writes this
-/// resource and nothing in this module changes.
+/// Written by [`crate::daynight::advance_clock`], which mirrors the world
+/// clock's own daylight weight into it once a frame. This module never writes it
+/// and never learns what a clock is — which is the seam working: when the
+/// lighting milestone landed, nothing here changed.
+///
+/// A host that runs `MobPlugin` without `DayNightPlugin` gets
+/// [`Daylight::default`] forever, which is a real state (permanent noon) and not
+/// a broken one.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct Daylight(pub f32);
 
@@ -180,22 +193,12 @@ impl Default for Daylight {
     }
 }
 
-/// The creature system, behind the handle its own hit test has to capture.
+/// Every creature in the world.
 ///
-/// See the module header for why this is shared rather than a plain resource.
-#[derive(Resource, Clone)]
-pub struct Creatures(Arc<Mutex<MobSystem>>);
-
-impl Creatures {
-    /// Borrow the creatures.
-    ///
-    /// Panics on a poisoned lock, which is the same contract
-    /// [`godgame_core::entities::SharedPool`] has: a poisoned system is a bug,
-    /// not a state to recover into.
-    pub fn lock(&self) -> std::sync::MutexGuard<'_, MobSystem> {
-        self.0.lock().expect("creature system poisoned")
-    }
-}
+/// A PLAIN resource. See the module header for what it used to be and why it
+/// stopped needing to be that.
+#[derive(Resource, Deref, DerefMut)]
+pub struct Creatures(pub MobSystem);
 
 // ---------------------------------------------------------------------------
 // The baked bestiary
@@ -599,15 +602,19 @@ pub enum ShotPool {
     Player,
 }
 
-/// The creatures, their fixed step, the arrow hit test, the art and the glow.
+/// The creatures, their fixed step, the art and the glow.
+///
+/// Not the arrow hit test: that is a borrow [`crate::glue`] hands the pool once
+/// per step, not a thing installed here. See the module header.
 pub struct MobsPlugin;
 
 impl Plugin for MobsPlugin {
     fn build(&self, app: &mut App) {
-        // Built here rather than in a startup system because `install_hit_test`
-        // has to capture it and the player has to be able to fire into a pool
-        // that already resolves against it, both before any world exists.
-        let creatures = Creatures(Arc::new(Mutex::new(MobSystem::new(View::for_screen(1, 1)))));
+        // Built in `build` rather than in a startup system so the resource
+        // exists before any schedule runs — `spawn_pool` reads its shot count in
+        // `Startup` to size the sprite pool, and the view it is sized to here is
+        // a placeholder that `follow_view` corrects on the first frame.
+        let creatures = Creatures(MobSystem::new(View::for_screen(1, 1)));
 
         // `init_asset` REPLACES the store rather than skipping, so calling it
         // unconditionally after `DefaultPlugins` would drop every image the app
@@ -641,7 +648,7 @@ impl Plugin for MobsPlugin {
             .init_resource::<Daylight>()
             .init_resource::<MobAtlases>()
             .add_systems(PreStartup, bake_mob_art)
-            .add_systems(Startup, (install_hit_test, spawn_pool))
+            .add_systems(Startup, spawn_pool)
             .add_systems(
                 FixedUpdate,
                 step_creatures
@@ -653,33 +660,17 @@ impl Plugin for MobsPlugin {
             .add_systems(
                 Update,
                 (
+                    // `follow_view` WRITES the creature system and the four
+                    // placers read it. With everything behind one mutex Bevy saw
+                    // five shared borrows, ran them concurrently and let the lock
+                    // sort it out at runtime; stated honestly, the write is
+                    // ordered first and the four reads genuinely run at once.
                     follow_view,
-                    place_mobs,
-                    place_mob_glow,
-                    place_shots,
-                    place_shot_glow,
-                ),
+                    (place_mobs, place_mob_glow, place_shots, place_shot_glow),
+                )
+                    .chain(),
             );
     }
-}
-
-/// Teach the player's arrows how to find a creature.
-///
-/// This is the whole of the mobs-to-projectiles seam. `MobSystem::hit_at` has
-/// the [`ShotHitTest`](godgame_core::entities::ShotHitTest) signature exactly —
-/// `(x, y, damage, knockback, dir_x, dir_y) -> bool` — because that is what the
-/// signature was shaped for, so the closure is a lock and a forward and has no
-/// judgement of its own in it. Every rule about who can be hurt, by how much,
-/// through what armour, lives on the creature that owns the target.
-fn install_hit_test(creatures: Res<Creatures>, arrows: Res<ArrowPool>) {
-    let creatures = creatures.clone();
-    arrows.lock().set_hit_test(Some(Box::new(
-        move |x, y, damage, knockback, dir_x, dir_y| {
-            creatures
-                .lock()
-                .hit_at(x, y, damage, knockback, dir_x, dir_y)
-        },
-    )));
 }
 
 /// One entity per simulation slot, hidden, once.
@@ -698,7 +689,7 @@ fn spawn_pool(
     mut glow: ResMut<Assets<MobGlowMaterial>>,
     mut additive: ResMut<Assets<AdditiveMaterial>>,
 ) {
-    let mob_shots = creatures.lock().shots().len();
+    let mob_shots = creatures.shots().len();
     let quad = meshes.add(Rectangle::default());
     // A real texture from the first frame, so the bind group builds rather than
     // being retried every frame until a creature happens to be luminous. Code 0
@@ -769,8 +760,8 @@ fn spawn_pool(
 /// player's: they are particle and audio cues, neither exists yet, and a buffer
 /// nobody empties is a buffer that is permanently full by the time the first
 /// consumer arrives.
-fn step_creatures(
-    creatures: Res<Creatures>,
+pub(crate) fn step_creatures(
+    mut creatures: ResMut<Creatures>,
     world: Res<SimWorld>,
     mut body: ResMut<PlayerBody>,
     day: Res<Daylight>,
@@ -778,26 +769,22 @@ fn step_creatures(
     mut feedback: Feedback,
     mut drained: Local<Vec<MobEvent>>,
 ) {
-    let mut creatures = creatures.lock();
     creatures.update(STEP_DT, &world.level.grid, &mut **body, day.0);
 
-    // Copied out and the lock dropped before any of it is spent, so the juice
-    // below never holds the creatures while it works. Each event is one hit,
+    // Copied out before any of it is spent, so the juice below is not holding a
+    // `ResMut` borrow of the creatures while it works. Each event is one hit,
     // death or chill this tick — a handful at most, and the `Local` keeps the
     // allocation across frames.
-    // `[..event_count()]`, and NOT the whole buffer. `events()` hands back the
-    // fixed backing store, and its doc is explicit that only the first
-    // `event_count` are valid — the rest are the filler the pool was constructed
-    // with, whose `kind` happens to be `MobHurt`.
     //
-    // Taking all of them replayed ~14 phantom hits every frame, each worth 0.08
-    // trauma against a decay of 4/s, which pinned the screen shake at maximum
-    // from the moment the game opened. The events were real enough to shake the
-    // camera and spawn blood, at (0, 0), for creatures that did not exist.
+    // `events()` returns the VALID PREFIX. It used to return the whole fixed
+    // backing store with a separate count, and this call site took all of it:
+    // ~14 phantom `MobHurt` events per frame at (0, 0), each worth 0.08 trauma
+    // against a decay of 4/s, which pinned the screen shake at maximum from the
+    // moment the game opened. `MobSystem::events` now slices, so the mistake is
+    // not merely fixed here — it cannot be written anywhere.
     drained.clear();
-    drained.extend_from_slice(&creatures.events()[..creatures.event_count()]);
+    drained.extend_from_slice(creatures.events());
     creatures.clear_events();
-    drop(creatures);
 
     for &e in drained.iter() {
         // Every event carries its own position and the creature's blood tone, so
@@ -815,7 +802,7 @@ fn step_creatures(
 /// `SpawnRects` is a function of a `View` here — see
 /// [`SpawnRects::for_view`](godgame_core::entities::mobs::SpawnRects::for_view).
 fn follow_view(
-    creatures: Res<Creatures>,
+    mut creatures: ResMut<Creatures>,
     target: Res<LowResTarget>,
     mut last: Local<Option<View>>,
 ) {
@@ -823,7 +810,7 @@ fn follow_view(
         return;
     }
     *last = Some(target.view);
-    creatures.lock().set_view(target.view);
+    creatures.set_view(target.view);
 }
 
 /// Put every creature's sprite on its art rect, or hide its slot.
@@ -842,7 +829,6 @@ fn place_mobs(
     atlases: Res<MobAtlases>,
     mut sprites: Query<(&MobSprite, &mut Sprite, &mut Transform, &mut Visibility)>,
 ) {
-    let creatures = creatures.lock();
     let pool = creatures.mobs();
 
     for (which, mut sprite, mut transform, mut visibility) in &mut sprites {
@@ -889,7 +875,6 @@ fn place_mob_glow(
         &mut Visibility,
     )>,
 ) {
-    let creatures = creatures.lock();
     let pool = creatures.mobs();
 
     for (which, material, mut transform, mut visibility) in &mut quads {
@@ -927,8 +912,6 @@ fn place_shots(
     arrows: Res<ArrowPool>,
     mut sprites: Query<(&ShotSprite, &mut Sprite, &mut Transform, &mut Visibility)>,
 ) {
-    let creatures = creatures.lock();
-    let arrows = arrows.lock();
     // Collected once, not per sprite: the player's pool publishes its live set
     // as an iterator over claimed slots, which is not indexable and whose order
     // is the pool's, not a slot number's.
@@ -992,13 +975,10 @@ fn place_shot_glow(
     };
 
     buf.clear();
-    {
-        let creatures = creatures.lock();
-        for s in creatures.shots().iter().filter(|s| s.active) {
-            push_shot_glow(&mut buf, s.x, s.y, s.r_px, s.rgb, s.glow);
-        }
+    for s in creatures.shots().iter().filter(|s| s.active) {
+        push_shot_glow(&mut buf, s.x, s.y, s.r_px, s.rgb, s.glow);
     }
-    for s in arrows.lock().shots() {
+    for s in arrows.shots() {
         push_shot_glow(
             &mut buf,
             s.x,
@@ -1073,9 +1053,9 @@ fn flashed(flash: f32) -> Color {
 mod tests {
     use super::*;
     use godgame_core::config::CELL_SIZE;
+    use godgame_core::entities::HitFn;
     use godgame_core::entities::mobs::MOB_DEFS;
-    use godgame_core::entities::player::Projectiles;
-    use godgame_core::entities::projectiles::{SHOT_STYLE_ARROW, ShotSpec};
+    use godgame_core::entities::projectiles::{SHOT_STYLE_ARROW, ShotSpec, ShotWorld};
     use godgame_core::sim::grid::CellGrid;
     use godgame_core::sim::materials::{EMPTY, block};
 
@@ -1365,59 +1345,88 @@ mod tests {
 
     // -- The seam -----------------------------------------------------------
 
-    /// An arrow in flight takes the creature lock every step and gives it back.
+    /// The arrow-to-creature seam: the six floats go out, the answer comes back.
     ///
-    /// This is the deadlock test, and it is the half of the seam that only this
-    /// crate can get wrong. The nesting is real — the pool's lock is held across
-    /// `update`, and the installed closure takes the creatures' lock inside it —
-    /// so a second handle to the WRONG one, or an ordering that ever ran the two
-    /// the other way round, would hang here rather than fail an assertion.
+    /// This replaces a test called
+    /// `an_arrow_in_flight_takes_the_creature_lock_and_gives_it_back`, whose
+    /// whole subject was a `Mutex` on the creatures taken from inside the pool's
+    /// own step while the pool's lock was held. Nothing captures anything now, so
+    /// there is no lock to leak and no ordering to invert — and it is worth
+    /// recording that the old test could never have caught the inversion it was
+    /// named for anyway, because it was single-threaded and a deadlock needs two.
     ///
-    /// What it deliberately does not test is the damage. `hit_at` decides who is
-    /// hittable, through what armour, for how much, and it is tested where those
-    /// rules live; the closure this module installs forwards six floats and has
-    /// no judgement of its own to check.
+    /// What survives is the property that always mattered and that the old test
+    /// explicitly did NOT check: the shot's position, damage, knockback and unit
+    /// velocity reach the target's resolver unchanged, a `true` retires the shot,
+    /// and a `false` leaves it flying. That is exactly the closure
+    /// [`crate::glue::step_the_body`] builds.
     #[test]
-    fn an_arrow_in_flight_takes_the_creature_lock_and_gives_it_back() {
-        let creatures = Creatures(Arc::new(Mutex::new(MobSystem::new(View::for_screen(
-            1280, 800,
-        )))));
-        let arrows = ArrowPool::default();
-        install_seam(&creatures, &arrows);
+    fn an_arrow_asks_the_creatures_and_believes_the_answer() {
+        /// Records what the pool asked, and answers whatever it was told to.
+        struct Spy {
+            answer: bool,
+            asked: Vec<(f32, f32, f32, f32)>,
+        }
+
+        impl ShotWorld for Spy {
+            fn hit(&mut self, x: f32, y: f32, damage: f32, kb: f32, dx: f32, dy: f32) -> bool {
+                // The direction is handed over as a UNIT vector, so a target can
+                // apply knockback along the flight path. Asserted here rather
+                // than trusted, because normalising is the pool's job.
+                let len = dx.hypot(dy);
+                assert!((len - 1.0).abs() < 1e-4, "direction was not normalised");
+                self.asked.push((x, y, damage, kb));
+                self.answer
+            }
+        }
 
         let grid = grid_with_floor(60);
-        arrows.lock().fire(60.0, 60.0, 1.0, 0.0, arrow(200.0));
-        assert_eq!(arrows.lock().live_count(), 1);
 
-        // Ten steps of open air. No creature is up, so every one of them runs
-        // the closure, locks the creatures, finds nothing and returns false.
+        // A miss: nothing up there to hit, so the shot keeps flying.
+        let mut arrows = ArrowPool::default();
+        let mut miss = Spy {
+            answer: false,
+            asked: Vec::new(),
+        };
+        assert!(arrows.fire(60.0, 60.0, 1.0, 0.0, arrow(200.0)));
         for _ in 0..10 {
-            arrows.lock().update(STEP_DT, &grid);
+            arrows.update(STEP_DT, &grid, &mut miss);
         }
-        assert_eq!(
-            arrows.lock().live_count(),
-            1,
-            "the shot hit nothing, so it should still be up"
-        );
+        assert_eq!(arrows.live_count(), 1, "a miss must not retire the shot");
+        assert_eq!(miss.asked.len(), 10, "every step asks exactly once");
+        let (_, _, damage, knockback) = miss.asked[0];
+        assert_eq!(damage, 7.0, "the spec's damage reached the target");
+        assert_eq!(knockback, 100.0, "the spec's knockback reached the target");
 
-        // And the creatures are borrowable afterwards — the lock was released,
-        // not leaked into the closure.
-        assert_eq!(creatures.lock().count(), 0);
+        // A hit: the shot dies on the step it connects.
+        let mut arrows = ArrowPool::default();
+        let mut hit = Spy {
+            answer: true,
+            asked: Vec::new(),
+        };
+        assert!(arrows.fire(60.0, 60.0, 1.0, 0.0, arrow(200.0)));
+        arrows.update(STEP_DT, &grid, &mut hit);
+        assert_eq!(arrows.live_count(), 0, "a hit retires the shot");
+        assert_eq!(hit.asked.len(), 1);
     }
 
-    /// `install_hit_test` without the `Res` wrappers, so the test can call it.
+    /// An empty creature system answers "nothing hit", which is what lets the
+    /// seam be exercised at all before anything has spawned.
     ///
-    /// Duplicated rather than refactored into one function the system also
-    /// calls: what is being tested is the closure the PLUGIN installs, and a
-    /// shared helper would make the two identical by construction instead of by
-    /// inspection. The three lines are the seam.
-    fn install_seam(creatures: &Creatures, arrows: &ArrowPool) {
-        let creatures = creatures.clone();
-        arrows
-            .lock()
-            .set_hit_test(Some(Box::new(move |x, y, damage, knockback, dx, dy| {
-                creatures.lock().hit_at(x, y, damage, knockback, dx, dy)
-            })));
+    /// `MobSystem::hit_at` has the [`ShotWorld::hit`] signature exactly, which is
+    /// why `crate::glue` can forward to it with a closure that has no judgement
+    /// of its own in it. If that signature ever drifts, this stops compiling —
+    /// which is the point of writing it down as a call rather than as a comment.
+    #[test]
+    fn the_creature_resolver_has_the_shape_the_seam_forwards_to() {
+        let mut creatures = Creatures(MobSystem::new(View::for_screen(1280, 800)));
+        let mut seam = HitFn(|x, y, damage, knockback, dx, dy| {
+            creatures.hit_at(x, y, damage, knockback, dx, dy)
+        });
+        assert!(
+            !seam.hit(0.0, 0.0, 7.0, 100.0, 1.0, 0.0),
+            "an empty population cannot be hit"
+        );
     }
 
     fn grid_with_floor(floor_row: i32) -> CellGrid {

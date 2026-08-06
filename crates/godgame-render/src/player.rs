@@ -12,7 +12,7 @@
 //! | `Game.ts` | here |
 //! |---|---|
 //! | `windowManager.recenter(pcx, pcy)` | [`SimSet::Stream`], already there |
-//! | `while (acc >= STEP_DT) player.step(...)` | [`step_player`], in `FixedUpdate` between the two sim sets |
+//! | `while (acc >= STEP_DT) player.step(...)` | [`crate::glue::step_the_body`], in `FixedUpdate` between the two sim sets |
 //! | `simulate(grid)` | [`SimSet::Simulate`], already there |
 //! | `camera.follow(player.box)` | [`follow_player`], once per FRAME |
 //!
@@ -67,20 +67,20 @@ use bevy::sprite_render::AlphaMode2d;
 
 use godgame_core::config::{PLAYER_H, PLAYER_W, STEP_DT, cell_at};
 use godgame_core::entities::player::PlayerEvent;
-use godgame_core::entities::{AnimState, Player, SharedPool};
+use godgame_core::entities::{AnimState, Player, ProjectileSystem};
 use godgame_core::physics::collision::Aabb;
 use godgame_core::sim::coords::WorldCell;
 use godgame_core::sim::grid::CellGrid;
 use godgame_core::sim::materials::{CellId, EMPTY, MAT_B, MAT_G, MAT_R, MaterialState};
 
 use crate::effects::Feedback;
-use crate::input::{FixedSubstep, FocusDriver, PlayerIntent};
+use crate::input::FocusDriver;
 use crate::lowres::WORLD_LAYERS;
 use crate::particles::{EmitOpts, ParticleSystem};
 use crate::player_art::{ArtGrid, PlayerFigure, PlayerMotion, seq_state};
 use crate::shear::{QuadBuf, ShearedRect, TileUv, dynamic_quad_mesh, origin_translation};
 use crate::sprite::{Pose, SpriteAtlas, SpriteAtlases, SpriteClock};
-use crate::world::{SimSet, SimWorld, WorldFocus};
+use crate::world::{SimWorld, WorldFocus};
 
 /// The player's sprite code in the compiled table.
 use godgame_data::sprites::sprite::PLAYER as SPRITE_PLAYER;
@@ -178,11 +178,13 @@ const SCRAPE_INTERVAL: f32 = 0.05;
 
 /// The one system set this module publishes, so the creatures can hang off it.
 ///
-/// [`crate::mobs`] has to run after the body has moved and after the arrow pool
-/// has been stepped — and the arrow pool is stepped from INSIDE
-/// [`Player::step`], not from a system of its own. Naming the set is what lets
-/// that ordering be stated rather than inferred from the two `SimSet` bounds
-/// both modules happen to share.
+/// [`crate::mobs`] has to run after the body has moved AND after the arrow pool
+/// has been stepped, and those are two statements of one system —
+/// [`crate::glue::step_the_body`]. Naming the set is what lets that ordering be
+/// stated rather than inferred from the two `SimSet` bounds both modules happen
+/// to share, and it is why the set outlived the move of the system into
+/// `glue.rs`: the members can change without a single `.after()` elsewhere doing
+/// so.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PlayerSet {
     /// One fixed step of the body, and of the arrows it has in flight.
@@ -209,15 +211,6 @@ impl Plugin for PlayerPlugin {
                 spawn_player
                     .run_if(resource_exists::<SimWorld>)
                     .run_if(not(resource_exists::<NoPlayer>)),
-            )
-            .add_systems(
-                FixedUpdate,
-                step_player
-                    .in_set(PlayerSet::Step)
-                    .after(SimSet::Stream)
-                    .before(SimSet::Simulate)
-                    .run_if(resource_exists::<SimWorld>)
-                    .run_if(resource_exists::<PlayerBody>),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -263,17 +256,24 @@ struct FigureAssets<'w> {
     materials: ResMut<'w, Assets<ColorMaterial>>,
 }
 
-/// The arrows the player has in flight, held by everyone who needs them.
+/// The arrows the player has in flight.
 ///
-/// The player fires into this and steps it; [`crate::mobs`] installs the hit
-/// test that lets an arrow find a creature, and draws what is up. Three owners,
-/// one pool — see [`SharedPool`] for why that is a handle and not a wider
-/// `Projectiles` trait.
+/// A PLAIN resource. It was an `Arc<Mutex<ProjectileSystem>>` because the hit
+/// test was a `Box<dyn FnMut + 'static>` stored on the pool and had to capture
+/// the creatures; nothing captures anything now, so the pool is simply owned
+/// here and Bevy hands it out. See
+/// [`ShotWorld`](godgame_core::entities::ShotWorld) for the argument.
 ///
-/// It is a resource of its own rather than a field on [`PlayerBody`] because the
-/// creatures reach for it in `Startup`, before any body exists.
-#[derive(Resource, Clone, Default, Deref)]
-pub struct ArrowPool(pub SharedPool);
+/// The upshot for the scheduler is the point: `ResMut<ArrowPool>` tells Bevy the
+/// truth about who writes this, so the draw systems that only read it can
+/// actually run in parallel — where five systems previously took a `Res` and
+/// then serialised themselves on a lock the scheduler could not see.
+///
+/// It is a resource of its own rather than a field on [`PlayerBody`] because
+/// [`crate::glue`] steps it beside the body, and `--free-camera` runs with a pool
+/// and no body at all.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct ArrowPool(pub ProjectileSystem);
 
 /// Insert before startup to run with no player at all.
 ///
@@ -298,13 +298,11 @@ fn spawn_player(
     world: Res<SimWorld>,
     mut focus: ResMut<WorldFocus>,
     mut driver: ResMut<FocusDriver>,
-    arrows: Res<ArrowPool>,
     mut art: FigureAssets,
 ) {
-    // A clone of the handle, not a pool of its own: the creatures have already
-    // installed their hit test into the one behind it, and `crate::mobs` draws
-    // out of the same slots this player is about to fire into.
-    let player = Player::with_projectiles(world.level.spawn, Box::new(arrows.0.clone()));
+    // A body owns nothing it fires into. `ArrowPool` is its own resource and is
+    // lent to the body one step at a time by `crate::glue::step_the_body`.
+    let player = Player::new(world.level.spawn);
 
     let centre = centre_of(player.aabb());
     *focus = WorldFocus {
@@ -357,43 +355,21 @@ fn spawn_player(
     commands.insert_resource(PlayerBody(player));
 }
 
-/// One fixed step of the body, against the window the streamer just recentred.
+/// Spend a step's events into dust, smear, shake and flash.
 ///
-/// `intent.for_substep(n)` is `Game.ts`'s
-/// `jumpQueued: intent.jumpQueued && steps === 0` — the rising edge goes to the
-/// first substep of the frame and to no other, so a held jump key does not pogo
-/// and a held dash key does not spend a dash every 8ms.
-///
-/// The arrow pool is stepped from INSIDE this call — `Player::step` drives its
-/// own `Projectiles` — which is why [`PlayerSet::Step`] exists and why
-/// [`crate::mobs`] orders itself after the set rather than after this function.
-/// A creature hit by an arrow is therefore already hurt by the time the
-/// creatures take their own step this frame.
-///
-/// Both seams this used to describe are now wired: [`crate::items`] pushes the
-/// held weapon and the ammo source, and [`crate::mobs`] installs the pool's
-/// [`ShotHitTest`](godgame_core::entities::ShotHitTest).
-fn step_player(
-    mut body: ResMut<PlayerBody>,
-    world: Res<SimWorld>,
-    intent: Res<PlayerIntent>,
-    substep: Res<FixedSubstep>,
-    mut juice: Juice,
-    mut state: Local<JuiceState>,
-    mut drained: Local<Vec<PlayerEvent>>,
+/// Called by [`crate::glue::step_the_body`], which is the system that owns the
+/// fixed step now — the step reaches three modules at once (the pool, the pack,
+/// the creatures) and the composition root is where the tree puts a join like
+/// that. What stayed here is everything that is only about the BODY: the juice
+/// mapping below, and the two `Local`s it remembers between steps.
+pub(crate) fn spend_step_events(
+    body: &mut Player,
+    grid: &CellGrid,
+    events: &[PlayerEvent],
+    juice: &mut Juice,
+    state: &mut JuiceState,
 ) {
-    body.step(STEP_DT, intent.for_substep(substep.0), &world.level.grid);
-
-    drained.clear();
-    body.drain_events(&mut drained);
-
-    spawn_player_juice(
-        &mut body,
-        &world.level.grid,
-        &drained,
-        &mut juice,
-        &mut state,
-    );
+    spawn_player_juice(body, grid, events, juice, state);
 }
 
 /// Everything a step's events are spent into.
@@ -405,7 +381,7 @@ fn step_player(
 ///
 /// [`Feedback`] is itself a `SystemParam`, which is what lets this nest.
 #[derive(SystemParam)]
-struct Juice<'w> {
+pub(crate) struct Juice<'w> {
     particles: ResMut<'w, ParticleSystem>,
     feedback: Feedback<'w>,
 }
@@ -416,7 +392,7 @@ struct Juice<'w> {
 /// why they are a `Local` and not a resource: nothing outside this file has any
 /// business reading "was the body in liquid last step".
 #[derive(Default)]
-struct JuiceState {
+pub(crate) struct JuiceState {
     /// Whether the body was submerged last step, for the belt-and-braces splash.
     prev_in_liquid: bool,
     /// Counts down between wall-slide scrape puffs, so a slide does not emit one
@@ -765,6 +741,7 @@ fn centre_of(b: Aabb) -> (f32, f32) {
 mod tests {
     use super::*;
     use godgame_core::config::{CELL_SIZE, SEED, cell_at};
+    use godgame_core::entities::{Loadout, NoProjectiles};
     use godgame_core::input::Intent;
     use godgame_core::sim::chunk_store::ChunkStore;
     use godgame_core::sim::grid::CellGrid;
@@ -803,14 +780,27 @@ mod tests {
     /// A player with the real pool behind it, so every test here exercises the
     /// same construction [`spawn_player`] makes.
     fn body_at(spawn: SpawnPoint) -> Player {
-        Player::with_projectiles(spawn, Box::new(SharedPool::new()))
+        Player::new(spawn)
+    }
+
+    /// One fixed step of a body that has nowhere to fire.
+    ///
+    /// Every test in this module is about locomotion or about the camera, never
+    /// about arrows, so the [`Loadout`] deliberately carries the pool that
+    /// REFUSES every shot: if one of these ever starts depending on a
+    /// projectile, it fails rather than quietly firing into a pool nobody
+    /// inspects. The real pool is stepped by [`crate::glue::step_the_body`], one
+    /// line after the body, and is tested there.
+    fn step(player: &mut Player, intent: Intent, grid: &CellGrid) {
+        let mut nowhere = NoProjectiles;
+        player.step(STEP_DT, intent, grid, &mut Loadout::new(&mut nowhere));
     }
 
     /// Run `n` fixed steps of one intent, giving the rising edges to step 0 only
     /// — which is what [`step_player`] does with [`FixedSubstep`].
     fn run(player: &mut Player, grid: &CellGrid, intent: Intent, n: u32) {
         for i in 0..n {
-            player.step(STEP_DT, intent.for_substep(i), grid);
+            step(player, intent.for_substep(i), grid);
         }
     }
 
@@ -851,7 +841,7 @@ mod tests {
     fn apex(player: &mut Player, grid: &CellGrid, intent: Intent, n: u32) -> f32 {
         let mut highest = player.y;
         for i in 0..n {
-            player.step(STEP_DT, intent.for_substep(i), grid);
+            step(player, intent.for_substep(i), grid);
             highest = highest.min(player.y);
         }
         highest
@@ -1139,15 +1129,15 @@ mod tests {
         // One jump, coasted to the top.
         let (grid, mut single) = settled();
         let rest_y = single.y;
-        single.step(STEP_DT, jumping(), &grid);
+        step(&mut single, jumping(), &grid);
         let single_top = apex(&mut single, &grid, holding_jump(), ONE_SECOND);
 
         // The same jump, with a second one pressed a fifth of a second later —
         // still on the way up, which is where a double jump is actually used.
         let (grid, mut double) = settled();
-        double.step(STEP_DT, jumping(), &grid);
+        step(&mut double, jumping(), &grid);
         run(&mut double, &grid, holding_jump(), ONE_SECOND / 5);
-        double.step(STEP_DT, jumping(), &grid);
+        step(&mut double, jumping(), &grid);
         let double_top = apex(&mut double, &grid, holding_jump(), ONE_SECOND);
 
         assert!(

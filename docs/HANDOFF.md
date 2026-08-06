@@ -19,6 +19,12 @@ sub-agents, one file or module each. Practical consequences for a reviewer:
   comment when they disagree, and fix the comment.
 - **Every non-obvious number has a stated reason.** If you find one that does
   not, that is a defect worth treating as such.
+- **The port's characteristic defect is a TypeScript shape written in Rust
+  syntax.** A stored `Box<dyn FnMut + 'static>` where a borrowed trait would do; a
+  pointer-plus-count pair where a slice would do; `Vec::remove(0)` where a
+  `VecDeque` would do. Each is individually harmless-looking and each one cost
+  something real — see §7.1 and §9.1. When something reads as competent but odd,
+  ask what the JavaScript looked like.
 - **The test suite is large (943 passing) and was written alongside the code**,
   so it encodes the same assumptions. Tests agreeing with the implementation is
   weaker evidence here than usual. The frozen parity suites (§6) are the
@@ -93,23 +99,31 @@ pins id→code so a reordered file cannot silently renumber the world.
 ## 4. The seam pattern — the tree's main idiom
 
 The same problem recurs: A needs B, and neither should own the other. It is
-always solved the same way — a boxed closure or a small trait, installed at a
-composition root, never a direct import.
+always solved the same way — **a small trait, declared on the side that needs the
+answer, implemented on the side that has it, and borrowed for the length of the
+call.** Never a direct import, and never a stored callback.
 
 | Seam | Where |
 |---|---|
-| projectile hit test | `mobs::install_hit_test` -> `MobSystem::hit_at` |
-| ammo source | `items::install_ammo_source` -> `Inventory::spend_by_id` |
+| projectile hit test | `trait ShotWorld` -> `glue::step_the_body` -> `MobSystem::hit_at` |
+| ammo source | `trait AmmoSource` -> `impl for Inventory` |
+| the player's shot pool | `trait Projectiles` -> `impl for ProjectileSystem`, lent via `Loadout` |
 | item icons | `glue::IconAtlas for SpriteAtlases` |
 | scene -> HUD screen | `glue::follow_scene` |
 | creature target | `MobTarget` trait |
 | chunk persistence | `ChunkPersistence` trait |
 
-**Why closures and not resources**: Bevy cannot hand a second borrow down a call
-stack that goes system -> `Player::step` -> `ProjectileSystem::update`. The
-closure has to capture. This is also why `Creatures` and `Pack` are
-`Arc<Mutex<_>>` — see §9.1, where I argue that is the weakest design in the
-codebase.
+**Why borrowed and not captured**: the first three used to be boxed `FnMut`s
+stored on the caller, because Bevy cannot hand a second borrow down a call stack
+that goes system -> `Player::step` -> `ProjectileSystem::update`. So the closure
+captured — and `'static` forces owned, owned forces `Arc`, shared-mutable forces
+`Mutex`. That call stack no longer nests: `glue::step_the_body` asks for all four
+borrows in its parameters and steps the body and the pool on consecutive lines.
+Three `Arc<Mutex<_>>` types went with it. See §9.1 and `ARCHITECTURE.md` §3.
+
+**The rule to take away**: when A needs B for the duration of a call, pass B to
+A's method. In a single-schedule game, an `Arc<Mutex<_>>` is usually a borrow
+that has not been threaded far enough.
 
 `crates/godgame-render/src/glue.rs` is the composition root and its header states
 the principle. When you add a cross-module dependency, put it there.
@@ -225,6 +239,14 @@ which is why nothing caught them.
 expected to fill, that failure mode is silent. A test that boots the real plugin
 and demands the resource *move* is the one that catches it.
 
+**The first of the three is now structurally impossible.** `MobSystem::events`
+and `MobSystem::loot` return the VALID PREFIX — `&self.events[..self.event_count]`
+— rather than the whole backing store plus a separate count. That signature was a
+C API, a pointer and a length, transliterated into a language that has one type
+carrying both. There is no longer an invalid tail to hand anybody, so the bug
+cannot be written; `event_count()` survives only because it reads better at a call
+site that just wants to know whether any arrived.
+
 ### 7.2 The capture gate is blind to motion
 
 `frame_capture` proves a frame *is drawn*. It says nothing about whether the
@@ -302,14 +324,22 @@ same run.
 Comments describing seams that have since been closed have been a recurring
 problem. Known stale as of this writing:
 
-- `player_art.rs` — several `SEAM (sprite)` notes. **`ContentPoses` is a
-  stand-in that `player.rs` now bypasses** (it resolves poses via `seq_state` +
-  `BakedSprite::state_id`). Dead-ish code; decide whether to delete it or route
-  through it.
-- `ui.rs` — `SEAM (sprite.rs)` and `SEAM (scenes.rs)` notes. Both closed in
-  `glue.rs`.
-- `mobs.rs` — `SEAM (M7)` on `Daylight`. Closed; `daynight.rs` writes it.
-- `glue.rs` — `SEAM (respawn)`. Closed by `start_a_run`.
+- ~~`player_art.rs` — several `SEAM (sprite)` notes~~. Resolved: `ContentPoses`
+  was confirmed dead in the game (its only constructions were the file's own
+  tests) and deleted along with `PoseSheet`, `PoseIds` and `MissingPose`. The
+  live path — `sprite::build_ids`, keyed by `Pose` with fallback-chain resolution
+  and duplicate/cycle errors at bake time — is strictly better than the linear
+  scan it replaced, which could not see fallbacks at all. Every `SEAM` note in
+  the file was checked against the code; none survived as genuine.
+- ~~`ui.rs` — `SEAM (sprite.rs)` and `SEAM (scenes.rs)` notes~~. Resolved: three
+  notes, all closed, all rewritten to name the join in `glue.rs`. Two stale
+  code sketches in those comments were deleted rather than corrected — a
+  near-copy of a real `impl` is a copy that can rot, and one of them had already
+  drifted (it lacked `follow_scene`'s write-only-when-different behaviour).
+- ~~`mobs.rs` — `SEAM (M7)` on `Daylight`~~. Fixed: the note now names
+  `daynight::advance_clock` as the writer.
+- ~~`glue.rs` — `SEAM (respawn)`~~. Fixed: the note now names `start_a_run`,
+  which is forty lines above it in the same file.
 
 `caves.rs`'s two `SEAM FOR THE FEATURE PASS` notes are **genuine** and intended.
 
@@ -328,56 +358,67 @@ problem. Known stale as of this writing:
 Ordered by my estimate of value. These are leads, not verdicts — none has been
 prototyped.
 
-### 9.1 The `Arc<Mutex<_>>` seams are the weakest design in the tree
+### 9.1 The `Arc<Mutex<_>>` seams — DONE
 
-`Creatures`, `Pack` and `SharedPool` are all `Arc<Mutex<_>>` because a
-`Box<dyn FnMut + 'static>` installed on the player has to capture them, and Bevy
+`Creatures`, `Pack` and `SharedPool` were all `Arc<Mutex<_>>` because a
+`Box<dyn FnMut + 'static>` installed on the player had to capture them, and Bevy
 cannot pass a second borrow down that call stack.
 
-The locks are **uncontended by construction** — one schedule, systems run
-sequentially — so this is not a throughput problem. It is an *expressiveness*
-problem: runtime locking is standing in for something Rust could enforce
-statically, the lock ordering is a documented invariant rather than a checked
-one, and there is a genuine deadlock hazard that is currently prevented by a
-comment and one test.
+**All three are gone.** The root cause was one line — `Player::step` drove its own
+projectile pool from its own last statement — and hoisting that out collapsed the
+whole tower. See `docs/ARCHITECTURE.md` §3 for the full argument. What went:
 
-Worth exploring: an explicit event queue between the player step and the creature
-step, or Bevy's exclusive systems, or restructuring so `ProjectileSystem::update`
-takes the hit test as a `&mut dyn FnMut` parameter rather than storing it. That
-last one is blocked today only because `Player::step` drives the pool internally.
+- `SharedPool`, `Creatures(Arc<Mutex<_>>)`, `Pack(Arc<Mutex<_>>)`
+- `ProjectileSystem::set_hit_test` / `set_on_impact`, `Player::set_ammo_source`
+- `type ShotHitTest`, `type ShotImpact`, `Player::with_projectiles`
+- `mobs::install_hit_test`, `items::install_ammo_source`
+- the lock-ordering comment and the test named for it
 
-### 9.2 The window shift is the biggest single cost and is serial
+What replaced them: `trait ShotWorld` and `trait AmmoSource`, both borrowed for
+the length of one call; `Loadout<'a>`, which is what a body borrows while it
+steps; and `glue::step_the_body`, which asks Bevy for all four borrows in its
+parameters and steps the body and the pool on consecutive lines.
 
-**721.9 µs, 8.7% of one frame** — the most expensive event in the game, and it is
-not amortised: save the trailing edge, memmove, generate and blit the leading
-edge, all inside one tick.
+Two findings from doing it, neither of which §9.1 knew:
 
-**`ChunkStore::prefetch` already has a rayon `par_iter` path — and the shift
-never reaches it.** `WindowManager::load_incoming` walks the incoming edge and
-calls `load_slot(grid, ci, cj)` **one chunk at a time**, so generation happens
-serially, chunk by chunk, on the main thread. `prefetch` is only called from
-`load_all` (the full reload at startup).
+- **`Res<Creatures>` was lying to the scheduler.** Five systems took a shared
+  borrow and mutated through the lock; Bevy ran them concurrently and the mutex
+  serialised them at runtime. They are honest `Res`/`ResMut` now and the four
+  read-only placers genuinely run in parallel.
+- **There was a live lock-order inversion.** `place_shots` took creatures then
+  arrows; the hit-test path took arrows then creatures. It could not deadlock only
+  because Bevy runs `RunFixedMainLoop` and `Update` as separate schedules — an
+  accident of engine layout, not a stated invariant. The "deadlock test" was
+  single-threaded and could never have caught it.
 
-This looks like the cheapest real win in the codebase:
+One ordering that the locks had hidden is now stated: `items::collect_loot` is
+`.after(mobs::step_creatures)`. It used to be unordered, so which ran first was
+whatever the executor chose, and a drop could land a frame late.
 
-1. Collect the incoming coords in `load_incoming` first, hand them to
-   `prefetch` in one call, then blit from the now-warm cache. A 2-chunk shift of
-   an 11x8 window is ~16 chunks, comfortably over `PREFETCH_MIN_PARALLEL` (8),
-   so it would take the parallel path immediately.
-2. `prefetch` is already documented as producing byte-identical results to the
-   serial path (each worker gets its own `ChunkGen`), and there is a test
-   asserting exactly that — so this should be behaviour-preserving by
-   construction.
+### 9.2 The window shift — DONE
 
-Beyond that it is a *latency* problem rather than throughput, so the stronger
-fix is to prefetch the leading edge **before** the dead zone is crossed, off the
-critical path entirely. `WindowManager::recenter` has a one-chunk dead zone that
-gives you the lookahead for free.
+`ChunkStore::prefetch` had a rayon path and `WindowManager::load_incoming` never
+reached it, loading the incoming edge one chunk at a time. It now collects the
+incoming coordinates and hands them over in one call.
 
-**Unverified**: I have not prototyped either. The 80/20 split between `recenter`
-and the follow-on sim tick is measured (`docs/PERF.md` §4); the claim that
-batching recovers most of the 578 µs `recenter` cost is inference from the code
-path, not a measurement.
+Measured on an M3 Pro, same criterion session (thermal drift across a session
+exceeds run-to-run variance, so only same-run numbers are comparable):
+
+| bench | before | after |
+|---|---|---|
+| `recenter only (window walks 2 chunks, no tick)` | 550.7 µs | 307.5 µs |
+| `shift tick (window walks 2 chunks)` | 686.9 µs | 471.1 µs |
+
+Behaviour-preserving by construction: each worker gets its own `ChunkGen` and
+`worldgen_purity::parallel_matches_serial` requires byte-identity with the serial
+path. `DEAD` is 1, so a recenter always moves at least two chunks along an axis —
+16 chunks against a `PREFETCH_MIN_PARALLEL` of 8 — and the parallel path is taken
+every time.
+
+**Still open, and now the bigger half:** this is a *latency* problem, not a
+throughput one. The stronger fix is to prefetch the leading edge BEFORE the dead
+zone is crossed, off the critical path entirely. `recenter`'s one-chunk dead zone
+is exactly that lookahead and it is free. Not prototyped.
 
 ### 9.3 The light blur is 98.7 µs of CPU that wants to be on the GPU
 
@@ -389,15 +430,21 @@ win and would take the whole light stack back under 1% of frame.
 
 ### 9.4 Dynamic dispatch on hot paths
 
-`ShotHitTest`, `AmmoSource`, `Projectiles` and `MobTarget` are all `dyn`. The hit
+`ShotWorld`, `AmmoSource`, `Projectiles` and `MobTarget` are all `dyn`. The hit
 test in particular is called per live shot per fixed step, at 120 Hz. Probably
 not measurable today (`MAX_SHOTS` is 24), but if projectile counts grow,
-monomorphising the pool over its hit test is the direction.
+making `ProjectileSystem::update` generic over `W: ShotWorld` is a one-line
+change now that the trait is a parameter rather than a stored field — which was
+not true when it was a `Box<dyn FnMut>`.
 
 ### 9.5 Smaller
 
 - `bake_vignette` is ~8.4 µs recomputed every frame from inputs that move very
   slowly. Cache it against depth and view size.
+- `Player::emit` is a `VecDeque` now, not a `Vec` with `remove(0)`. At
+  `MAX_EVENTS` = 32 the O(n) shift was never measurable; the point is that the
+  deque SAYS the eviction policy instead of leaving a reader to infer a ring
+  buffer from an index. `Array.prototype.shift()` is where that shape came from.
 - `docs/PERF.md`'s light section is marked superseded but the *other* sections
   predate M10's changes; a fresh full run would be worth it.
 - The whole tree is `f32` for parity with the original's `f64`-in-name-only

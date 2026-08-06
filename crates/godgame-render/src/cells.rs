@@ -47,8 +47,27 @@
 //!     cell out. That split is what lets the whole thing be diffed against the
 //!     TypeScript byte for byte in `tests/ts_cells_parity.rs`.
 //!
-//! This module deliberately does not touch Bevy. It is pure computation over
-//! `godgame-core` types, so the parity suite does not link a renderer.
+//! # Bevy-free source, in a crate that is not
+//!
+//! This module deliberately does not touch Bevy: nothing it imports names it,
+//! and the pass below is pure computation over `godgame-core` types — no `App`,
+//! no window, no GPU, and nothing that would stop it living in `godgame-core`
+//! today.
+//!
+//! IT DOES NOT, AND THAT COSTS SOMETHING. `tests/ts_cells_parity.rs` is a test
+//! target of `godgame-render`, and `godgame-render` depends on `bevy` — so the
+//! parity suite links the whole engine in order to check a colour table. This is
+//! exactly the arrangement the crate boundary exists to prevent, and which
+//! `godgame-core`'s worldgen and noise suites do get: they never link a renderer.
+//!
+//! The fix is to move this module into `godgame-core`, and it HAS NOT BEEN DONE.
+//! It is not a rename. The shader surface at the bottom of this file names
+//! [`crate::cellmap`] and would have to point the other way across the crate
+//! boundary; `ts_cells_parity.rs` and its fixture move with the module, while
+//! `shader_matches_cpu.rs` cannot follow it — that one wants a GPU and belongs
+//! where the renderer is. That is a change made on its own, not one made in
+//! passing. Until it happens, read "does not touch Bevy" as a property of the
+//! SOURCE and not of what the test binary links.
 //!
 //! # Why CPU, when the frame is drawn by a shader
 //!
@@ -1160,16 +1179,21 @@ pub fn paint_cells(
 
 // --- What the shader needs ---------------------------------------------------
 
-// EVERYTHING BELOW EXISTS SO `cellmap.wgsl` NEED NOT RESTATE A SINGLE NUMBER
+// EVERYTHING BELOW EXISTS SO `cells.wgsl` NEED NOT RESTATE A SINGLE NUMBER
 // FROM THIS FILE.
+//
+// `cells.wgsl` is where the shading lives — plain WGSL with no engine imports,
+// which is what lets `tests/shader_matches_cpu.rs` compile it standalone.
+// `cellmap.wgsl` is the Bevy-facing wrapper that `#import`s it and is not what
+// these constants are about; naming that one here was a slip.
 //
 // The GPU pass in [`crate::cellmap`] is a translation of [`paint_cells`], and a
 // translation is only trustworthy if both halves read the same constants. The
 // tables (`TEX_A`, `TEX_B`, `CellShades::table`) upload verbatim; the scalars a
 // shader cannot import are re-exported here and asserted equal to the WGSL's own
-// literals by `tests/shader_matches_cpu.rs`, which parses the shader source for
-// them. A drift in either direction fails a test rather than quietly
-// re-colouring the world.
+// literals by `tests/shader_matches_cpu.rs`, which parses `cells.wgsl` for them.
+// A drift in either direction fails a test rather than quietly re-colouring the
+// world.
 
 /// Period of [`TEX_A`], in cells — 61.
 ///

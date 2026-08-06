@@ -31,9 +31,9 @@
 //!
 //! # What this file does not know
 //!
-//! It does not know what a mob is. Hits are resolved through [`ShotHitTest`], a
-//! callback the owner supplies, for the same reason the mob system owns player
-//! damage rather than reaching into [`Player`](super::player::Player): the
+//! It does not know what a mob is. Hits are resolved through [`ShotWorld`], a
+//! trait the owner passes in per call, for the same reason the mob system owns
+//! player damage rather than reaching into [`Player`](super::player::Player): the
 //! entity that owns the targets owns the rules for hurting them. Colour and size
 //! are the projectile's own business; damage, armour and knockback resistance
 //! are the target's.
@@ -47,9 +47,11 @@
 //!   looks. `STYLE_CSS` — an `rgb(...)` string baked once at module load to keep
 //!   allocation off the render path — has no analogue and is gone; a `[u8; 3]`
 //!   was never the thing being cached.
-//! - `hitTest`/`onImpact` were public nullable fields. They are private with
-//!   setters, because a `Box<dyn FnMut>` is not `Copy` and a public field would
-//!   invite a caller to swap one mid-`update`.
+//! - `hitTest`/`onImpact` were public nullable fields holding closures. They are
+//!   not fields at all any more: both are methods on [`ShotWorld`], which the
+//!   caller passes to [`ProjectileSystem::update`] and which therefore needs no
+//!   lifetime longer than that call. See the trait's own header for why the
+//!   stored-closure shape was the root of the `Arc<Mutex<_>>` seams.
 //! - The launch stamp was a `Float64Array`. It is `u64` here: the whole point of
 //!   a stamp rather than an age is that it is exact and cannot tie, and an
 //!   integer says that outright instead of relying on 2^53.
@@ -124,7 +126,7 @@ pub struct ShotSpec {
     pub speed: f32,
     /// Hit points on contact.
     pub damage: f32,
-    /// Impulse handed to [`ShotHitTest`] for the target to resist or apply.
+    /// Impulse handed to [`ShotWorld::hit`] for the target to resist or apply.
     pub knockback: f32,
     /// Half-extent drawn, in px. 1 = a 2x2 mote, which is one cell wide at 5px.
     pub r_px: f32,
@@ -132,21 +134,70 @@ pub struct ShotSpec {
     pub style: u8,
 }
 
-/// Ask the owner whether anything at this point was hit. Returns true if the
-/// shot connected, in which case it dies.
+/// What a shot in flight asks about the world it is passing through.
 ///
-/// The arguments are `(x, y, damage, knockback, dir_x, dir_y)`. `dir_x`/`dir_y`
-/// are the shot's unit velocity, so the target can apply knockback along the
-/// flight path rather than guessing from geometry.
+/// # Why this is BORROWED for the call and not stored on the pool
 ///
-/// A boxed `FnMut` rather than a plain `fn` pointer for the same reason
-/// [`AmmoSource`](super::player::AmmoSource) is one: the TypeScript closed over
-/// the creature system, and a bare function pointer cannot capture.
-pub type ShotHitTest = Box<dyn FnMut(f32, f32, f32, f32, f32, f32) -> bool + Send + Sync>;
+/// It used to be two `Box<dyn FnMut + 'static>` fields — `hit_test` and
+/// `on_impact` — installed once at startup. That shape is a straight
+/// transliteration of the TypeScript, which closed over the creature system
+/// because a JS closure captures for free. In Rust `'static` forces the capture
+/// to be OWNED, owned forces `Arc`, and shared-mutable forces `Mutex`; the pool
+/// then had to be locked across [`ProjectileSystem::update`] so the closure
+/// could reach a second lock from inside it. That produced a documented lock
+/// ordering, an `Arc<Mutex<_>>` on three types, and a genuine ordering inversion
+/// between the draw systems and the step.
+///
+/// Borrowing for the length of one call needs no lifetime longer than the call,
+/// so the host simply hands both borrows in. Nothing captures, nothing locks,
+/// and the scheduler can see the real access pattern.
+///
+/// [`hit`](ShotWorld::hit)'s arguments are `(x, y, damage, knockback, dir_x,
+/// dir_y)`. `dir_x`/`dir_y` are the shot's unit velocity, so a target can apply
+/// knockback along the flight path rather than guessing from geometry.
+pub trait ShotWorld {
+    /// Was anything at this point hit? `true` means the shot connected and dies.
+    fn hit(&mut self, x: f32, y: f32, damage: f32, knockback: f32, dir_x: f32, dir_y: f32) -> bool;
 
-/// Called wherever a shot ended, for juice. The `bool` is `true` when it struck
-/// a target and `false` when it struck the world.
-pub type ShotImpact = Box<dyn FnMut(f32, f32, bool) + Send + Sync>;
+    /// A shot ended here, for juice. `on_target` is false when it struck terrain.
+    ///
+    /// Defaulted to nothing because the overwhelming majority of callers want
+    /// only the hit test, and an empty method is cheaper to write than an
+    /// `Option` to unwrap on every impact.
+    fn impact(&mut self, x: f32, y: f32, on_target: bool) {
+        let _ = (x, y, on_target);
+    }
+}
+
+/// A world with nothing in it that a shot can hit; arrows only strike terrain.
+///
+/// This is what the old `hit_test: None` meant, spelt as a type rather than as
+/// an absence — so a caller that wants no targets says so, and the pool has no
+/// `None` branch to check once per shot per step.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoTargets;
+
+impl ShotWorld for NoTargets {
+    fn hit(&mut self, _x: f32, _y: f32, _d: f32, _k: f32, _dx: f32, _dy: f32) -> bool {
+        false
+    }
+}
+
+/// A hit test written as a closure, for a caller with no impact hook.
+///
+/// A wrapper rather than a blanket `impl<F: FnMut(..)> ShotWorld for F`, which
+/// coherence cannot admit alongside [`NoTargets`]: the compiler is unable to
+/// prove a concrete type will never implement `FnMut`.
+pub struct HitFn<F>(pub F);
+
+impl<F> ShotWorld for HitFn<F>
+where
+    F: FnMut(f32, f32, f32, f32, f32, f32) -> bool,
+{
+    fn hit(&mut self, x: f32, y: f32, damage: f32, knockback: f32, dir_x: f32, dir_y: f32) -> bool {
+        (self.0)(x, y, damage, knockback, dir_x, dir_y)
+    }
+}
 
 /// One live shot, as a renderer needs it. See the header on `draw`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -163,10 +214,10 @@ pub struct Shot {
 
 /// The player's arrows, in flight.
 ///
-/// Fill a [`Player`](super::player::Player)'s
-/// [`Projectiles`](super::player::Projectiles) seam with one of these — see
-/// [`Player::with_projectiles`](super::player::Player::with_projectiles) — and
-/// install a [`ShotHitTest`] from wherever the creatures live.
+/// Hand one to [`Player::step`](super::player::Player::step) through a
+/// [`Loadout`](super::player::Loadout) so the body can fire into it, then step
+/// it yourself with the [`ShotWorld`] the creatures live in. The pool is a plain
+/// owned value — the host holds it, nothing captures it.
 pub struct ProjectileSystem {
     // --- SoA. Parallel; index i is one shot. Allocated once, never resized. ---
     px: [f32; MAX_SHOTS],
@@ -191,15 +242,10 @@ pub struct ProjectileSystem {
     /// array, so starting where the last claim finished makes the search
     /// amortised O(1) instead of an O(n) walk from index 0 every time.
     cursor: usize,
-
-    /// Owner-supplied target resolution. `None` = shots only ever hit the world.
-    hit_test: Option<ShotHitTest>,
-    /// Owner-supplied impact hook, for particles. `None` = no juice.
-    on_impact: Option<ShotImpact>,
 }
 
 impl ProjectileSystem {
-    /// An empty pool with no target resolution wired up.
+    /// An empty pool.
     pub fn new() -> ProjectileSystem {
         ProjectileSystem {
             px: [0.0; MAX_SHOTS],
@@ -216,19 +262,7 @@ impl ProjectileSystem {
             next_stamp: 1,
             count: 0,
             cursor: 0,
-            hit_test: None,
-            on_impact: None,
         }
-    }
-
-    /// Install the owner's target resolution. See [`ShotHitTest`].
-    pub fn set_hit_test(&mut self, f: Option<ShotHitTest>) {
-        self.hit_test = f;
-    }
-
-    /// Install the impact hook. See [`ShotImpact`].
-    pub fn set_on_impact(&mut self, f: Option<ShotImpact>) {
-        self.on_impact = f;
     }
 
     /// How many are in flight. For the debug HUD and the test harness.
@@ -282,13 +316,6 @@ impl ProjectileSystem {
         self.live[i] = false;
         self.count -= 1;
     }
-
-    /// Fire the impact hook, if there is one.
-    fn impact(&mut self, x: f32, y: f32, hit: bool) {
-        if let Some(f) = self.on_impact.as_mut() {
-            f(x, y, hit);
-        }
-    }
 }
 
 impl Default for ProjectileSystem {
@@ -307,7 +334,7 @@ impl fmt::Debug for ProjectileSystem {
     }
 }
 
-impl Projectiles for ProjectileSystem {
+impl ProjectileSystem {
     /// Launch one shot from `(x, y)` toward `(dir_x, dir_y)`, which need not be a
     /// unit vector — it is normalised here, so a caller may pass a raw delta to a
     /// target.
@@ -316,7 +343,7 @@ impl Projectiles for ProjectileSystem {
     /// rather than a runtime condition: a full pool recycles instead of refusing
     /// (see the header), so "the shot was fired" is otherwise always true and the
     /// ammo the caller has already spent is never spent for nothing.
-    fn fire(&mut self, x: f32, y: f32, dir_x: f32, dir_y: f32, spec: ShotSpec) -> bool {
+    pub fn fire(&mut self, x: f32, y: f32, dir_x: f32, dir_y: f32, spec: ShotSpec) -> bool {
         let len = dir_x.mul_add(dir_x, dir_y * dir_y).sqrt();
         // The NaN arm is not defensive padding: the TypeScript's `!(len > 0)`
         // rejected a NaN direction, and a plain `len <= 0.0` would let one
@@ -341,14 +368,23 @@ impl Projectiles for ProjectileSystem {
         true
     }
 
-    /// Integrate every live shot. Point-vs-cell against the world and a point
-    /// query against whatever [`ShotHitTest`] knows about — a projectile this
-    /// small does not warrant a swept AABB, and at 5px cells the difference is
-    /// not something a player can perceive.
+    /// Integrate every live shot. Point-vs-cell against the terrain and a point
+    /// query against whatever `world` knows about — a projectile this small does
+    /// not warrant a swept AABB, and at 5px cells the difference is not something
+    /// a player can perceive.
     ///
     /// Gravity is applied BEFORE the position update, so a shot's arc is the same
     /// shape at any frame rate the fixed step is driven at.
-    fn update(&mut self, dt: f32, grid: &CellGrid) {
+    ///
+    /// # Call this immediately after [`Player::step`](super::player::Player::step)
+    ///
+    /// Arrows integrate on the SAME fixed step the body does. Stepped once per
+    /// frame instead, a shot's arc would change shape with the frame rate while
+    /// the player it was fired from did not. This used to be the last statement
+    /// INSIDE `Player::step` and was hoisted out so the host holds both borrows;
+    /// the ordering it guaranteed is now the caller's to keep, and every caller
+    /// in the tree keeps it by making this the next line.
+    pub fn update(&mut self, dt: f32, grid: &CellGrid, world: &mut dyn ShotWorld) {
         for i in 0..MAX_SHOTS {
             if !self.live[i] {
                 continue;
@@ -371,28 +407,19 @@ impl Projectiles for ProjectileSystem {
             // on.
             if is_solid_cell(grid, cell_at(x), cell_at(y)) {
                 self.retire(i);
-                self.impact(x, y, false);
+                world.impact(x, y, false);
                 continue;
             }
 
-            if self.hit_test.is_none() {
-                continue;
-            }
-            // Read the slot BEFORE borrowing the callback: the borrow of
-            // `hit_test` has to end before `retire` can take `&mut self`.
             let damage = self.damage[i];
             let knockback = self.knockback[i];
             let vx = self.vx[i];
             let vy = self.vy[i];
             let len = vx.mul_add(vx, vy * vy).sqrt();
             let len = if len > 0.0 { len } else { 1.0 };
-            let hit = self
-                .hit_test
-                .as_mut()
-                .is_some_and(|t| t(x, y, damage, knockback, vx / len, vy / len));
-            if hit {
+            if world.hit(x, y, damage, knockback, vx / len, vy / len) {
                 self.retire(i);
-                self.impact(x, y, true);
+                world.impact(x, y, true);
             }
         }
     }
@@ -402,79 +429,25 @@ impl Projectiles for ProjectileSystem {
     /// The stamp counter is deliberately NOT reset: it is a launch ORDER, and
     /// restarting it would make a shot fired after the clear compare as older
     /// than one fired before it if any survived a partial clear.
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.live = [false; MAX_SHOTS];
         self.count = 0;
     }
 }
 
 // ---------------------------------------------------------------------------
-// The shared handle
+// The player's view of the pool
 // ---------------------------------------------------------------------------
 
-/// A pool the owner can still see after the player has taken it.
+/// The one verb [`Player`](super::player::Player) needs from a pool.
 ///
-/// [`Player`](super::player::Player) owns its pool as a `Box<dyn Projectiles>`
-/// and publishes it back only as `&dyn Projectiles`, which has no accessor for
-/// the live set. That is the right shape for the PLAYER — it must not learn what
-/// a shot IS — but it leaves two callers with nothing to hold:
-///
-///   - a renderer, which has to walk [`ProjectileSystem::shots`] to draw arrows;
-///   - whoever owns the creatures, which has to install a [`ShotHitTest`] and is
-///     not constructed until after the player is.
-///
-/// Widening the trait would fix it for both and is the wrong trade: `fire`,
-/// `update` and `clear` are the three verbs the player needs, and every method
-/// added past them is one more thing the player could accidentally reach for.
-/// So the handle is shared instead — clone one into the player, keep one.
-///
-/// The `Mutex` is not defending against a second thread; there is one schedule
-/// and it steps this from one system. It is what makes the handle `Sync` so the
-/// player stays `Send + Sync`, and it is uncontended in the ordinary case. The
-/// one ordering rule is on [`SharedPool::update`].
-#[derive(Clone, Default)]
-pub struct SharedPool(std::sync::Arc<std::sync::Mutex<ProjectileSystem>>);
-
-impl SharedPool {
-    /// An empty pool, with one handle to it.
-    pub fn new() -> SharedPool {
-        SharedPool::default()
-    }
-
-    /// Borrow the pool.
-    ///
-    /// Panics if a previous borrow panicked while holding it, which is the same
-    /// contract every `Mutex` in this crate has: a poisoned pool is a bug, not a
-    /// state to recover into.
-    pub fn lock(&self) -> std::sync::MutexGuard<'_, ProjectileSystem> {
-        self.0.lock().expect("projectile pool poisoned")
-    }
-}
-
-impl fmt::Debug for SharedPool {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("SharedPool").field(&*self.lock()).finish()
-    }
-}
-
-impl Projectiles for SharedPool {
+/// A `ProjectileSystem` IS one, so the host passes its own pool straight in
+/// through a [`Loadout`](super::player::Loadout). The trait exists so the body
+/// never learns what a shot is, and it is deliberately one method wide: every
+/// method past `fire` is one more thing the player could reach for.
+impl Projectiles for ProjectileSystem {
     fn fire(&mut self, x: f32, y: f32, dir_x: f32, dir_y: f32, spec: ShotSpec) -> bool {
-        self.lock().fire(x, y, dir_x, dir_y, spec)
-    }
-
-    /// One step of every shot, with the lock held across it.
-    ///
-    /// That is the ordering rule: a [`ShotHitTest`] installed on this pool runs
-    /// INSIDE this call, so it must not reach back for a second handle to the
-    /// same pool. Reaching for a different lock — the creatures, say — is fine
-    /// and is the whole point, because nothing the creatures own locks a pool
-    /// back.
-    fn update(&mut self, dt: f32, grid: &CellGrid) {
-        self.lock().update(dt, grid);
-    }
-
-    fn clear(&mut self) {
-        self.lock().clear();
+        ProjectileSystem::fire(self, x, y, dir_x, dir_y, spec)
     }
 }
 
@@ -502,6 +475,27 @@ mod tests {
             knockback: 100.0,
             r_px: 1.0,
             style: SHOT_STYLE_ARROW,
+        }
+    }
+
+    /// Where shots ended, and nothing a shot can hit — so every entry in the log
+    /// is a TERRAIN kill and the `on_target` flag has one honest value to report.
+    ///
+    /// A named type rather than a closure because the impact hook is a second
+    /// method on the same borrowed [`ShotWorld`], and because owning the log
+    /// outright is what lets the assertions read it without a lock.
+    #[derive(Default)]
+    struct ImpactLog {
+        ends: Vec<(f32, f32, bool)>,
+    }
+
+    impl ShotWorld for ImpactLog {
+        fn hit(&mut self, _x: f32, _y: f32, _d: f32, _k: f32, _dx: f32, _dy: f32) -> bool {
+            false
+        }
+
+        fn impact(&mut self, x: f32, y: f32, on_target: bool) {
+            self.ends.push((x, y, on_target));
         }
     }
 
@@ -552,7 +546,7 @@ mod tests {
         p.fire(100.0, 100.0, 1.0, 0.0, arrow(200.0));
 
         let dt = 1.0 / 120.0;
-        p.update(dt, &g);
+        p.update(dt, &g, &mut NoTargets);
         assert_eq!(p.vy[0], SHOT_GRAVITY * dt);
         // Applied BEFORE the position update, so the first step already drops.
         assert!(p.py[0] > 100.0, "{}", p.py[0]);
@@ -573,11 +567,11 @@ mod tests {
         let dt = 1.0 / 120.0;
         let steps = (SHOT_LIFE / dt).ceil() as i32;
         for _ in 0..steps - 2 {
-            p.update(dt, &g);
+            p.update(dt, &g, &mut NoTargets);
         }
         assert_eq!(p.live_count(), 1, "died early");
-        p.update(dt, &g);
-        p.update(dt, &g);
+        p.update(dt, &g, &mut NoTargets);
+        p.update(dt, &g, &mut NoTargets);
         assert_eq!(p.live_count(), 0, "outlived SHOT_LIFE");
     }
 
@@ -586,25 +580,20 @@ mod tests {
         let floor_row = 40;
         let g = grid_with_floor(floor_row);
         let mut p = ProjectileSystem::new();
-
-        let hits = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = std::sync::Arc::clone(&hits);
-        p.set_on_impact(Some(Box::new(move |x, y, hit| {
-            sink.lock().unwrap().push((x, y, hit));
-        })));
+        let mut world = ImpactLog::default();
 
         // Straight down at the floor from well above it.
         p.fire(100.0, 10.0, 0.0, 1.0, arrow(400.0));
         let dt = 1.0 / 120.0;
         for _ in 0..240 {
-            p.update(dt, &g);
+            p.update(dt, &g, &mut world);
             if p.live_count() == 0 {
                 break;
             }
         }
 
         assert_eq!(p.live_count(), 0, "flew through the floor");
-        let log = hits.lock().unwrap();
+        let log = &world.ends;
         assert_eq!(log.len(), 1);
         let (_, y, hit) = log[0];
         assert!(!hit, "a wall reported itself as a target");
@@ -619,7 +608,7 @@ mod tests {
         let mut p = ProjectileSystem::new();
         p.fire(0.0, 100.0, -1.0, 0.0, arrow(400.0));
         for _ in 0..120 {
-            p.update(1.0 / 120.0, &g);
+            p.update(1.0 / 120.0, &g, &mut NoTargets);
         }
         assert_eq!(p.live_count(), 0);
     }
@@ -629,18 +618,22 @@ mod tests {
         let g = grid_with_floor(1000);
         let mut p = ProjectileSystem::new();
 
+        // A closure through `HitFn`, which is the shorthand for a caller that
+        // wants only the hit test. It is borrowed across both updates rather than
+        // installed on the pool, and the log is shared so the assertions below can
+        // still read what the closure recorded.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = std::sync::Arc::clone(&seen);
-        p.set_hit_test(Some(Box::new(move |x, y, dmg, kb, dx, dy| {
+        let mut world = HitFn(move |x, y, dmg, kb, dx, dy| {
             sink.lock().unwrap().push((x, y, dmg, kb, dx, dy));
             // Connect on the second query, so the first proves a miss is a miss.
             sink.lock().unwrap().len() == 2
-        })));
+        });
 
         p.fire(100.0, 100.0, 1.0, 0.0, arrow(200.0));
-        p.update(1.0 / 120.0, &g);
+        p.update(1.0 / 120.0, &g, &mut world);
         assert_eq!(p.live_count(), 1, "a miss killed the shot");
-        p.update(1.0 / 120.0, &g);
+        p.update(1.0 / 120.0, &g, &mut world);
         assert_eq!(p.live_count(), 0, "a hit did not kill the shot");
 
         let log = seen.lock().unwrap();
@@ -680,7 +673,7 @@ mod tests {
         assert_eq!(p.px[7], 42.0);
         assert_eq!(p.live_count(), MAX_SHOTS);
         // And nothing above claimed a second slot for it.
-        p.update(1.0 / 120.0, &g);
+        p.update(1.0 / 120.0, &g, &mut NoTargets);
         assert_eq!(p.live_count(), MAX_SHOTS);
     }
 
@@ -721,15 +714,15 @@ mod tests {
     /// builds lands in THIS pool as a shot with the bow's speed on it.
     #[test]
     fn a_ranged_weapon_puts_a_real_shot_in_the_pool() {
-        use crate::entities::player::{Player, PlayerWeapon};
+        use crate::entities::player::{Loadout, Player, PlayerWeapon};
         use crate::sim::worldgen::SpawnPoint;
 
-        let shared = SharedPool::new();
+        let mut pool = ProjectileSystem::new();
         let spawn = SpawnPoint {
             x: (20 * CELL_SIZE) as f32,
             y: (20 * CELL_SIZE) as f32,
         };
-        let mut player = Player::with_projectiles(spawn, Box::new(shared.clone()));
+        let mut player = Player::new(spawn);
         player.set_weapon(Some(PlayerWeapon {
             damage: 11.0,
             knockback: None,
@@ -740,9 +733,9 @@ mod tests {
         }));
 
         // No aim point: the arrow leaves flat along the facing, which `reset`
-        // left at +1.
-        assert!(player.attack(0.0, 0.0));
-        let pool = shared.lock();
+        // left at +1. The pool is lent to the body for the length of the attack
+        // and read directly afterwards — no handle, no lock.
+        assert!(player.attack(0.0, 0.0, &mut Loadout::new(&mut pool)));
         assert_eq!(pool.live_count(), 1);
         assert_eq!(pool.damage[0], 11.0);
         assert!(pool.vx[0] > 0.0 && pool.vy[0] == 0.0);
@@ -758,17 +751,22 @@ mod tests {
 
     /// A respawn drops everything in flight — arrows belong to the life that
     /// fired them.
+    ///
+    /// The body no longer owns the pool, so `reset` cannot clear it and does not
+    /// try: dropping the arrows is the CALLER's, on the line after the reset.
+    /// `godgame_render::glue::start_a_run` is the one place in the tree that
+    /// respawns, and it does both — which is the pair this pins.
     #[test]
-    fn reset_clears_the_pool_through_the_seam() {
+    fn a_respawn_and_its_caller_drop_everything_in_flight() {
         use crate::entities::player::Player;
         use crate::sim::worldgen::SpawnPoint;
 
-        let shared = SharedPool::new();
-        let mut player =
-            Player::with_projectiles(SpawnPoint { x: 0.0, y: 0.0 }, Box::new(shared.clone()));
-        shared.lock().fire(0.0, 0.0, 1.0, 0.0, arrow(100.0));
-        assert_eq!(shared.lock().live_count(), 1);
+        let mut pool = ProjectileSystem::new();
+        let mut player = Player::new(SpawnPoint { x: 0.0, y: 0.0 });
+        pool.fire(0.0, 0.0, 1.0, 0.0, arrow(100.0));
+        assert_eq!(pool.live_count(), 1);
         player.reset();
-        assert_eq!(shared.lock().live_count(), 0);
+        pool.clear();
+        assert_eq!(pool.live_count(), 0);
     }
 }

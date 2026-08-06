@@ -19,17 +19,18 @@ use bevy::prelude::*;
 
 use godgame_core::input::{KEYS, KeyState};
 
-use godgame_core::config::SEED;
+use godgame_core::config::{SEED, STEP_DT};
+use godgame_core::entities::{HitFn, Loadout, NoTargets, PlayerEvent};
 use godgame_core::items::{Inventory, item_code_of};
 
-use crate::input::{BevyKeys, Tool};
+use crate::input::{BevyKeys, FixedSubstep, PlayerIntent, Tool};
 use crate::items::{GroundItems, Pack};
 use crate::mobs::Creatures;
-use crate::player::PlayerBody;
+use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
 use crate::scenes::Scene;
 use crate::sprite::SpriteAtlases;
 use crate::ui::{IconAtlas, Icons, UiScreen};
-use crate::world::{WorldFocus, build_world};
+use crate::world::{SimSet, SimWorld, WorldFocus, build_world};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
 ///
@@ -62,6 +63,20 @@ pub struct GluePlugin;
 impl Plugin for GluePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, install_icons)
+            .add_systems(
+                FixedUpdate,
+                step_the_body
+                    .in_set(PlayerSet::Step)
+                    .after(SimSet::Stream)
+                    .before(SimSet::Simulate)
+                    .run_if(resource_exists::<SimWorld>)
+                    .run_if(resource_exists::<PlayerBody>)
+                    // `PlayerPlugin` inserts both, so this cannot fail where the
+                    // two above pass. It is stated anyway: a body with nowhere to
+                    // put its arrows should not step at all rather than panic
+                    // halfway through a frame.
+                    .run_if(resource_exists::<ArrowPool>),
+            )
             // Ordered after nothing in particular: the HUD reads `UiScreen` in
             // `compose`, and a frame's lag on a title card is not observable.
             // Chaining it would only add an ordering edge that has to be
@@ -80,6 +95,105 @@ impl Plugin for GluePlugin {
             )
             .add_systems(OnEnter(Scene::Playing), start_a_run);
     }
+}
+
+/// One fixed step of the body, its arrows, and what those arrows hit.
+///
+/// # Why the whole step is here and not in `crate::player`
+///
+/// It reaches three modules at once — the pool it fires into, the pack it spends
+/// from, the creatures its arrows resolve against — and this file exists for
+/// exactly the case where several modules need each other and none should own
+/// the others.
+///
+/// It used to be `player::step_player`, taking `ResMut<PlayerBody>` and nothing
+/// else, because the other three were reachable through captured
+/// `Arc<Mutex<_>>` handles installed at startup. That is what made the seams
+/// locks: a `Box<dyn FnMut + 'static>` on the player had to own what it
+/// captured, and Bevy could not hand a second borrow down
+/// `system -> Player::step -> ProjectileSystem::update`. Asking for all four
+/// borrows in one system's parameters is the thing Bevy is FOR, and it is
+/// available the moment the call stack stops nesting.
+///
+/// # The order inside is load-bearing and is the order that used to be implicit
+///
+/// `Player::step` drove the pool from its own last line, so a shot fired this
+/// step also integrated this step. That is preserved by making the pool's own
+/// step the next statement — see [`ProjectileSystem::update`]'s header. Running
+/// them the other way round would give an arrow one frame of free flight before
+/// it could hit anything, and running the creatures first (they are ordered
+/// `.after(PlayerSet::Step)`) would give a creature killed by an arrow one more
+/// turn.
+///
+/// `intent.for_substep(n)` is `Game.ts`'s
+/// `jumpQueued: intent.jumpQueued && steps === 0` — the rising edge goes to the
+/// first substep of the frame and to no other, so a held jump key does not pogo
+/// and a held dash key does not spend a dash every 8ms.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system's parameters are injected rather than passed, so the \
+              count is not the call-site burden the lint exists to catch; four of \
+              these are the four borrows whose absence is what forced the locks"
+)]
+fn step_the_body(
+    mut body: ResMut<PlayerBody>,
+    mut arrows: ResMut<ArrowPool>,
+    creatures: Option<ResMut<Creatures>>,
+    pack: Option<ResMut<Pack>>,
+    world: Res<SimWorld>,
+    intent: Res<PlayerIntent>,
+    substep: Res<FixedSubstep>,
+    mut juice: Juice,
+    mut state: Local<JuiceState>,
+    mut drained: Local<Vec<PlayerEvent>>,
+) {
+    let grid = &world.level.grid;
+    let mut pack = pack;
+    let mut creatures = creatures;
+
+    // The pool and the pack, lent for the length of the call and no longer.
+    // `Inventory` IS an `AmmoSource` and `ProjectileSystem` IS a `Projectiles`,
+    // so there is no adapter here — which is the whole point of both traits
+    // being one method wide.
+    //
+    // No pack means no ammo half, which fires FREELY rather than not at all. That
+    // is `AmmoSource`'s own documented fallback and it is what keeps a host that
+    // runs `PlayerPlugin` without `ItemsPlugin` playable instead of silently
+    // unable to shoot — the same reason `start_a_run` takes every one of these as
+    // an `Option`.
+    {
+        let mut kit = Loadout::new(&mut **arrows);
+        if let Some(pack) = pack.as_deref_mut() {
+            kit = kit.with_ammo(&mut **pack);
+        }
+        body.step(STEP_DT, intent.for_substep(substep.0), grid, &mut kit);
+    }
+
+    // The very next line, as `ProjectileSystem::update` requires. The creatures
+    // are the world these shots are passing through; `MobSystem::hit_at` has the
+    // `ShotWorld::hit` signature exactly, because that is the signature it was
+    // shaped for, so the closure is a forward with no judgement of its own in it.
+    //
+    // No creatures means [`NoTargets`] — arrows still fly and still stop on rock,
+    // there is simply nothing alive for them to find. A capture test that runs the
+    // world and the body without `MobsPlugin` gets exactly that.
+    match creatures.as_deref_mut() {
+        Some(creatures) => {
+            let creatures = &mut **creatures;
+            arrows.update(
+                STEP_DT,
+                grid,
+                &mut HitFn(|x, y, damage, knockback, dir_x, dir_y| {
+                    creatures.hit_at(x, y, damage, knockback, dir_x, dir_y)
+                }),
+            );
+        }
+        None => arrows.update(STEP_DT, grid, &mut NoTargets),
+    }
+
+    drained.clear();
+    body.drain_events(&mut drained);
+    spend_step_events(&mut body, grid, &drained, &mut juice, &mut state);
 }
 
 /// Creative mode makes the body untouchable.
@@ -173,9 +287,10 @@ fn start_a_run(
     mut commands: Commands,
     mut focus: ResMut<WorldFocus>,
     body: Option<ResMut<PlayerBody>>,
-    creatures: Option<Res<Creatures>>,
+    arrows: Option<ResMut<ArrowPool>>,
+    creatures: Option<ResMut<Creatures>>,
     ground: Option<ResMut<GroundItems>>,
-    pack: Option<Res<Pack>>,
+    pack: Option<ResMut<Pack>>,
 ) {
     let world = build_world(SEED);
     *focus = WorldFocus {
@@ -189,18 +304,22 @@ fn start_a_run(
     // both do. A missing one means that system is not in the app, not that
     // something failed.
     if let Some(mut body) = body {
-        // Also drops every arrow in flight: they belong to the life that fired
-        // them. See `Player::reset`.
         body.reset();
     }
-    if let Some(creatures) = creatures {
-        creatures.lock().clear();
+    if let Some(mut arrows) = arrows {
+        // Every arrow in flight belongs to the life that fired it. `reset` used
+        // to do this, back when the body owned its pool; it does not own one now,
+        // so the drop is here, beside the reset it belongs to.
+        arrows.clear();
+    }
+    if let Some(mut creatures) = creatures {
+        creatures.clear();
     }
     if let Some(mut ground) = ground {
         ground.clear();
     }
-    if let Some(pack) = pack {
-        give_starting_kit(&mut pack.lock());
+    if let Some(mut pack) = pack {
+        give_starting_kit(&mut pack);
     }
 }
 
@@ -239,12 +358,13 @@ fn give_starting_kit(inv: &mut Inventory) {
 /// [`KEYS`] is the ported binding table, so the keys are the game's, not this
 /// module's opinion of them.
 ///
-/// SEAM (respawn): the TypeScript's `updateGameOver` called `loadLevel()` before
-/// switching, which rebuilds the world and refills the pack. Nothing here does
-/// that yet, so `GameOver` currently returns to a world that still has a dead
-/// body in it. The place to hang it is `OnEnter(Scene::Playing)` — and see
-/// [`Scene`]'s docs on why that must use `set_if_neq` semantics, or the reload
-/// fires every time the state is re-set to the value it already holds.
+/// The respawn the TypeScript's `updateGameOver` did — `loadLevel()` before the
+/// switch, rebuilding the world and refilling the pack — hangs off
+/// `OnEnter(Scene::Playing)` and is [`start_a_run`], forty lines above. This is
+/// only the key press, and it is deliberately the ONLY thing in the tree that
+/// sets this state: see [`Scene`]'s docs on why Bevy re-fires `OnEnter` when a
+/// state is `set` to the value it already holds, which would rebuild the world
+/// under a live player.
 fn confirm_advances_the_scene(
     keys: Res<ButtonInput<KeyCode>>,
     scene: Res<State<Scene>>,

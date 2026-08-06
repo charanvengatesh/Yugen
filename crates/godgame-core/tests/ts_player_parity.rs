@@ -58,7 +58,7 @@
 //! wrong, not the test.
 
 use godgame_core::config::{CHUNK_CELLS, STEP_DT};
-use godgame_core::entities::{AnimState, Player, PlayerEvent};
+use godgame_core::entities::{AnimState, Loadout, NoProjectiles, Player, PlayerEvent};
 use godgame_core::input::Intent;
 use godgame_core::sim::coords::WorldCell;
 use godgame_core::sim::grid::CellGrid;
@@ -494,7 +494,18 @@ fn the_player_moves_the_way_the_typescript_one_did() {
         let mut drained: Vec<PlayerEvent> = Vec::new();
 
         for i in 0..n {
-            p.step(dt, intent_of(dir[i], inb[i]), &grid);
+            // The fixture was dumped from a TypeScript player with no projectile
+            // pool wired up, so the body fires into the one that refuses every
+            // shot. This is the only line the port's `Loadout` change touched in
+            // this file: `Player::new` used to install `NoProjectiles` itself,
+            // and the replay it drives is unchanged — 22 cases, 4048 steps.
+            let mut nowhere = NoProjectiles;
+            p.step(
+                dt,
+                intent_of(dir[i], inb[i]),
+                &grid,
+                &mut Loadout::new(&mut nowhere),
+            );
             total_steps += 1;
 
             // Drained every step, exactly as the fixture did: an undrained

@@ -62,6 +62,8 @@
 //! of an `f32` config and would have forked the width rule for a difference far
 //! below a pixel.
 
+use std::collections::VecDeque;
+
 use crate::config::{
     AIR_ACCEL, AIR_FRICTION, BOUNCE_SPEED, CLIMB_REMOUNT_LOCK, CLIMB_SPEED_DOWN, CLIMB_SPEED_H,
     CLIMB_SPEED_UP, CLIMB_TOP_BOOST, CONVEYOR_SPEED, COYOTE_TIME, DASH_COOLDOWN, DASH_SPEED,
@@ -131,49 +133,55 @@ pub struct PlayerWeapon {
     pub ammo: &'static [&'static str],
 }
 
-/// How the player spends ammo. Supplied by whoever owns the inventory; returns
-/// how many were actually taken, which is the exact signature `Inventory::remove`
-/// has once the id is resolved to a code.
+/// How the player spends ammo. Implemented by whoever owns the inventory;
+/// [`spend`](AmmoSource::spend) returns how many were actually taken, which is
+/// the exact signature `Inventory::remove` has once the id is resolved to a code.
 ///
-/// A player with no source set fires freely — that is what makes this file
-/// testable headlessly and what keeps a half-wired host playable rather than
-/// silently unable to shoot.
+/// A body handed no source fires freely — that is what makes this file testable
+/// headlessly and what keeps a half-wired host playable rather than silently
+/// unable to shoot.
 ///
-/// A boxed `FnMut` rather than a plain `fn` pointer, and that is not an
-/// accident: the TypeScript closed over the inventory instance, and a bare
-/// function pointer cannot capture. A one-method trait would have worked equally
-/// well and is the same indirection wearing a longer name; `FnMut` says exactly
-/// as much as the callback did.
-pub type AmmoSource = Box<dyn FnMut(&str, u32) -> u32 + Send + Sync>;
+/// # Why a trait and not the `Box<dyn FnMut + 'static>` this used to be
+///
+/// The TypeScript wrote `player.setAmmoSource((id, n) => inv.remove(...))`,
+/// closing over the inventory instance. Transliterated, that becomes a boxed
+/// closure stored on the `Player` — which must be `'static`, which forces the
+/// captured inventory to be owned, which forces `Arc<Mutex<_>>` to share it with
+/// the systems that also draw and edit it.
+///
+/// None of that is needed. The player spends ammo only while it is stepping, so
+/// the source is borrowed for the length of the step and `Inventory` implements
+/// this directly. See [`Loadout`].
+pub trait AmmoSource {
+    /// Spend `n` of the item with this authoring id. Returns how many were taken.
+    fn spend(&mut self, id: &str, n: u32) -> u32;
+}
 
 // `ShotSpec` and `SHOT_STYLE_ARROW` used to be declared here, because `shoot`
 // needed to name them and there was no pool yet to own them. Both now live in
 // [`crate::entities::projectiles`], where the appearance tables the style
 // indexes are, and are imported above.
 
-/// The projectile pool, as the player needs it.
+/// The projectile pool, as the player needs it: one verb, `fire`.
 ///
-/// The player owns one — for two reasons the TypeScript spelled out and that
-/// still hold: the pool needs the same fixed timestep the body is integrated on
-/// (a shot stepped once per frame drifts against a player stepped 120 times a
-/// second), and a host that has not wired anything up still gets a working bow.
+/// A TRAIT rather than a concrete type because the body must not learn what a
+/// shot IS, and deliberately ONE METHOD wide. It used to carry `update` and
+/// `clear` as well, and both were mistakes of ownership rather than of interface:
+/// `update` was called from the last line of [`Player::step`], which is what
+/// forced the player to OWN a `Box<dyn Projectiles>` for life; `clear` was called
+/// from [`Player::reset`] for the same reason. Both are now the host's, which
+/// already holds the real pool and can name its concrete type.
 ///
-/// It is a TRAIT rather than a concrete type because the pool resolves hits
-/// through a callback the owner of the creatures installs, and the player must
-/// not learn what a creature is on the way past. Behind a `Box<dyn Projectiles>`
-/// the `Player` stays one concrete type — mobs, the camera and the save code all
-/// name it — and the dispatch happens once per step rather than once per cell.
-pub trait Projectiles: Send + Sync {
+/// Every method added past `fire` is one more thing the player could accidentally
+/// reach for, and every one of them is a reason for the body to own the pool
+/// instead of borrowing it.
+pub trait Projectiles {
     /// Loose one projectile. Returns false if the pool is full.
     fn fire(&mut self, x: f32, y: f32, dir_x: f32, dir_y: f32, spec: ShotSpec) -> bool;
-    /// Integrate every live shot on the player's own fixed step.
-    fn update(&mut self, dt: f32, grid: &CellGrid);
-    /// Drop everything in flight. Arrows belong to the life that fired them.
-    fn clear(&mut self);
 }
 
-/// The pool a player gets when the host has not supplied one: shots are refused,
-/// nothing is integrated, and the rest of the player works.
+/// The pool a body gets when the host has not supplied one: shots are refused
+/// and the rest of the player works.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoProjectiles;
 
@@ -181,8 +189,48 @@ impl Projectiles for NoProjectiles {
     fn fire(&mut self, _x: f32, _y: f32, _dir_x: f32, _dir_y: f32, _spec: ShotSpec) -> bool {
         false
     }
-    fn update(&mut self, _dt: f32, _grid: &CellGrid) {}
-    fn clear(&mut self) {}
+}
+
+/// What the body borrows from outside itself for the length of one step.
+///
+/// # Why this exists
+///
+/// [`Player`] used to OWN both halves: a `Box<dyn Projectiles>` and an
+/// `Option<Box<dyn FnMut>>` ammo source, each installed once through a setter.
+/// That is the TypeScript's shape — in JS a closure over the pool and the pack
+/// costs nothing — and in Rust it is the root of three `Arc<Mutex<_>>` types, a
+/// documented-but-unchecked lock ordering, and a `Player` that could not be
+/// constructed before the things it fired into.
+///
+/// A body needs the pool and the pack only WHILE IT IS STEPPING. So they are
+/// borrowed for exactly that long, which is a lifetime the caller already has,
+/// and the `Player` goes back to being a plain value that owns only itself.
+///
+/// # Using one
+///
+/// ```ignore
+/// let mut kit = Loadout::new(&mut arrows).with_ammo(&mut pack);
+/// body.step(STEP_DT, intent, grid, &mut kit);
+/// arrows.update(STEP_DT, grid, &mut hit_test);   // the very next line
+/// ```
+pub struct Loadout<'a> {
+    /// Where a bow's arrows go.
+    pub shots: &'a mut dyn Projectiles,
+    /// What a bow spends. `None` fires freely — see [`AmmoSource`].
+    pub ammo: Option<&'a mut dyn AmmoSource>,
+}
+
+impl<'a> Loadout<'a> {
+    /// A pool to fire into and no ammo to spend.
+    pub fn new(shots: &'a mut dyn Projectiles) -> Loadout<'a> {
+        Loadout { shots, ammo: None }
+    }
+
+    /// Spend from this pack when the held weapon names ammo.
+    pub fn with_ammo(mut self, ammo: &'a mut dyn AmmoSource) -> Loadout<'a> {
+        self.ammo = Some(ammo);
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,11 +532,6 @@ pub struct Player {
     /// exactly once no matter how many steps the window spans or how the frame
     /// rate moves.
     swing_seq: u32,
-    /// How the player spends arrows. `None` = fires freely. See [`AmmoSource`].
-    ammo_source: Option<AmmoSource>,
-
-    /// The player's arrows. See [`Projectiles`].
-    projectiles: Box<dyn Projectiles>,
 
     // Landing squash for draw juice.
     squash: f32,
@@ -512,7 +555,7 @@ pub struct Player {
     hurt_cooldown: f32,
     wall_grace: f32,
     prev_in_liquid: bool,
-    events: Vec<PlayerEvent>,
+    events: VecDeque<PlayerEvent>,
 
     /// Where [`Player::reset`] puts the body.
     ///
@@ -523,13 +566,11 @@ pub struct Player {
 }
 
 impl Player {
-    /// A fresh player at the level's spawn, with no projectile pool wired up.
+    /// A fresh player at the level's spawn.
+    ///
+    /// There is no second constructor taking a pool: a body does not own one.
+    /// What it fires into is a [`Loadout`] handed to [`Player::step`].
     pub fn new(spawn: SpawnPoint) -> Player {
-        Player::with_projectiles(spawn, Box::new(NoProjectiles))
-    }
-
-    /// A fresh player at the level's spawn, firing into `projectiles`.
-    pub fn with_projectiles(spawn: SpawnPoint, projectiles: Box<dyn Projectiles>) -> Player {
         let mut p = Player {
             x: 0.0,
             y: 0.0,
@@ -563,8 +604,6 @@ impl Player {
             swing_cd: 0.0,
             swing_live: 0.0,
             swing_seq: 0,
-            ammo_source: None,
-            projectiles,
             squash: 0.0,
             land_impact: 0.0,
             anim_cur: AnimState::Idle,
@@ -581,7 +620,7 @@ impl Player {
             hurt_cooldown: 0.0,
             wall_grace: 0.0,
             prev_in_liquid: false,
-            events: Vec::new(),
+            events: VecDeque::new(),
             spawn,
         };
         p.reset();
@@ -722,21 +761,10 @@ impl Player {
         self.weapon = w;
     }
 
-    /// Wire up ammo spending. See [`AmmoSource`].
-    pub fn set_ammo_source(&mut self, f: Option<AmmoSource>) {
-        self.ammo_source = f;
-    }
-
     /// True when the held weapon fires projectiles rather than swinging.
     #[inline]
     pub fn ranged(&self) -> bool {
         self.weapon.is_some_and(|w| w.ranged)
-    }
-
-    /// The pool this player fires into, for a host that wants to draw it.
-    #[inline]
-    pub fn projectiles(&self) -> &dyn Projectiles {
-        self.projectiles.as_ref()
     }
 
     /// Current animation state — the same value the sprite renders this frame.
@@ -799,9 +827,13 @@ impl Player {
     ///
     /// The TypeScript returned a fresh slice per drain and a shared empty array
     /// for the common case, to keep the no-events path allocation-free. Draining
-    /// into the caller's buffer makes every path allocation-free instead.
+    /// into the caller's buffer makes every path allocation-free instead — the
+    /// host keeps one `Vec` across frames and this only ever writes into it.
+    ///
+    /// Draining is what the caller is OBLIGED to do: see [`Player::emit`] for
+    /// what happens to a buffer nobody empties.
     pub fn drain_events(&mut self, out: &mut Vec<PlayerEvent>) {
-        out.append(&mut self.events);
+        out.extend(self.events.drain(..));
     }
 
     /// Attack with whatever is held: a swing, or a shot if the weapon is ranged.
@@ -811,12 +843,12 @@ impl Player {
     /// length and the swing time are different numbers and letting the animation
     /// decide when the next hit may land is how a weapon ends up with a DPS
     /// nobody chose.
-    pub fn attack(&mut self, aim_x: f32, aim_y: f32) -> bool {
+    pub fn attack(&mut self, aim_x: f32, aim_y: f32, kit: &mut Loadout<'_>) -> bool {
         if self.swing_cd > 0.0 {
             return false;
         }
         if self.ranged() {
-            self.shoot(aim_x, aim_y)
+            self.shoot(aim_x, aim_y, kit)
         } else {
             self.start_swing()
         }
@@ -853,7 +885,7 @@ impl Player {
     /// `aim_x`/`aim_y` are world coordinates when the host has a cursor; `(0, 0)`
     /// means "no aim" — the same sentinel [`Intent::has_aim`] tests — in which
     /// case the arrow flies flat along the facing.
-    fn shoot(&mut self, aim_x: f32, aim_y: f32) -> bool {
+    fn shoot(&mut self, aim_x: f32, aim_y: f32, kit: &mut Loadout<'_>) -> bool {
         let Some(w) = self.weapon else {
             return false;
         };
@@ -865,11 +897,11 @@ impl Player {
         // first would be a second lookup and a window for the two answers to
         // disagree.
         if !w.ammo.is_empty()
-            && let Some(source) = self.ammo_source.as_mut()
+            && let Some(source) = kit.ammo.as_deref_mut()
         {
             let mut spent = false;
             for id in w.ammo {
-                if source(id, 1) >= 1 {
+                if source.spend(id, 1) >= 1 {
                     spent = true;
                     break;
                 }
@@ -910,15 +942,29 @@ impl Player {
             r_px: 1.0,
             style: SHOT_STYLE_ARROW,
         };
-        self.projectiles.fire(ox, oy, dx, dy, spec)
+        kit.shots.fire(ox, oy, dx, dy, spec)
     }
 
     /// Append an event, dropping the oldest if nobody is draining.
+    ///
+    /// EVICTS THE OLDEST rather than saturating, which is the opposite of what
+    /// `MobSystem::push_rgb` does and is deliberate: a body emits a handful of
+    /// events a second and the newest ones are the interesting ones, whereas 32
+    /// creatures in a firefight emit in bursts and dropping the START of a burst
+    /// would lose the kill that caused it.
+    ///
+    /// A [`VecDeque`] and not a `Vec`, because evicting the oldest is exactly
+    /// what a deque's front is for. It was `Vec::remove(0)` — an O(n) shift of
+    /// the whole buffer to drop one element, which is the shape you write when
+    /// you are thinking in `Array.prototype.shift()`. At `MAX_EVENTS` = 32 the
+    /// difference is not measurable; the reason to change it is that the deque
+    /// SAYS the eviction policy, and a reader no longer has to infer a ring
+    /// buffer from an index.
     fn emit(&mut self, e: PlayerEvent) {
         if self.events.len() >= MAX_EVENTS {
-            self.events.remove(0);
+            self.events.pop_front();
         }
-        self.events.push(e);
+        self.events.push_back(e);
     }
 
     /// Put the body back at the spawn point and clear the per-life state.
@@ -952,8 +998,10 @@ impl Player {
         // respawn's.
         self.swing_cd = 0.0;
         self.swing_live = 0.0;
-        // Arrows in flight belong to the life that fired them.
-        self.projectiles.clear();
+        // Arrows in flight belong to the life that fired them — but the body
+        // does not own the pool, so DROPPING THEM IS THE CALLER'S, on the same
+        // line as this reset. `godgame_render::glue::start_a_run` is the one
+        // place in the tree that respawns, and it does both.
 
         // Animation/report state is respawn-local too: a fresh player should not
         // inherit a pose or a queue of stale events from the previous life.
@@ -981,13 +1029,13 @@ impl Player {
     /// immediately before the collide that sets it, so it always describes THIS
     /// step; and `prev_jump_held` is latched after the vertical model has already
     /// used the previous value to decide whether to cut the jump.
-    pub fn step(&mut self, dt: f32, intent: Intent, grid: &CellGrid) {
+    pub fn step(&mut self, dt: f32, intent: Intent, grid: &CellGrid, kit: &mut Loadout<'_>) {
         self.tick_timers(dt);
         // Held attacks auto-repeat at the weapon's own cadence; `attack` is the
         // one gate, so a queued press and a held button take exactly the same
         // path and a fast weapon does not need the player to out-click it.
         if intent.punch_queued || intent.punch_held {
-            self.attack(intent.aim_x, intent.aim_y);
+            self.attack(intent.aim_x, intent.aim_y, kit);
         }
         self.start_dash(intent);
         self.sense_environment(grid);
@@ -1001,10 +1049,6 @@ impl Player {
         self.post_environment(dt);
         self.prev_jump_held = intent.jump_held;
         self.update_anim(dt);
-        // Arrows integrate on the SAME fixed step the body does. Stepped once per
-        // frame instead, a shot's arc would change shape with the frame rate while
-        // the player it was fired from did not.
-        self.projectiles.update(dt, grid);
     }
 
     /// Attach to, hold or let go of a ladder.
@@ -1715,6 +1759,10 @@ mod tests {
     }
 
     /// Counts what was fired, so the ammo tests can tell "refused" from "fired".
+    ///
+    /// The counter is an `Arc` rather than a plain field because the pool is
+    /// borrowed by the [`Loadout`] for the length of the attack; the assertions
+    /// read their own handle instead of waiting for the borrow to end.
     #[derive(Default)]
     struct CountingPool(Arc<AtomicU32>);
 
@@ -1723,8 +1771,31 @@ mod tests {
             self.0.fetch_add(1, Ordering::Relaxed);
             true
         }
-        fn update(&mut self, _dt: f32, _grid: &CellGrid) {}
-        fn clear(&mut self) {}
+    }
+
+    /// A pack with nothing in it, counting every kind it was asked for. This is
+    /// the closure the ammo source used to be, given a name.
+    struct EmptyPack(Arc<AtomicU32>);
+
+    impl AmmoSource for EmptyPack {
+        fn spend(&mut self, _id: &str, _n: u32) -> u32 {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            0
+        }
+    }
+
+    /// A pack holding only the PREFERRED kind, counting what it hands over.
+    struct FireArrowsOnly(Arc<AtomicU32>);
+
+    impl AmmoSource for FireArrowsOnly {
+        fn spend(&mut self, id: &str, n: u32) -> u32 {
+            if id == "arrow_fire" {
+                self.0.fetch_add(n, Ordering::Relaxed);
+                n
+            } else {
+                0
+            }
+        }
     }
 
     #[test]
@@ -1790,17 +1861,22 @@ mod tests {
 
     #[test]
     fn the_damage_window_is_a_fraction_of_the_swing_and_is_capped() {
+        // Melee throughout, so the kit is only here to satisfy the signature: a
+        // swing never reaches the pool.
+        let mut none = NoProjectiles;
+        let mut kit = Loadout::new(&mut none);
+
         let mut p = Player::new(SPAWN);
         assert!(!p.punching());
 
-        assert!(p.attack(0.0, 0.0));
+        assert!(p.attack(0.0, 0.0, &mut kit));
         assert_eq!(p.swing_id(), 1);
         assert!(p.punching());
         // A fist: 0.3 * 0.45 = 0.135, under the 0.16 cap.
         assert!((p.swing_live - PUNCH_SWING_TIME * SWING_WINDOW_FRAC).abs() < 1e-6);
 
         // Refused inside the cadence, and the id does not move.
-        assert!(!p.attack(0.0, 0.0));
+        assert!(!p.attack(0.0, 0.0, &mut kit));
         assert_eq!(p.swing_id(), 1);
 
         // A slow weapon's window is clamped, so it does not also get a more
@@ -1810,7 +1886,7 @@ mod tests {
             swing_time: Some(2.0),
             ..sword()
         }));
-        assert!(p.attack(0.0, 0.0));
+        assert!(p.attack(0.0, 0.0, &mut kit));
         assert_eq!(p.swing_live, SWING_WINDOW_MAX);
         assert_eq!(p.punch_timer, SWING_POSE_MAX, "and so is the pose");
     }
@@ -1818,11 +1894,13 @@ mod tests {
     #[test]
     fn a_bow_with_no_ammo_source_fires_freely() {
         // What keeps a half-wired host playable, and this file headlessly
-        // testable, rather than silently unable to shoot.
+        // testable, rather than silently unable to shoot. A `Loadout` with no
+        // ammo half is exactly that host.
         let fired = Arc::new(AtomicU32::new(0));
-        let mut p = Player::with_projectiles(SPAWN, Box::new(CountingPool(Arc::clone(&fired))));
+        let mut pool = CountingPool(Arc::clone(&fired));
+        let mut p = Player::new(SPAWN);
         p.set_weapon(Some(bow()));
-        assert!(p.attack(0.0, 0.0));
+        assert!(p.attack(0.0, 0.0, &mut Loadout::new(&mut pool)));
         assert_eq!(fired.load(Ordering::Relaxed), 1);
     }
 
@@ -1834,19 +1912,20 @@ mod tests {
         // was held.
         let fired = Arc::new(AtomicU32::new(0));
         let asked = Arc::new(AtomicU32::new(0));
-        let asked_in = Arc::clone(&asked);
-        let mut p = Player::with_projectiles(SPAWN, Box::new(CountingPool(Arc::clone(&fired))));
+        let mut pool = CountingPool(Arc::clone(&fired));
+        let mut pack = EmptyPack(Arc::clone(&asked));
+        let mut p = Player::new(SPAWN);
         p.set_weapon(Some(bow()));
-        p.set_ammo_source(Some(Box::new(move |_id, _n| {
-            asked_in.fetch_add(1, Ordering::Relaxed);
-            0
-        })));
+        let mut kit = Loadout::new(&mut pool).with_ammo(&mut pack);
 
-        assert!(!p.attack(0.0, 0.0), "no arrows, no shot");
+        assert!(!p.attack(0.0, 0.0, &mut kit), "no arrows, no shot");
         assert_eq!(fired.load(Ordering::Relaxed), 0);
         assert_eq!(asked.load(Ordering::Relaxed), 2, "both kinds were tried");
         assert!(p.swing_cd > 0.0, "the cadence still stands");
-        assert!(!p.attack(0.0, 0.0), "so the next press is refused outright");
+        assert!(
+            !p.attack(0.0, 0.0, &mut kit),
+            "so the next press is refused outright"
+        );
         assert_eq!(asked.load(Ordering::Relaxed), 2, "without a second scan");
     }
 
@@ -1854,20 +1933,13 @@ mod tests {
     fn ammo_is_spent_best_first_and_the_search_stops_at_the_first_hit() {
         let fired = Arc::new(AtomicU32::new(0));
         let spent = Arc::new(AtomicU32::new(0));
-        let spent_in = Arc::clone(&spent);
-        let mut p = Player::with_projectiles(SPAWN, Box::new(CountingPool(Arc::clone(&fired))));
-        p.set_weapon(Some(bow()));
+        let mut pool = CountingPool(Arc::clone(&fired));
         // The pack holds the FIRST kind, which is the preferred one.
-        p.set_ammo_source(Some(Box::new(move |id, n| {
-            if id == "arrow_fire" {
-                spent_in.fetch_add(n, Ordering::Relaxed);
-                n
-            } else {
-                0
-            }
-        })));
+        let mut pack = FireArrowsOnly(Arc::clone(&spent));
+        let mut p = Player::new(SPAWN);
+        p.set_weapon(Some(bow()));
 
-        assert!(p.attack(0.0, 0.0));
+        assert!(p.attack(0.0, 0.0, &mut Loadout::new(&mut pool).with_ammo(&mut pack)));
         assert_eq!(fired.load(Ordering::Relaxed), 1);
         assert_eq!(
             spent.load(Ordering::Relaxed),
@@ -1903,7 +1975,8 @@ mod tests {
         // decision, not a respawn's.
         let mut p = Player::new(SPAWN);
         p.set_weapon(Some(sword()));
-        p.attack(0.0, 0.0);
+        let mut none = NoProjectiles;
+        p.attack(0.0, 0.0, &mut Loadout::new(&mut none));
         p.health = 3.0;
         p.emit(PlayerEvent::Hurt);
 

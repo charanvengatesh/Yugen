@@ -358,7 +358,7 @@ fn fly_camera(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut focus: ResMu
 /// is still a pack to select from and craft into; there is just nobody to drink.
 #[derive(SystemParam)]
 struct Survival<'w> {
-    pack: Res<'w, Pack>,
+    pack: ResMut<'w, Pack>,
     toast: ResMut<'w, Toast>,
     cursor: ResMut<'w, CraftCursor>,
     body: Option<ResMut<'w, PlayerBody>>,
@@ -427,7 +427,7 @@ fn tool_keys(
             tool.add_brush(steps);
         }
     } else {
-        let mut inv = player.pack.lock();
+        let inv = &mut **player.pack;
         for i in 0..HOTBAR {
             if k.was_pressed(KEYS.hotbar[i]) {
                 inv.select_slot(i);
@@ -443,12 +443,12 @@ fn tool_keys(
         inv.cycle(steps.signum());
 
         if k.any_pressed(KEYS.craft) {
-            try_craft(&mut inv, &mut player.cursor.0, &mut player.toast);
+            try_craft(inv, &mut player.cursor.0, &mut player.toast);
         }
         if k.any_pressed(KEYS.use_item)
             && let Some(body) = &mut player.body
         {
-            try_use(&mut inv, body, &mut player.toast);
+            try_use(inv, body, &mut player.toast);
         }
     }
 
@@ -568,7 +568,11 @@ fn effect_name(effect: ItemEffect) -> Option<&'static str> {
 struct Swinger<'w> {
     focus: Res<'w, WorldFocus>,
     body: Option<Res<'w, PlayerBody>>,
-    pack: Res<'w, Pack>,
+    /// Mutable because placing a block SPENDS one — see the bottom of
+    /// [`swing_brush`]. It was `Res` while the pack was an `Arc<Mutex<_>>` and
+    /// the write went through the lock, which is precisely the kind of hidden
+    /// mutation that let Bevy schedule a writer alongside four readers.
+    pack: ResMut<'w, Pack>,
 }
 
 /// Ask the tool for this frame's stroke and stamp it.
@@ -576,11 +580,11 @@ fn swing_brush(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     cursor: Res<CursorWorld>,
-    actor: Swinger,
+    mut actor: Swinger,
     mut tool: ResMut<Tool>,
     mut world: ResMut<SimWorld>,
 ) {
-    let Swinger { focus, body, pack } = &actor;
+    let Swinger { focus, body, pack } = &mut actor;
     let Some(at) = cursor.0 else {
         return;
     };
@@ -599,13 +603,10 @@ fn swing_brush(
         None => (focus.x, focus.y),
     };
 
-    let held = {
-        let inv = pack.lock();
-        inv.held().map(|code| Held {
-            code,
-            count: u32::from(inv.held_count()),
-        })
-    };
+    let held = pack.held().map(|code| Held {
+        code,
+        count: u32::from(pack.held_count()),
+    });
 
     let Some(act) = tool.update(
         time.delta_secs(),
@@ -635,7 +636,7 @@ fn swing_brush(
     if act.mode == EditMode::Place && !tool.creative {
         let cost = tool.place_cost();
         if cost > 0 {
-            let mut inv = pack.lock();
+            let inv = &mut **pack;
             let slot = inv.selected();
             inv.remove_at(slot, cost as u32);
         }
@@ -993,7 +994,7 @@ mod tests {
     fn a_digit_selects_that_hotbar_slot_in_survival() {
         let mut world = pressing(&[KEYS.hotbar[4]]);
         world.run_system_once(tool_keys).unwrap();
-        assert_eq!(world.resource::<Pack>().lock().selected(), 4);
+        assert_eq!(world.resource::<Pack>().selected(), 4);
     }
 
     /// Digit 0 is the LAST slot, not the first. The binding table is
@@ -1002,7 +1003,7 @@ mod tests {
     fn the_zero_key_selects_the_last_hotbar_slot() {
         let mut world = pressing(&[KEYS.hotbar[HOTBAR - 1]]);
         world.run_system_once(tool_keys).unwrap();
-        assert_eq!(world.resource::<Pack>().lock().selected(), HOTBAR - 1);
+        assert_eq!(world.resource::<Pack>().selected(), HOTBAR - 1);
     }
 
     /// The creative branch must not have started writing the pack.
@@ -1013,7 +1014,7 @@ mod tests {
         world.run_system_once(tool_keys).unwrap();
         assert_eq!(world.resource::<Tool>().slot_index(), 4);
         assert_eq!(
-            world.resource::<Pack>().lock().selected(),
+            world.resource::<Pack>().selected(),
             0,
             "creative digits reached the inventory"
         );
@@ -1027,7 +1028,7 @@ mod tests {
         let brush = world.resource::<Tool>().brush;
         scroll(&mut world, -1.0);
         world.run_system_once(tool_keys).unwrap();
-        assert_eq!(world.resource::<Pack>().lock().selected(), 1);
+        assert_eq!(world.resource::<Pack>().selected(), 1);
         assert_eq!(
             world.resource::<Tool>().brush,
             brush,
@@ -1040,7 +1041,7 @@ mod tests {
         let mut world = pressing(&[]);
         scroll(&mut world, 1.0);
         world.run_system_once(tool_keys).unwrap();
-        assert_eq!(world.resource::<Pack>().lock().selected(), HOTBAR - 1);
+        assert_eq!(world.resource::<Pack>().selected(), HOTBAR - 1);
     }
 
     /// A flick that reports three steps moves ONE slot — the original's
@@ -1052,7 +1053,7 @@ mod tests {
             scroll(&mut world, -1.0);
         }
         world.run_system_once(tool_keys).unwrap();
-        assert_eq!(world.resource::<Pack>().lock().selected(), 1);
+        assert_eq!(world.resource::<Pack>().selected(), 1);
 
         let mut world = pressing(&[]);
         world.resource_mut::<Tool>().creative = true;
@@ -1085,13 +1086,13 @@ mod tests {
     fn the_craft_key_makes_the_first_affordable_recipe_and_says_so() {
         let mut world = pressing(KEYS.craft);
         let r = &recipes()[0];
-        stock(&mut world.resource::<Pack>().lock(), r);
+        stock(&mut world.resource_mut::<Pack>(), r);
 
         world.run_system_once(tool_keys).unwrap();
 
         let name = item_by_code(r.out).name;
         assert!(
-            world.resource::<Pack>().lock().count_of(r.out) >= r.out_count as u32,
+            world.resource::<Pack>().count_of(r.out) >= r.out_count as u32,
             "{name} was never credited"
         );
         assert!(
@@ -1121,11 +1122,11 @@ mod tests {
         let mut world = pressing(KEYS.use_item);
         with_a_body(&mut world);
         world.resource_mut::<PlayerBody>().health = 1.0;
-        world.resource::<Pack>().lock().add(def.code, 2);
+        world.resource_mut::<Pack>().add(def.code, 2);
 
         world.run_system_once(tool_keys).unwrap();
 
-        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+        assert_eq!(world.resource::<Pack>().count_of(def.code), 1);
         assert_eq!(world.resource::<PlayerBody>().health, 1.0 + heal);
         assert_eq!(toast_of(&world), format!("+{heal} hp"));
     }
@@ -1136,12 +1137,12 @@ mod tests {
         let mut world = pressing(KEYS.use_item);
         with_a_body(&mut world);
         world.resource_mut::<PlayerBody>().health = MAX_HEALTH;
-        world.resource::<Pack>().lock().add(def.code, 1);
+        world.resource_mut::<Pack>().add(def.code, 1);
 
         world.run_system_once(tool_keys).unwrap();
 
         assert_eq!(
-            world.resource::<Pack>().lock().count_of(def.code),
+            world.resource::<Pack>().count_of(def.code),
             1,
             "a full-health drink was swallowed anyway"
         );
@@ -1155,12 +1156,12 @@ mod tests {
         let code = item_code_of("emberward_draught").expect("content lost the emberward draught");
         let mut world = pressing(KEYS.use_item);
         with_a_body(&mut world);
-        world.resource::<Pack>().lock().add(code, 1);
+        world.resource_mut::<Pack>().add(code, 1);
 
         world.run_system_once(tool_keys).unwrap();
 
         assert_eq!(toast_of(&world), "fireward");
-        assert_eq!(world.resource::<Pack>().lock().count_of(code), 0);
+        assert_eq!(world.resource::<Pack>().count_of(code), 0);
     }
 
     #[test]
@@ -1171,11 +1172,11 @@ mod tests {
             .expect("content declares no material");
         let mut world = pressing(KEYS.use_item);
         with_a_body(&mut world);
-        world.resource::<Pack>().lock().add(def.code, 3);
+        world.resource_mut::<Pack>().add(def.code, 3);
 
         world.run_system_once(tool_keys).unwrap();
 
-        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 3);
+        assert_eq!(world.resource::<Pack>().count_of(def.code), 3);
         assert_eq!(toast_of(&world), "", "a rock reported something");
     }
 
@@ -1188,11 +1189,11 @@ mod tests {
         world.resource_mut::<Tool>().creative = true;
         with_a_body(&mut world);
         world.resource_mut::<PlayerBody>().health = 1.0;
-        world.resource::<Pack>().lock().add(def.code, 1);
+        world.resource_mut::<Pack>().add(def.code, 1);
 
         world.run_system_once(tool_keys).unwrap();
 
-        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+        assert_eq!(world.resource::<Pack>().count_of(def.code), 1);
         assert_eq!(world.resource::<PlayerBody>().health, 1.0);
         assert_eq!(toast_of(&world), "");
     }
@@ -1203,11 +1204,11 @@ mod tests {
     fn the_use_key_with_no_body_at_all_is_survivable() {
         let def = a_healing_item();
         let mut world = pressing(KEYS.use_item);
-        world.resource::<Pack>().lock().add(def.code, 1);
+        world.resource_mut::<Pack>().add(def.code, 1);
 
         world.run_system_once(tool_keys).unwrap();
 
-        assert_eq!(world.resource::<Pack>().lock().count_of(def.code), 1);
+        assert_eq!(world.resource::<Pack>().count_of(def.code), 1);
     }
 
     /// Every effect the content can name has a word for the toast, and the

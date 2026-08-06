@@ -23,7 +23,7 @@
 //! is that, and it deliberately does NOT bump the revision — see the note there.
 
 use super::registry::{ITEM_STACK, ItemCode, item_code_of, player_weapon};
-use crate::entities::player::PlayerWeapon;
+use crate::entities::player::{AmmoSource, PlayerWeapon};
 
 /// Total slots. The first [`HOTBAR`] are the ones the HUD draws and the number
 /// keys select; the rest is backpack the crafting code can still spend from.
@@ -312,25 +312,35 @@ impl Inventory {
     /// Spend `n` of the item with this authoring id, returning how many were
     /// taken. An id the registry does not have spends nothing.
     ///
-    /// This exists to be the body of the player's ammo source. The TypeScript
-    /// wrote `player.setAmmoSource((id, n) => inv.remove(itemCodeOf(id), n))` —
-    /// a closure over the inventory instance, which Rust cannot spell without
-    /// deciding who owns it. Deciding that is the host's job, so the method is
-    /// here and the host writes:
+    /// This is the body of [`AmmoSource::spend`], which is the whole of the
+    /// inventory-to-player seam. The TypeScript wrote
+    /// `player.setAmmoSource((id, n) => inv.remove(itemCodeOf(id), n))` — a
+    /// closure over the inventory instance, stored on the player. Rust cannot
+    /// store that without first deciding who OWNS the inventory, and every
+    /// answer to that question is an `Rc<RefCell<_>>` or an `Arc<Mutex<_>>`
+    /// wrapped around a thing the host already holds perfectly well.
     ///
-    /// ```ignore
-    /// let inv = Rc::new(RefCell::new(Inventory::new()));
-    /// let bag = Rc::clone(&inv);
-    /// player.set_ammo_source(Some(Box::new(move |id, n| bag.borrow_mut().spend_by_id(id, n))));
-    /// ```
-    ///
-    /// — or the `Arc<Mutex<_>>` equivalent, or a channel, without this file
-    /// having an opinion about which.
+    /// So nothing is stored: the host lends its inventory to
+    /// [`Player::step`](crate::entities::player::Player::step) through a
+    /// [`Loadout`](crate::entities::player::Loadout), for exactly as long as the
+    /// step runs. The seam is the impl below and this method.
     pub fn spend_by_id(&mut self, id: &str, n: u32) -> u32 {
         match item_code_of(id) {
             Some(code) => self.remove(code, n),
             None => 0,
         }
+    }
+}
+
+/// The pack a bow spends from.
+///
+/// On ITS side of the boundary, exactly as the `From<&ItemWeapon>` adapter that
+/// builds a [`PlayerWeapon`] is: `entities::player` states what it needs and
+/// never imports the item registry, and `items` — which already knows both — is
+/// what joins them.
+impl AmmoSource for Inventory {
+    fn spend(&mut self, id: &str, n: u32) -> u32 {
+        self.spend_by_id(id, n)
     }
 }
 

@@ -31,9 +31,8 @@ pub mod player;
 pub mod projectiles;
 
 pub use player::{
-    AmmoSource, AnimState, NoProjectiles, Player, PlayerEvent, PlayerWeapon, Projectiles,
+    AmmoSource, AnimState, Loadout, NoProjectiles, Player, PlayerEvent, PlayerWeapon, Projectiles,
 };
 pub use projectiles::{
-    MAX_SHOTS, ProjectileSystem, SHOT_STYLE_ARROW, SharedPool, Shot, ShotHitTest, ShotImpact,
-    ShotSpec,
+    HitFn, MAX_SHOTS, NoTargets, ProjectileSystem, SHOT_STYLE_ARROW, Shot, ShotSpec, ShotWorld,
 };

@@ -44,34 +44,40 @@
 //! which all do it on the last line and say so. Doing it here would put the
 //! convention in two places and make the squash arithmetic read upside down.
 //!
-//! # SEAM (sprite): what this module needs from the rasteriser
+//! # Where this joins the rasteriser
 //!
-//! `crate::sprite` is being ported alongside this. Nothing here calls it, and
-//! nothing here needs to in order to be correct — the art grid comes from the
-//! compiled record and the geometry comes from the body. Two joins remain, both
-//! named:
+//! This section carried a SEAM note for as long as `crate::sprite` was
+//! unwritten. Both joins it named are now made, and neither of them is made
+//! HERE — which is why nothing in this file mentions an atlas, a tile or a
+//! vertex:
 //!
-//! 1. **Pose indices.** [`PoseSheet`] is the whole of it: one method, pose in,
-//!    dense frame-set index out. [`ContentPoses`] implements it from the
-//!    compiled record and is what [`PoseIds::player`] uses today. When
-//!    `crate::sprite::Sprite` lands, `impl PoseSheet for Sprite` is a three-line
-//!    forward to its own `state_id`, and the fallback rules it applies then
-//!    start being respected for free. See [`ContentPoses`] for the one
-//!    assumption that has to hold.
-//! 2. **The blit.** A [`PlayerFigure`] is the argument list of
-//!    `Sprite.draw(ctx, x, y, w, h, facing, state, clock)` with the canvas taken
-//!    out: rect, facing, pose and the three clocks. [`PlayerFigure::ghosts`]
-//!    supplies the two extra faded blits a dash wants, furthest first, and
-//!    [`PlayerFigure::shear_at`] supplies the lean the canvas used to get from
-//!    `ctx.transform`. Bevy's `Transform` is translate-rotate-scale and
-//!    **cannot represent a shear**, so that last one is a real decision for
-//!    whoever joins the two: apply it per row inside the rasteriser (natural, if
-//!    it writes rows, and exact), or approximate with a rotation about the feet
-//!    (`|lean| <= 0.16` is under 9 degrees, so it reads almost the same and
-//!    tilts the vertical edges the shear would have kept upright). This module
-//!    publishes the exact displacement either way and does not choose.
-
-use std::fmt;
+//! 1. **Pose indices**, in `crate::player::tile_uv`. Three hops, each one a
+//!    crossing between vocabularies: [`seq_state`] from the simulation's
+//!    hand-written [`AnimState`] to content's generated `SpriteSeqState`,
+//!    `Pose::from` from content's to the rasteriser's, and
+//!    `BakedSprite::state_id` to the dense sequence index. A pose the sheet does
+//!    not author falls back to its first sequence there, because the wrong
+//!    stance for a frame is a far cheaper failure than an invisible player. This
+//!    module used to answer that question itself; the note under "Poses" says
+//!    what stood there and why it went.
+//! 2. **The blit**, in `crate::player::place_body`. A [`PlayerFigure`] becomes
+//!    one to three quads in a single `Mesh2d` sampling one atlas tile —
+//!    [`PlayerFigure::ghosts`] furthest-first, then the figure, because index
+//!    order IS composite order inside a mesh. The lean was the hard part: Bevy's
+//!    `Transform` is translate-rotate-scale and **cannot represent a shear**, so
+//!    for one milestone it was computed here and discarded on the way to the
+//!    screen. [`crate::shear`] settled it by putting
+//!    [`PlayerFigure::shear_at`]'s displacement on the quad's top and bottom
+//!    edges, which is EXACT and not an approximation because a shear is linear
+//!    and so is vertex interpolation. The rotation about the feet this header
+//!    once offered as the alternative was rejected on measurement, not taste: it
+//!    tips the horizontals, and on a six-pixel character that is a foot hovering
+//!    off the floor for a whole run cycle.
+//!
+//! What has not changed is that nothing here CALLS any of it. The art grid comes
+//! from the compiled record and the geometry comes from the body, so every number
+//! this module publishes is still derivable, and asserted, with no atlas and no
+//! GPU.
 
 use godgame_core::config::{CELL_SIZE, PLAYER_CELLS_H, PLAYER_CELLS_W, PLAYER_H, PLAYER_W, scaled};
 use godgame_core::entities::{AnimState, Player};
@@ -232,8 +238,25 @@ impl ArtGrid {
 }
 
 // ---------------------------------------------------------------------------
-// Poses, resolved once
+// Poses
 // ---------------------------------------------------------------------------
+//
+// A `PoseSheet` trait, a `ContentPoses` implementation of it, a `PoseIds` table
+// and a `MissingPose` error stood here. They were this module's own answer to
+// "which frame set plays this pose", written while `crate::sprite` was still
+// unwritten, and they answered it by scanning the compiled record's `seq` list
+// for a matching state. `crate::sprite` landed with a better answer —
+// `BakedSprite` keys its frame sets by `Pose`, resolves the authored `fallback`
+// chains that a raw scan of the record cannot see, and rejects duplicate poses
+// and fallback cycles at bake time — and `crate::player::tile_uv` has called
+// that one on every drawn frame since. Nothing outside this file ever
+// constructed a `PoseIds`, so the two answers never got the chance to disagree
+// in a running game: the table was resolved by tests and by nobody else.
+//
+// What survives is the half that was never a stand-in. `seq_state` is the
+// crossing from the simulation's vocabulary to content's, it is the first of the
+// three hops the draw path actually takes, and it is still the only place the
+// two vocabularies are asserted to be the same one.
 
 /// Every pose the player can reach, as data.
 ///
@@ -243,6 +266,15 @@ impl ArtGrid {
 /// thirteenth pose to the simulation fails to compile until somebody decides
 /// which authored sequence it plays. This array is the runtime half — a `match`
 /// is not something you can enumerate, and neither was the union.
+///
+/// Nothing on the draw path indexes it: `crate::player` crosses one pose at a
+/// time, per frame, through [`seq_state`]. What needs the enumeration is the
+/// content-coverage test below, which walks it to prove every pose the
+/// simulation can enter has a sequence authored to play. That test is the only
+/// thing between a dropped sequence and a character who silently stands there
+/// idling through a wall slide — the draw path cannot report the gap, because
+/// falling back to the sheet's first sequence draws SOMETHING and so degrades to
+/// a plausible frame rather than to a visible fault.
 pub const POSES: [AnimState; POSE_COUNT] = [
     AnimState::Idle,
     AnimState::Run,
@@ -284,110 +316,6 @@ pub const fn seq_state(pose: AnimState) -> SpriteSeqState {
         AnimState::Hurt => SpriteSeqState::Hurt,
     }
 }
-
-/// Where a pose's id is kept inside a [`PoseIds`].
-///
-/// The generated enum's own discriminant, so the slot ordering cannot drift from
-/// the vocabulary it indexes. It is an array index and nothing else — it is NOT
-/// the value handed to the rasteriser, which is whatever [`PoseSheet`] answers.
-const fn slot(pose: AnimState) -> usize {
-    seq_state(pose) as usize
-}
-
-/// SEAM (sprite): the one question this module asks a rasterised sheet.
-///
-/// Deliberately one method. Everything else `Sprite` will offer — frame picking,
-/// palette variants, the additive flash pass — is the rasteriser's business, and
-/// a wider trait here would be this module guessing at an API that is being
-/// written in the next file over.
-pub trait PoseSheet {
-    /// Dense index of the frame set that plays `pose`, or `None` if the sheet
-    /// has no sequence for it and no fallback that reaches one.
-    fn pose_id(&self, pose: AnimState) -> Option<u32>;
-}
-
-/// A [`PoseSheet`] answered straight from the compiled player record.
-///
-/// This is what the module uses until `crate::sprite` lands, and it is a real
-/// answer rather than a stub: the dense index of a pose IS its position in the
-/// record's `seq` list, because that is the order a sheet built from the record
-/// necessarily walks.
-///
-/// SEAM (sprite): that sentence is the assumption. `Sprite` must key its frame
-/// sets by `seq` order, and it must apply fallbacks — which the player does not
-/// use, having authored all twelve poses — on top of it. Swapping this for
-/// `impl PoseSheet for Sprite` when it lands is the check: the two must agree
-/// for the player, and only the sheet can be right for anything that does use a
-/// fallback.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ContentPoses;
-
-impl PoseSheet for ContentPoses {
-    fn pose_id(&self, pose: AnimState) -> Option<u32> {
-        let want = seq_state(pose);
-        let seq = SPRITES[sprite::PLAYER as usize].seq?;
-        seq.iter().position(|s| s.state == want).map(|i| i as u32)
-    }
-}
-
-/// Pose to dense sprite index, resolved ONCE.
-///
-/// The TypeScript built this at module load and `Player.draw` indexed it with
-/// the state the player already tracked, because `Sprite.stateId` is a `Map`
-/// lookup and doing one per frame puts a hash in the hottest draw the game has,
-/// for a value that is fixed the moment content finished compiling. The same
-/// argument holds here for a slightly different reason: [`ContentPoses`] answers
-/// with a linear scan of the authored sequences, which is cheap but is still a
-/// scan of a table that cannot change at runtime.
-///
-/// Resolve one of these next to whatever entity draws the player, and index it
-/// forever after.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PoseIds([u32; POSE_COUNT]);
-
-impl PoseIds {
-    /// Resolve every pose against `sheet`.
-    ///
-    /// A missing pose is an error and not a fallback, which is the TypeScript's
-    /// load-time throw with the process exit taken out. The failure mode of
-    /// degrading instead is a character that renders nothing in one situation —
-    /// the single hardest rendering bug to trace back to its cause, and one that
-    /// only shows up when a player happens to wall-slide.
-    pub fn resolve(sheet: &impl PoseSheet) -> Result<PoseIds, MissingPose> {
-        let mut out = [0u32; POSE_COUNT];
-        for pose in POSES {
-            out[slot(pose)] = sheet.pose_id(pose).ok_or(MissingPose(pose))?;
-        }
-        Ok(PoseIds(out))
-    }
-
-    /// Resolve against the compiled player record. See [`ContentPoses`].
-    pub fn player() -> Result<PoseIds, MissingPose> {
-        PoseIds::resolve(&ContentPoses)
-    }
-
-    /// The index to hand the rasteriser for `pose`.
-    #[inline]
-    pub fn get(&self, pose: AnimState) -> u32 {
-        self.0[slot(pose)]
-    }
-}
-
-/// A pose the player can reach that the sheet cannot draw.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MissingPose(pub AnimState);
-
-impl fmt::Display for MissingPose {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "content/sprites/player.toml has no '{:?}' sequence",
-            self.0
-        )
-    }
-}
-
-impl std::error::Error for MissingPose {}
 
 // ---------------------------------------------------------------------------
 // The body, as the drawing sees it
@@ -506,17 +434,21 @@ pub struct PlayerFigure {
     /// Height of the deformed art rect, world px.
     pub h: f32,
 
-    /// Pose to play. Index it into a [`PoseIds`].
+    /// Pose to play, in the SIMULATION's vocabulary. `crate::player::tile_uv`
+    /// crosses it to a baked sequence; [`seq_state`] is the first hop.
     pub pose: AnimState,
     /// `-1.0` mirrors the art about the rect's OWN vertical axis, so the figure
     /// turns while staying exactly where it is.
     pub facing: f32,
 
-    /// Seconds since the pose was entered. `SpriteClock::stateT`.
+    /// Seconds since the pose was entered.
+    /// [`SpriteClock::state_t`](crate::sprite::SpriteClock::state_t).
     pub state_t: f32,
-    /// Free-running seconds. `SpriteClock::clockT`.
+    /// Free-running seconds.
+    /// [`SpriteClock::clock_t`](crate::sprite::SpriteClock::clock_t).
     pub clock_t: f32,
-    /// Run cycle position in `[0, 1)`. `SpriteClock::phase`.
+    /// Run cycle position in `[0, 1)`.
+    /// [`SpriteClock::phase`](crate::sprite::SpriteClock::phase).
     pub phase: f32,
 
     /// Shear, as an x offset per unit of height ABOVE [`PlayerFigure::pivot_y`].
@@ -627,9 +559,12 @@ impl PlayerFigure {
     /// Braking — acceleration opposing motion — therefore leans the figure BACK,
     /// which is exactly what sells the skid.
     ///
-    /// SEAM (sprite): see the module header. This is the number a row-blitting
-    /// rasteriser wants; it is also `-lean` as a slope if the join goes the
-    /// rotation route instead.
+    /// This is the number `crate::player::quad_of` puts on a quad's top and
+    /// bottom edges, and [`crate::shear`] is the argument for why displacing four
+    /// vertices reproduces the canvas transform EXACTLY rather than
+    /// approximately. Because the pivot is the drawn sole, the bottom edge's
+    /// displacement is zero and the feet stay on whatever whole pixel the snap
+    /// put them on — which is why only the top edge moves there.
     #[inline]
     pub fn shear_at(&self, y: f32) -> f32 {
         -self.lean * (y - self.pivot_y)
@@ -703,11 +638,22 @@ fn lean(accel_x: f32) -> f32 {
 mod tests {
     use super::*;
     use godgame_core::config::STEP_DT;
-    use godgame_core::entities::SharedPool;
+    use godgame_core::entities::{Loadout, NoProjectiles};
     use godgame_core::input::Intent;
     use godgame_core::sim::grid::CellGrid;
     use godgame_core::sim::materials::{EMPTY, block};
     use godgame_core::sim::worldgen::SpawnPoint;
+
+    /// One fixed step of a body that has nowhere to fire.
+    ///
+    /// Every test in this module is about locomotion or about art, never about
+    /// arrows, so the [`Loadout`] deliberately carries the pool that REFUSES
+    /// every shot: if one of these ever starts depending on a projectile, it
+    /// fails rather than quietly firing into a pool nobody inspects.
+    fn step(player: &mut Player, intent: Intent, grid: &CellGrid) {
+        let mut nowhere = NoProjectiles;
+        player.step(STEP_DT, intent, grid, &mut Loadout::new(&mut nowhere));
+    }
 
     /// Row of the hand-built floor, so a test asserts against a surface whose
     /// height it knows rather than against whatever the worldgen produced.
@@ -800,63 +746,47 @@ mod tests {
 
     #[test]
     fn every_pose_the_player_can_reach_is_authored_in_the_content_record() {
-        // The TypeScript threw at module load for this. Failing here instead
-        // means a content change that drops a sequence is caught by the test
-        // suite rather than by a player who happened to wall-slide.
-        let ids = PoseIds::player().expect("the shipped player record is incomplete");
-        for pose in POSES {
-            let _ = ids.get(pose);
-        }
-    }
-
-    #[test]
-    fn the_twelve_poses_occupy_twelve_distinct_slots() {
-        // This is `satisfies Record<AnimState, 1>` as a runtime assertion: the
-        // table has room for every pose and no two poses share a cell. Without
-        // it a duplicated arm in `seq_state` would make one pose silently play
-        // another's frames.
-        let mut seen = [false; POSE_COUNT];
-        for pose in POSES {
-            let i = slot(pose);
-            assert!(i < POSE_COUNT, "{pose:?} slots out of range at {i}");
-            assert!(!seen[i], "{pose:?} shares slot {i}");
-            seen[i] = true;
-        }
-        assert!(seen.iter().all(|&s| s), "a slot is never written");
-    }
-
-    #[test]
-    fn pose_ids_are_the_positions_content_authored_the_sequences_in() {
-        // The `ContentPoses` assumption, stated as a test so that swapping in
-        // `crate::sprite::Sprite` has something concrete to disagree with.
+        // The TypeScript threw at module load for this. `crate::player` cannot
+        // throw and does not want to: a pose the sheet has no sequence for falls
+        // back to the sheet's FIRST sequence, which draws a plausible frame and
+        // reports nothing. So a content change that drops a sequence has exactly
+        // one thing standing in its way, and this is it.
         let seq = SPRITES[sprite::PLAYER as usize]
             .seq
             .expect("the player record has no sequences");
-        let ids = PoseIds::player().unwrap();
         for pose in POSES {
-            let id = ids.get(pose) as usize;
-            assert!(id < seq.len(), "{pose:?} indexes past the sequence list");
-            assert_eq!(
-                seq[id].state,
-                seq_state(pose),
-                "{pose:?} resolved to the wrong sequence"
+            let want = seq_state(pose);
+            assert!(
+                seq.iter().any(|s| s.state == want),
+                "content/sprites/player.toml has no '{pose:?}' sequence, so a \
+                 player who reaches it silently plays '{:?}' instead",
+                seq[0].state
             );
         }
     }
 
     #[test]
-    fn a_sheet_missing_a_pose_is_a_named_error_and_not_an_invisible_player() {
-        struct NoWallSlide;
-        impl PoseSheet for NoWallSlide {
-            fn pose_id(&self, pose: AnimState) -> Option<u32> {
-                (pose != AnimState::WallSlide).then_some(0)
-            }
+    fn no_two_poses_cross_to_the_same_authored_sequence() {
+        // This is `satisfies Record<AnimState, 1>` as a runtime assertion, and it
+        // outlived the id table it was first written against. `crate::player`
+        // crosses every drawn frame through `seq_state`, so a duplicated arm
+        // there would make one pose permanently play another's frames — a bug
+        // whose only symptom is that the character occasionally does the wrong
+        // thing, which nothing else in the suite would notice.
+        let mut seen = [false; POSE_COUNT];
+        for pose in POSES {
+            let i = seq_state(pose) as usize;
+            assert!(i < POSE_COUNT, "{pose:?} crosses out of range at {i}");
+            assert!(
+                !seen[i],
+                "{pose:?} shares a sequence state with another pose"
+            );
+            seen[i] = true;
         }
-        let err = PoseIds::resolve(&NoWallSlide).expect_err("the gap went unnoticed");
-        assert_eq!(err, MissingPose(AnimState::WallSlide));
-        // And it says which one, because "the player is invisible sometimes" is
-        // the hardest rendering bug there is to trace back to its cause.
-        assert!(err.to_string().contains("WallSlide"), "{err}");
+        assert!(
+            seen.iter().all(|&s| s),
+            "a sequence state no pose ever reaches"
+        );
     }
 
     // --- Squash and stretch -------------------------------------------------
@@ -1270,13 +1200,13 @@ mod tests {
             x: (64 * CELL_SIZE) as f32,
             y: ((FLOOR - 8) * CELL_SIZE) as f32,
         };
-        let player = Player::with_projectiles(spawn, Box::new(SharedPool::new()));
+        let player = Player::new(spawn);
         (grid, player)
     }
 
     fn run(player: &mut Player, grid: &CellGrid, intent: Intent, n: u32) {
         for i in 0..n {
-            player.step(STEP_DT, intent.for_substep(i), grid);
+            step(player, intent.for_substep(i), grid);
         }
     }
 
@@ -1304,7 +1234,7 @@ mod tests {
 
         for i in 0..ONE_SECOND {
             let before = player.y;
-            player.step(STEP_DT, right.for_substep(i), &grid);
+            step(&mut player, right.for_substep(i), &grid);
             box_jump = box_jump.max(before - player.y);
 
             let now = PlayerFigure::of(&player);

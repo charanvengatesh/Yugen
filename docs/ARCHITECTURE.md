@@ -161,9 +161,9 @@ never reused, and a deleted record leaves a tombstone.
 
 This is the tree's main idiom, and it is worth learning before reading anything
 else. The problem recurs constantly: **A needs B, and neither should own the
-other.** The answer is always the same shape — a boxed closure or a small trait,
-declared on the side that needs the *answer*, implemented or installed once at a
-composition root.
+other.** The answer is always the same shape — **a small trait, declared on the side that
+needs the *answer*, implemented on the side that has it, and BORROWED for the
+length of the call that needs it.**
 
 `crates/godgame-render/src/glue.rs` states the principle in its header, and
 states the cost of not following it: three separate modules in that crate each
@@ -172,12 +172,12 @@ triple speed.
 
 The instances:
 
-| Seam | Declared as | Installed at |
+| Seam | Declared as | Satisfied by |
 |---|---|---|
-| projectile hit test | `ShotHitTest = Box<dyn FnMut(..) -> bool>` (`core/entities/projectiles.rs`) | `mobs::install_hit_test` |
-| ammo spend | `AmmoSource = Box<dyn FnMut(&str, u32) -> u32>` (`core/entities/player.rs`) | `items::install_ammo_source` |
+| projectile hit test | `trait ShotWorld` (`core/entities/projectiles.rs`) | `glue::step_the_body`, forwarding to `MobSystem::hit_at` |
+| ammo spend | `trait AmmoSource` (`core/entities/player.rs`) | `impl for Inventory` in `core/items/inventory.rs` |
 | the player, as a target | `trait MobTarget` (`core/entities/mobs/system.rs`) | `impl for PlayerBody` in `render/mobs.rs` |
-| the player's shot pool | `trait Projectiles` (`core/entities/player.rs`) | the pool the host hands in |
+| the player's shot pool | `trait Projectiles` (`core/entities/player.rs`) | `impl for ProjectileSystem`; lent per step via `Loadout` |
 | chunk persistence | `trait ChunkPersistence` (`core/sim/chunk_store.rs`) | `ChunkStore::with_persistence` |
 | the icon atlas | `trait IconAtlas` (`render/ui.rs`) | `impl for SpriteAtlases` in `glue.rs` |
 | which screen is up | `UiScreen`, a plain resource (`render/ui.rs`) | `glue::follow_scene`, mirroring `Scene` |
@@ -192,20 +192,47 @@ can: it was a *structural* interface in TypeScript, satisfied by `Player` with
 no import and no coupling. Rust is nominal, so the adapter has to be written
 down — three lines, on the render side of the fence.
 
-**Why closures and not just more resources.** Two of the seams above are boxed
-`FnMut` rather than traits, and the reason is Bevy's borrow model. A
-`ShotHitTest` fires from inside `ProjectileSystem::update`, which is called from
-inside `Player::step`, which is called from a system holding
-`ResMut<PlayerBody>` and nothing else. There is no point in that call stack
-where Bevy could hand down a borrow of a second resource. So the closure must
-*capture* what it needs — which is why `Creatures` is an `Arc<Mutex<MobSystem>>`
-and `Pack` an `Arc<Mutex<Inventory>>`. The TypeScript closed over the same two
-objects for exactly the same reason; the port only writes the ownership down.
+### Why nothing here captures, and what it cost to learn that
 
-The locks are never contended — one schedule, sequential systems — and the
-ordering rule is one-way in both cases: the arrow pool reaches for the
-creatures and nothing the creatures own reaches back; the ammo closure takes the
-pack and nothing the pack can reach ever takes the player.
+Two of these seams used to be `Box<dyn FnMut + 'static>` stored on the thing that
+called them, installed once at startup — the TypeScript's shape, where a closure
+over the mob system and a closure over the inventory are free. Transliterated,
+that shape is expensive in a way that is worth spelling out, because it is the
+single most instructive thing in this port:
+
+> `'static` forces the capture to be **owned**. Owned forces `Arc`, because the
+> host also holds it. Shared-mutable forces `Mutex`. Two locks taken in a nested
+> call forces a **lock ORDER**, which is an invariant no compiler checks.
+
+The nesting was real: a hit test fired from inside `ProjectileSystem::update`,
+which was called from the last line of `Player::step`, which ran in a system
+holding `ResMut<PlayerBody>` and nothing else. There was no point in that call
+stack where Bevy could hand down a second borrow, so the closure had to capture —
+and so `Creatures` was an `Arc<Mutex<MobSystem>>`, `Pack` an
+`Arc<Mutex<Inventory>>`, and the pool an `Arc<Mutex<ProjectileSystem>>`.
+
+Two things went wrong that the locks hid, and both are worth knowing:
+
+- **The scheduler was lied to.** Five systems in `render/mobs.rs` took
+  `Res<Creatures>` and mutated through the lock. Bevy read five shared borrows,
+  ran them concurrently, and the mutex serialised them at runtime — invisibly,
+  and exactly backwards from what you want.
+- **The lock order was inverted.** `place_shots` took the creature lock and then
+  the arrow lock; the hit-test path took them the other way round. Nothing
+  deadlocked only because Bevy runs `RunFixedMainLoop` and `Update` as separate
+  schedules. The test named for that hazard was single-threaded and could never
+  have detected it.
+
+Every step of that is downstream of ONE decision: that `Player::step` drove the
+pool from its own last line. It does not. `glue::step_the_body` asks for all four
+borrows in its parameters — which is what Bevy is for — steps the body, then
+steps the pool on the very next line. Nothing captures, nothing locks, and the
+`Loadout` the body borrows lives exactly as long as the call.
+
+**The rule this leaves.** When A needs B for the duration of a call, pass B to
+A's method. Reach for an owned handle only when A genuinely outlives the call,
+and be suspicious when the answer is `Arc<Mutex<_>>` — in a single-schedule game
+that is usually a borrow that has not been threaded far enough.
 
 **`glue.rs` is added to the plugin group last**, so both halves of every seam
 exist before anything reaches across one. Each join in it is a handful of lines
@@ -419,7 +446,7 @@ Every one of these is a real trade with a visible consequence.
 | a coefficient for one algorithm | a `const` in that module, next to the code, with its derivation written out |
 | simulation behaviour | `godgame-core`. If you reach for `bevy::`, you are in the wrong crate. |
 | a draw pass | a module + `Plugin` in `godgame-render`, added to `GodGameRenderPlugin` in `lib.rs` in paint order |
-| a join between two modules that must not know each other | `glue.rs` — or a trait/closure on the side that needs the answer, installed there |
+| a join between two modules that must not know each other | `glue.rs` — or a trait on the side that needs the answer, borrowed for the call |
 | a mob brain | a case in `godgame-core/src/entities/mobs/brain.rs`, selected by `brain` in the `.toml` |
 | anything the renderer must know about a body | an accessor on the core type. The simulation never gains a pixel of knowledge about how it looks. |
 

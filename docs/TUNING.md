@@ -236,32 +236,32 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 209 |
-| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 224 |
-| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 226 |
-| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 228 |
-| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 230 |
-| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 232 |
-| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 234 |
-| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 236 |
-| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 238 |
-| `LAND_HOLD` (private) | `0.13` | … and for how long. | 240 |
-| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 242 |
-| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 244 |
-| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 251 |
-| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 253 |
-| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 255 |
-| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 260 |
-| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 262 |
-| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 264 |
-| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 267 |
+| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 257 |
+| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 272 |
+| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 274 |
+| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 276 |
+| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 278 |
+| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 280 |
+| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 282 |
+| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 284 |
+| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 286 |
+| `LAND_HOLD` (private) | `0.13` | … and for how long. | 288 |
+| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 290 |
+| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 292 |
+| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 299 |
+| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 301 |
+| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 303 |
+| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 308 |
+| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 310 |
+| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 312 |
+| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 315 |
 
 ### `crates/godgame-core/src/entities/projectiles.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_SHOTS` | `24` | Hard cap on player shots in flight. | 71 |
-| `SHOT_STYLE_ARROW` | `0` | The projectile style a player's arrow is drawn in. | 77 |
+| `MAX_SHOTS` | `24` | Hard cap on player shots in flight. | 73 |
+| `SHOT_STYLE_ARROW` | `0` | The projectile style a player's arrow is drawn in. | 79 |
 
 ### `crates/godgame-core/src/interact.rs`
 
@@ -672,44 +672,44 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `FLAT` | `0` |  | 91 |
-| `SPECKLE` | `1` |  | 92 |
-| `GRAIN` | `2` |  | 93 |
-| `CRYSTALLINE` | `3` |  | 94 |
-| `LAYERED` | `4` |  | 95 |
-| `FIBROUS` | `5` |  | 96 |
-| `MOLTEN` | `6` |  | 97 |
-| `GLASSY` | `7` |  | 98 |
-| `TEX_COUNT` (private) | `8` |  | 100 |
-| `PA` (private) | `61` | THE DITHER REPEAT, AND WHAT WAS ACTUALLY WRONG WITH IT. | 177 |
-| `PB` (private) | `67` | THE DITHER REPEAT, AND WHAT WAS ACTUALLY WRONG WITH IT. | 178 |
-| `TEX_LEVELS` (private) | `32` | Per-tile pattern amplitude, 0..31 each, so a summed sample is 0..62. | 181 |
-| `PAT_BITS` (private) | `6` | Sum of the two tiles: 0..62, allocated 6 bits. | 183 |
-| `PAT_LEVELS` (private) | `1 << PAT_BITS` | 64 — the number of pattern levels a shade slice carries. | 185 |
-| `PAT_MID` (private) | `(TEX_LEVELS - 1) as f64` | 31 — the neutral, no-offset sample. | 187 |
-| `TEX_GAIN` (private) | `0.72` | Overall texture strength. | 194 |
-| `TILE_SIGMA` (private) | `8.5` | Target standard deviation of a single normalised tile, in its 0..31 range. | 197 |
-| `PAT_SIGMA` (private) | `TILE_SIGMA * std::f64::consts::SQRT_2` | …so the SUM of two independent tiles has this sigma in its 0..62 range. | 199 |
-| `TAU` (private) | `std::f64::consts::PI * 2.0` |  | 216 |
-| `EDGE_CODES` (private) | `8` | A cell's lighting class, 3 bits, laid out as `depth_above \| (side_open << 2)`: | 597 |
-| `SHADE_SHIFT` (private) | `PAT_BITS + 3` | `3 = log2(EDGE_CODES)`. | 615 |
-| `SHADE_STRIDE` (private) | `1 << SHADE_SHIFT` | 512 entries per material. | 617 |
-| `SHIMMER_MIN` (private) | `24` | Materials whose `MAT_SHIMMER` is worth animating, resolved once. | 839 |
-| `SIN_SIZE` (private) | `2048` | Sine table for the shimmer wave. | 864 |
-| `SIN_MASK` (private) | `SIN_SIZE as i32 - 1` | Sine table for the shimmer wave. | 865 |
-| `SIN_SCALE` (private) | `SIN_SIZE as f64 / TAU` | Sine table for the shimmer wave. | 866 |
-| `EMIT_MAX` (private) | `512` | Cap on the census. | 880 |
-| `TEX_A_PERIOD` | `PA` | Period of [`TEX_A`], in cells — 61. | 1181 |
-| `TEX_B_PERIOD` | `PB` | Period of [`TEX_B`], in cells — 67. | 1184 |
-| `TEX_PATTERN_COUNT` | `TEX_COUNT` | Patterns in each tile set — the slab count in [`TEX_A`] and [`TEX_B`]. | 1187 |
-| `SHADE_EDGE_CLASSES` | `EDGE_CODES` | Edge classes per material in the shade table. | 1190 |
-| `SHADE_PATTERN_LEVELS` | `PAT_LEVELS` | Pattern levels per edge class in the shade table — 64. | 1193 |
-| `SHADE_MATERIAL_STRIDE` | `SHADE_STRIDE` | Entries per material in [`CellShades::table`] — 512. | 1196 |
-| `SHADE_PAT_MID` | `PAT_MID` | `31.0` — the neutral, no-offset pattern sample. | 1199 |
-| `SHADE_PAT_SIGMA` | `PAT_SIGMA` | Standard deviation of a summed pattern sample, in its 0..62 range. | 1202 |
-| `SHADE_EDGE_SCALE` | `52.0` | Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness offset a class contributes. | 1206 |
-| `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1212 |
-| `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1215 |
+| `FLAT` | `0` |  | 110 |
+| `SPECKLE` | `1` |  | 111 |
+| `GRAIN` | `2` |  | 112 |
+| `CRYSTALLINE` | `3` |  | 113 |
+| `LAYERED` | `4` |  | 114 |
+| `FIBROUS` | `5` |  | 115 |
+| `MOLTEN` | `6` |  | 116 |
+| `GLASSY` | `7` |  | 117 |
+| `TEX_COUNT` (private) | `8` |  | 119 |
+| `PA` (private) | `61` | THE DITHER REPEAT, AND WHAT WAS ACTUALLY WRONG WITH IT. | 196 |
+| `PB` (private) | `67` | THE DITHER REPEAT, AND WHAT WAS ACTUALLY WRONG WITH IT. | 197 |
+| `TEX_LEVELS` (private) | `32` | Per-tile pattern amplitude, 0..31 each, so a summed sample is 0..62. | 200 |
+| `PAT_BITS` (private) | `6` | Sum of the two tiles: 0..62, allocated 6 bits. | 202 |
+| `PAT_LEVELS` (private) | `1 << PAT_BITS` | 64 — the number of pattern levels a shade slice carries. | 204 |
+| `PAT_MID` (private) | `(TEX_LEVELS - 1) as f64` | 31 — the neutral, no-offset sample. | 206 |
+| `TEX_GAIN` (private) | `0.72` | Overall texture strength. | 213 |
+| `TILE_SIGMA` (private) | `8.5` | Target standard deviation of a single normalised tile, in its 0..31 range. | 216 |
+| `PAT_SIGMA` (private) | `TILE_SIGMA * std::f64::consts::SQRT_2` | …so the SUM of two independent tiles has this sigma in its 0..62 range. | 218 |
+| `TAU` (private) | `std::f64::consts::PI * 2.0` |  | 235 |
+| `EDGE_CODES` (private) | `8` | A cell's lighting class, 3 bits, laid out as `depth_above \| (side_open << 2)`: | 616 |
+| `SHADE_SHIFT` (private) | `PAT_BITS + 3` | `3 = log2(EDGE_CODES)`. | 634 |
+| `SHADE_STRIDE` (private) | `1 << SHADE_SHIFT` | 512 entries per material. | 636 |
+| `SHIMMER_MIN` (private) | `24` | Materials whose `MAT_SHIMMER` is worth animating, resolved once. | 858 |
+| `SIN_SIZE` (private) | `2048` | Sine table for the shimmer wave. | 883 |
+| `SIN_MASK` (private) | `SIN_SIZE as i32 - 1` | Sine table for the shimmer wave. | 884 |
+| `SIN_SCALE` (private) | `SIN_SIZE as f64 / TAU` | Sine table for the shimmer wave. | 885 |
+| `EMIT_MAX` (private) | `512` | Cap on the census. | 899 |
+| `TEX_A_PERIOD` | `PA` | Period of [`TEX_A`], in cells — 61. | 1205 |
+| `TEX_B_PERIOD` | `PB` | Period of [`TEX_B`], in cells — 67. | 1208 |
+| `TEX_PATTERN_COUNT` | `TEX_COUNT` | Patterns in each tile set — the slab count in [`TEX_A`] and [`TEX_B`]. | 1211 |
+| `SHADE_EDGE_CLASSES` | `EDGE_CODES` | Edge classes per material in the shade table. | 1214 |
+| `SHADE_PATTERN_LEVELS` | `PAT_LEVELS` | Pattern levels per edge class in the shade table — 64. | 1217 |
+| `SHADE_MATERIAL_STRIDE` | `SHADE_STRIDE` | Entries per material in [`CellShades::table`] — 512. | 1220 |
+| `SHADE_PAT_MID` | `PAT_MID` | `31.0` — the neutral, no-offset pattern sample. | 1223 |
+| `SHADE_PAT_SIGMA` | `PAT_SIGMA` | Standard deviation of a summed pattern sample, in its 0..62 range. | 1226 |
+| `SHADE_EDGE_SCALE` | `52.0` | Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness offset a class contributes. | 1230 |
+| `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1236 |
+| `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1239 |
 
 ### `crates/godgame-render/src/daynight.rs`
 
@@ -752,7 +752,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `DROP_Z` (private) | `0.4` | Where a dropped stack sits in z: over the terrain, under everything alive. | 67 |
+| `DROP_Z` (private) | `0.4` | Where a dropped stack sits in z: over the terrain, under everything alive. | 65 |
 
 ### `crates/godgame-render/src/light.rs`
 
@@ -830,15 +830,15 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 128 |
-| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 131 |
-| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 140 |
-| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 143 |
-| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 152 |
-| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 154 |
-| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 156 |
-| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 163 |
-| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 294 |
+| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 136 |
+| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 139 |
+| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 148 |
+| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 151 |
+| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 160 |
+| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 162 |
+| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 164 |
+| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 171 |
+| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 297 |
 
 ### `crates/godgame-render/src/particles.rs`
 
@@ -877,19 +877,19 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `DASH_SMEAR_X` (private) | `1.34` | Horizontal scale while dashing. | 102 |
-| `DASH_SMEAR_Y` (private) | `0.78` | Vertical scale while dashing. | 107 |
-| `DASH_GHOST_STEP` (private) | `scaled(7.0)` | World px between consecutive dash after-images. | 110 |
-| `RISE_STRETCH_DIV` (private) | `scaled(2600.0)` | Rise speed, in px/s, per unit of vertical stretch. | 121 |
-| `RISE_STRETCH_MIN` (private) | `-0.16` | Most the figure may SQUAT on a fast fall. | 125 |
-| `RISE_STRETCH_MAX` (private) | `0.34` | Most the figure may STRETCH on a fast rise. | 128 |
-| `RISE_STRETCH_BIAS` (private) | `0.04` | Stretch added at zero vertical speed. | 136 |
-| `LAND_FATTEN` (private) | `0.45` | How much wider a full landing squash makes the figure. | 139 |
-| `LAND_FLATTEN` (private) | `0.4` | How much shorter a full landing squash makes the figure. | 149 |
-| `LEAN_DIV` (private) | `scaled(40000.0)` | Horizontal acceleration, in px/s^2, per unit of shear. | 152 |
-| `LEAN_MAX` (private) | `0.16` | Most the figure may shear, as an x offset per unit of height above the feet. | 156 |
-| `LEAN_DEADBAND` (private) | `0.005` | Below this the lean is treated as no lean at all. | 164 |
-| `POSE_COUNT` | `12` | How many poses there are. | 262 |
+| `DASH_SMEAR_X` (private) | `1.34` | Horizontal scale while dashing. | 108 |
+| `DASH_SMEAR_Y` (private) | `0.78` | Vertical scale while dashing. | 113 |
+| `DASH_GHOST_STEP` (private) | `scaled(7.0)` | World px between consecutive dash after-images. | 116 |
+| `RISE_STRETCH_DIV` (private) | `scaled(2600.0)` | Rise speed, in px/s, per unit of vertical stretch. | 127 |
+| `RISE_STRETCH_MIN` (private) | `-0.16` | Most the figure may SQUAT on a fast fall. | 131 |
+| `RISE_STRETCH_MAX` (private) | `0.34` | Most the figure may STRETCH on a fast rise. | 134 |
+| `RISE_STRETCH_BIAS` (private) | `0.04` | Stretch added at zero vertical speed. | 142 |
+| `LAND_FATTEN` (private) | `0.45` | How much wider a full landing squash makes the figure. | 145 |
+| `LAND_FLATTEN` (private) | `0.4` | How much shorter a full landing squash makes the figure. | 155 |
+| `LEAN_DIV` (private) | `scaled(40000.0)` | Horizontal acceleration, in px/s^2, per unit of shear. | 158 |
+| `LEAN_MAX` (private) | `0.16` | Most the figure may shear, as an x offset per unit of height above the feet. | 162 |
+| `LEAN_DEADBAND` (private) | `0.005` | Below this the lean is treated as no lean at all. | 170 |
+| `POSE_COUNT` | `12` | How many poses there are. | 294 |
 
 ### `crates/godgame-render/src/shear.rs`
 
@@ -939,10 +939,10 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CELL_W` (private) | `5` | Widest a glyph cell gets, in font pixels. | 241 |
-| `CELL_H` (private) | `7` | Tallest a glyph cell gets, in font pixels. | 247 |
-| `GLYPH_GAP` (private) | `1` | Blank columns between one glyph cell and the next, in font pixels. | 254 |
-| `LINE_GAP` (private) | `2` | Blank rows between one baseline's cell and the next, in font pixels. | 261 |
+| `CELL_W` (private) | `5` | Widest a glyph cell gets, in font pixels. | 234 |
+| `CELL_H` (private) | `7` | Tallest a glyph cell gets, in font pixels. | 240 |
+| `GLYPH_GAP` (private) | `1` | Blank columns between one glyph cell and the next, in font pixels. | 247 |
+| `LINE_GAP` (private) | `2` | Blank rows between one baseline's cell and the next, in font pixels. | 254 |
 | `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 823 |
 | `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 826 |
 | `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 833 |
