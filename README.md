@@ -40,7 +40,7 @@ purity suite and the benches never link a renderer.
 Ported so far:
 
 - **M0** workspace, toolchain, content tree
-- **M1** the content compiler — lexer, parser, schema resolution, code
+- **M1** the content compiler — TOML front end, schema resolution, code
   assignment, Rust emitter, and all six schemas. Every one of the 79 flat
   tables, the `GROW_ONTO` pair matrix and all 224 id->code mappings are verified
   byte-identical to the TypeScript build by `crates/godgame-data/tests/`.

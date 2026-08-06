@@ -200,6 +200,20 @@ pub fn origin_columns(
         .take_while(move |&x| x < to)
 }
 
+/// Which origins a 2D decorator considers: a stride and a phase per axis.
+///
+/// A struct rather than four more positional arguments. Stride and phase always
+/// travel together, and eight bare `i32`s in a row is a transposition bug
+/// waiting to happen — swapping `stride_x` and `stride_y` compiles cleanly and
+/// silently produces a different world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Lattice {
+    pub stride_x: i32,
+    pub stride_y: i32,
+    pub phase_x: i32,
+    pub phase_y: i32,
+}
+
 /// As [`origin_columns`], but over a 2D lattice — for structures and pockets.
 ///
 /// Row-major, y outer, matching the TypeScript so that two decorations
@@ -209,11 +223,14 @@ pub fn origin_cells(
     base_y: i32,
     reach_x: i32,
     reach_y: i32,
-    stride_x: i32,
-    stride_y: i32,
-    phase_x: i32,
-    phase_y: i32,
+    lat: Lattice,
 ) -> impl Iterator<Item = (i32, i32)> {
+    let Lattice {
+        stride_x,
+        stride_y,
+        phase_x,
+        phase_y,
+    } = lat;
     let from_x = base_x - reach_x;
     let to_x = base_x + CHUNK_CELLS + reach_x;
     let from_y = base_y - reach_y;
@@ -275,7 +292,19 @@ mod tests {
 
     #[test]
     fn the_2d_scan_is_row_major_and_phase_aligned() {
-        let cells: Vec<(i32, i32)> = origin_cells(0, 0, 4, 4, 5, 6, 2, 3).collect();
+        let cells: Vec<(i32, i32)> = origin_cells(
+            0,
+            0,
+            4,
+            4,
+            Lattice {
+                stride_x: 5,
+                stride_y: 6,
+                phase_x: 2,
+                phase_y: 3,
+            },
+        )
+        .collect();
         assert!(!cells.is_empty());
         for (x, y) in &cells {
             assert_eq!(pmod(*x, 5), pmod(2, 5));
