@@ -193,10 +193,39 @@ can perform. `WindowManager::recenter` has a one-chunk dead zone, so a drift of
 one chunk returns `false` and a drift of two produces `dcx = 2`. Every real
 shift loads two chunk columns × 8 rows = **16 chunks**.
 
-**What is left here is latency, not throughput.** The generate is parallel now,
-but it still happens inside the tick that crossed the dead zone. `recenter`'s
-one-chunk dead zone is exactly the lookahead needed to start it a shift early,
-and it is free. Not done.
+### The spike, which is the thing a player feels
+
+Every table above walks two chunks per call, so it shifts on every iteration and
+never spends a tick inside the dead zone. That is the right shape for measuring
+what a shift COSTS and the wrong shape for measuring when it is PAID: a real
+player crosses 64 cells between shifts, which at a walking pace is a couple of
+hundred ticks of doing nothing.
+
+So the window bench also walks one cell per tick for 2 048 ticks — about 32
+shifts — and times each tick by hand. Criterion's mean cannot see this change,
+because the lookahead does not reduce the total work; it moves it. What moves is
+the worst tick, and that is what a stutter is.
+
+| Over 2 048 walking ticks | Before the lookahead | With it |
+|---|---|---|
+| median | 0 µs | 0 µs |
+| mean | 5.30 – 5.42 µs | 5.11 – 5.35 µs |
+| p99 | 317 – 329 µs | **243 – 261 µs** |
+| **worst tick** | 400 – 439 µs | **316 – 329 µs** |
+
+Three runs each. The mean bands overlap completely and the spike bands do not
+overlap at all, which is exactly the signature of work being relocated rather
+than removed: **the worst tick is down about 23%** and the total is unchanged.
+
+`recenter` predicts the shift that fires when the drift reaches `DEAD + 1` in
+whichever direction it is already going, and generates that edge while the player
+is still crossing the dead zone. Guessing wrong is cheap — the chunks land in the
+store's cache, which is where a correct guess would have put them.
+
+What is left in the worst tick is no longer generation: it is `save_outgoing`,
+the four-plane memmove in `shift_overlap`, and `evict_beyond`. Those are copies,
+not computation, and none of them can be started early because they all read the
+window at its old offset.
 
 The settled world is genuinely settled — **2 of 88 chunks awake, 0.05% of the
 window swept per tick** — which is why the plain tick is 616 ns. After the walk

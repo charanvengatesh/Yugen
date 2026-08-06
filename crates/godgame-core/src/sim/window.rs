@@ -82,6 +82,10 @@ pub struct WindowManager {
     /// The same slots as absolute chunk coordinates, which is what
     /// [`ChunkStore::prefetch`] takes. Scratch, reused.
     incoming_chunks: Vec<(i32, i32)>,
+    /// The window origin [`WindowManager::warm_ahead`] last generated for, so a
+    /// player loitering on the dead-zone boundary does not re-walk the same
+    /// coordinates every tick.
+    warmed_for: Option<(i32, i32)>,
 }
 
 impl WindowManager {
@@ -107,6 +111,7 @@ impl WindowManager {
             origin_chunk_y: 0,
             incoming_slots: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
             incoming_chunks: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
+            warmed_for: None,
             store,
         }
     }
@@ -155,13 +160,16 @@ impl WindowManager {
         let center_y = self.origin_chunk_y + Self::HALF_Y;
         let pcx = floor_div(player_cell_x, CHUNK_CELLS);
         let pcy = floor_div(player_cell_y, CHUNK_CELLS);
-        if (pcx - center_x).abs() <= Self::DEAD && (pcy - center_y).abs() <= Self::DEAD {
+        let (drift_x, drift_y) = (pcx - center_x, pcy - center_y);
+        if drift_x.abs() <= Self::DEAD && drift_y.abs() <= Self::DEAD {
+            // Inside the dead zone: no shift this tick, but the next one is
+            // predictable and this is the only moment there is time to pay for it.
+            self.warm_ahead(drift_x, drift_y);
             return false;
         }
 
         // How far the window itself travels, in chunks.
-        let dcx = pcx - center_x;
-        let dcy = pcy - center_y;
+        let (dcx, dcy) = (drift_x, drift_y);
         let new_origin_x = self.origin_chunk_x + dcx;
         let new_origin_y = self.origin_chunk_y + dcy;
 
@@ -192,7 +200,88 @@ impl WindowManager {
         self.store
             .evict_beyond(pcx, pcy, max2(EVICT_RADIUS_CHUNKS, Self::RESIDENT_RADIUS));
         grid.bump_shift_gen();
+        // The window moved, so whatever was warmed for the old position describes
+        // a shift that has now happened.
+        self.warmed_for = None;
         true
+    }
+
+    /// Generate the chunks the NEXT shift will want, while there is still time.
+    ///
+    /// # Why this is worth doing at all
+    ///
+    /// A shift is the one event in the sim that is not amortised, and batching its
+    /// generation across a thread pool already took it from 722 µs to 495. What is
+    /// left is not throughput but LATENCY: the work still happens inside the single
+    /// tick that crossed the dead zone, and a player walking sideways pays all of
+    /// it at once, repeatedly.
+    ///
+    /// [`WindowManager::DEAD`] is exactly the lookahead needed to fix that, and it
+    /// is already there for an unrelated reason — it exists so a player loitering
+    /// on a chunk boundary does not thrash the buffer. A drift of one chunk means
+    /// a shift is one chunk away; generating its incoming edge now moves the cost
+    /// off the frame that can least afford it and onto one that is doing nothing.
+    ///
+    /// # What it predicts
+    ///
+    /// The shift that fires when the drift reaches `DEAD + 1` in whichever
+    /// direction it is already going. That is the common case by a wide margin —
+    /// a player walks — and being wrong is cheap: the chunks land in the store's
+    /// cache, which is where a correct guess would have put them, and
+    /// `evict_beyond` reclaims them on the next real shift like any other.
+    ///
+    /// It cannot predict a teleport, and does not try. Nothing survives one, so
+    /// there is no edge to warm.
+    fn warm_ahead(&mut self, drift_x: i32, drift_y: i32) {
+        // Dead centre: no direction to guess, and the shift is at least two
+        // chunks of travel away.
+        if drift_x == 0 && drift_y == 0 {
+            return;
+        }
+        let step = |d: i32| {
+            if d == 0 {
+                0
+            } else {
+                d.signum() * (Self::DEAD + 1)
+            }
+        };
+        let (dcx, dcy) = (step(drift_x), step(drift_y));
+        let ahead = (self.origin_chunk_x + dcx, self.origin_chunk_y + dcy);
+        if self.warmed_for == Some(ahead) {
+            return;
+        }
+        self.warmed_for = Some(ahead);
+
+        self.incoming_slots(dcx, dcy);
+        self.incoming_chunks.clear();
+        self.incoming_chunks.extend(
+            self.incoming_slots
+                .iter()
+                .map(|&(ci, cj)| (ahead.0 + ci, ahead.1 + cj)),
+        );
+        self.store.prefetch(&self.incoming_chunks);
+    }
+
+    /// Window slots a shift of `(dcx, dcy)` would leave uncovered, into
+    /// [`WindowManager::incoming_slots`].
+    ///
+    /// Shared by the shift itself and by [`WindowManager::warm_ahead`], so the
+    /// edge that is warmed is by construction the edge that will be loaded. Two
+    /// copies of this walk would be two chances to warm the wrong sixteen chunks
+    /// and never notice, because the result would still be correct — just slow.
+    fn incoming_slots(&mut self, dcx: i32, dcy: i32) {
+        let (i_lo, i_hi) = Self::survivor_range(dcx, WINDOW_CHUNKS_X);
+        let (j_lo, j_hi) = Self::survivor_range(dcy, WINDOW_CHUNKS_Y);
+        self.incoming_slots.clear();
+        for cj in 0..WINDOW_CHUNKS_Y {
+            let row_covered = cj >= j_lo - dcy && cj < j_hi - dcy;
+            for ci in 0..WINDOW_CHUNKS_X {
+                if row_covered && ci >= i_lo - dcx && ci < i_hi - dcx {
+                    continue;
+                }
+                self.incoming_slots.push((ci, cj));
+            }
+        }
     }
 
     fn set_origin(&mut self, grid: &mut CellGrid, ocx: i32, ocy: i32) {
@@ -291,24 +380,13 @@ impl WindowManager {
     /// crossed — [`Self::recenter`]'s one-chunk dead zone is exactly that
     /// lookahead, and it is free. Not done.
     fn load_incoming(&mut self, grid: &mut CellGrid, dcx: i32, dcy: i32) {
-        // Survivor ranges expressed in NEW window coords: subtract the shift.
-        let (i_lo, i_hi) = Self::survivor_range(dcx, WINDOW_CHUNKS_X);
-        let (j_lo, j_hi) = Self::survivor_range(dcy, WINDOW_CHUNKS_Y);
-
-        // Both buffers are the manager's own scratch, reused across shifts: a
-        // walking player shifts the window every few dozen cells of travel, and
-        // two heap allocations per shift is exactly the kind of small, regular
-        // waste that the rest of this file goes out of its way to avoid.
-        self.incoming_slots.clear();
-        for cj in 0..WINDOW_CHUNKS_Y {
-            let row_covered = cj >= j_lo - dcy && cj < j_hi - dcy;
-            for ci in 0..WINDOW_CHUNKS_X {
-                if row_covered && ci >= i_lo - dcx && ci < i_hi - dcx {
-                    continue;
-                }
-                self.incoming_slots.push((ci, cj));
-            }
-        }
+        // The same walk `warm_ahead` uses, so the edge that was warmed is by
+        // construction the edge that is loaded. Both buffers are the manager's own
+        // scratch, reused across shifts: a walking player shifts the window every
+        // few dozen cells of travel, and two heap allocations per shift is exactly
+        // the kind of small, regular waste that the rest of this file goes out of
+        // its way to avoid.
+        self.incoming_slots(dcx, dcy);
 
         self.incoming_chunks.clear();
         self.incoming_chunks.extend(

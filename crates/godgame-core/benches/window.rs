@@ -198,7 +198,55 @@ fn window(c: &mut Criterion) {
             x - start_x
         );
     }
+
+    // --- The spike, which is the thing a player actually feels ---------------
+    //
+    // Every benchmark above walks two chunks per iteration, so it shifts on every
+    // single call and never spends a tick inside the dead zone. That is the right
+    // shape for measuring what a shift COSTS and the wrong shape for measuring
+    // when it is PAID: a real player crosses 64 cells of ground between shifts,
+    // which at a walking pace is a couple of hundred ticks of doing nothing.
+    //
+    // The lookahead moves generation off the shift tick and onto those idle ones.
+    // It does not reduce the total work and a mean over the walk cannot see it —
+    // what moves is the WORST tick, and that is what a stutter is. So this is
+    // timed by hand rather than by criterion, and reports the distribution.
+    {
+        let (mut grid, mut wm, _sim, start_x) = settled_world();
+        let y = CENTRE_CELL_Y;
+        let mut x = start_x;
+
+        // One cell per tick — a walk, not a teleport.
+        let mut ticks: Vec<u128> = Vec::with_capacity(WALK_TICKS as usize);
+        let mut shifts = 0u32;
+        for _ in 0..WALK_TICKS {
+            x += 1;
+            let t = std::time::Instant::now();
+            let moved = wm.recenter(&mut grid, x, y);
+            ticks.push(t.elapsed().as_nanos());
+            shifts += u32::from(moved);
+            black_box(moved);
+        }
+
+        ticks.sort_unstable();
+        let at = |q: f64| ticks[((ticks.len() - 1) as f64 * q) as usize] as f64 / 1000.0;
+        let total: u128 = ticks.iter().sum();
+        println!(
+            "\nwalking one cell per tick, {WALK_TICKS} ticks, {shifts} shifts:\n  \
+             median {:.2} us   p99 {:.2} us   WORST {:.2} us   mean {:.2} us",
+            at(0.5),
+            at(0.99),
+            at(1.0),
+            total as f64 / ticks.len() as f64 / 1000.0,
+        );
+    }
 }
+
+/// Ticks the walking-spike measurement runs for.
+///
+/// Long enough to cross the dead zone many times — 64 cells of travel per shift,
+/// so this is about 30 shifts with a couple of hundred idle ticks between each.
+const WALK_TICKS: i32 = 2048;
 
 criterion_group!(benches, window);
 criterion_main!(benches);
