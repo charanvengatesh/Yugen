@@ -58,6 +58,7 @@ use crate::config::{
     SWIM_OUT_BOOST, SWIM_SINK_ACCEL, SWIM_SUBMERGE_MIN, SWING_POSE_MAX, SWING_WINDOW_FRAC,
     SWING_WINDOW_MAX, TILE_SIZE, WALL_JUMP_LOCK, WALL_JUMP_PUSH, WALL_SLIDE_SPEED, cell_at, scaled,
 };
+use crate::entities::projectiles::{SHOT_STYLE_ARROW, ShotSpec};
 use crate::input::Intent;
 use crate::physics::collision::{
     Aabb, NO_ONE_WAY, for_each_overlapped_cell, move_horizontal_stepped, one_way_under_feet,
@@ -129,28 +130,10 @@ pub struct PlayerWeapon {
 /// as much as the callback did.
 pub type AmmoSource = Box<dyn FnMut(&str, u32) -> u32 + Send + Sync>;
 
-/// The projectile style a player's arrow is drawn in.
-///
-/// Belongs to the projectile pool, and moves there when it is ported. It is here
-/// so that `shoot` can name the value it has always passed rather than a bare 0.
-pub const SHOT_STYLE_ARROW: u8 = 0;
-
-/// Everything a weapon contributes to one shot. Passed on every `fire` rather
-/// than stored, because the held item can change between two shots and a cached
-/// spec would fire the previous bow's arrow.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ShotSpec {
-    /// px/s along the aim direction, already body-scaled by the caller.
-    pub speed: f32,
-    /// Hit points on contact.
-    pub damage: f32,
-    /// Impulse handed to the target for it to resist or apply.
-    pub knockback: f32,
-    /// Half-extent drawn, in px. 1 = a 2x2 mote, which is one cell wide at 5px.
-    pub r_px: f32,
-    /// Which of the pool's baked styles to draw.
-    pub style: u8,
-}
+// `ShotSpec` and `SHOT_STYLE_ARROW` used to be declared here, because `shoot`
+// needed to name them and there was no pool yet to own them. Both now live in
+// [`crate::entities::projectiles`], where the appearance tables the style
+// indexes are, and are imported above.
 
 /// The projectile pool, as the player needs it.
 ///

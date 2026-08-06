@@ -8,5 +8,6 @@ pub mod config;
 pub mod entities;
 pub mod input;
 pub mod interact;
+pub mod items;
 pub mod physics;
 pub mod sim;

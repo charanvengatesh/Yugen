@@ -1,6 +1,6 @@
 //! The binary: Bevy app, scene state, input, and the sim/render wiring.
 //!
-//! Everything of substance is in `godgame-render`'s four plugins (see
+//! Everything of substance is in `godgame-render`'s plugins (see
 //! [`godgame_render`]). What is left here is the shell:
 //!
 //!   - the window, and `ImagePlugin::default_nearest()` — EVERY sampler in this
@@ -11,7 +11,10 @@
 //!     the keyboard;
 //!   - `--edit <mode> <cx> <cy> <r>`, which stamps one brush stroke before the
 //!     capture, so the same agent can prove the world CHANGES without a hand on
-//!     the mouse. See [`StartupEdit`].
+//!     the mouse. See [`StartupEdit`];
+//!   - `--free-camera`, which starts with no player at all, and `--drive`,
+//!     which runs the body right by itself so an agent can see it MOVE. See
+//!     [`godgame_render::player::NoPlayer`].
 //!
 //! The free camera used to live here. It is input, so it moved to
 //! [`godgame_render::input`] along with the mouse and the brush; what is left is
@@ -19,6 +22,7 @@
 
 use std::path::PathBuf;
 
+use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystems};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::window::{PresentMode, WindowResolution};
@@ -26,14 +30,24 @@ use bevy::window::{PresentMode, WindowResolution};
 use godgame_core::sim::edits::{EditMode, apply_brush};
 use godgame_core::sim::materials::{CellId, EMPTY, code_of};
 use godgame_render::GodGameRenderPlugin;
+use godgame_render::input::PlayerIntent;
+use godgame_render::items::GroundItems;
+use godgame_render::mobs::Creatures;
+use godgame_render::player::{NoPlayer, PlayerBody};
 use godgame_render::world::{SimWorld, WorldFocus};
 
-/// Frames to render before `--screenshot` captures.
+/// Frames to render before `--screenshot` captures, by default.
 ///
 /// The first frames have nothing in the cell texture yet — the upload runs in
 /// `Update`, after `Startup` inserted the world — and the pipeline specialises
 /// lazily. A handful of frames is enough for the shader to compile and the
 /// first upload to land.
+///
+/// It is NOT enough for anything that has to happen in the world first. The
+/// creatures spawn on a 0.15s timer and take a couple of seconds to populate a
+/// screen, so a shot of them wants `--warmup` in the hundreds. That is a flag
+/// rather than a bigger default because most captures only want the terrain and
+/// should not pay two seconds for it.
 const SCREENSHOT_WARMUP_FRAMES: u32 = 30;
 
 /// Default window size, in logical px. See [`check_default_window`].
@@ -71,10 +85,36 @@ struct StartupEdit {
     r: i32,
 }
 
+/// Hold "run right" and tap jump on a timer, with no hand on the keyboard.
+///
+/// The same scaffolding [`StartupEdit`] is, for the same reason. `--screenshot`
+/// proves the frame DRAWS; this is what proves the frame MOVES — that the body
+/// runs, clears a ledge, and drags the streaming window along behind it — from
+/// an agent or a CI job that cannot synthesise a keypress.
+///
+/// It writes the same [`PlayerIntent`] the keyboard writes, in the slot between
+/// `PreUpdate` (where the keyboard is sampled) and the fixed loop (where the
+/// body is stepped). So everything downstream of it — the substep edge masking,
+/// the 120 Hz step, the camera ease, the recentre — is the path a player's hands
+/// take, not a private one that could pass while the real one was broken.
+#[derive(Resource, Clone, Copy, Debug)]
+struct Autodrive {
+    /// Seconds between jump taps. Non-positive never jumps.
+    jump_every: f32,
+    /// Seconds since the last tap.
+    since: f32,
+}
+
 /// What the command line asked for, parsed once.
 struct Args {
     screenshot: Option<PathBuf>,
     edit: Option<StartupEdit>,
+    /// Start with no player, so WASD flies the view instead of moving a body.
+    free_camera: bool,
+    /// Run right by itself, jumping every this many seconds.
+    drive: Option<f32>,
+    /// Frames to render before `--screenshot` captures.
+    warmup: u32,
 }
 
 fn main() -> AppExit {
@@ -98,6 +138,33 @@ fn main() -> AppExit {
     )
     .add_plugins(GodGameRenderPlugin);
 
+    // Before the plugin group's `PostStartup` runs, which is the only thing
+    // that reads it.
+    if args.free_camera {
+        app.insert_resource(NoPlayer);
+    }
+
+    if let Some(jump_every) = args.drive {
+        app.insert_resource(Autodrive {
+            jump_every,
+            since: 0.0,
+        })
+        // `BeforeFixedMainLoop` is the one slot that is after the keyboard has
+        // been read and before the body has been stepped. Anywhere in `Update`
+        // would be a frame stale and would be overwritten by the next sample
+        // before any fixed step ever saw it.
+        .add_systems(
+            RunFixedMainLoop,
+            autodrive.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+        )
+        .add_systems(
+            Update,
+            drive_report
+                .run_if(resource_exists::<PlayerBody>)
+                .run_if(resource_exists::<SimWorld>),
+        );
+    }
+
     if let Some(edit) = args.edit {
         app.insert_resource(edit).add_systems(
             Update,
@@ -110,7 +177,7 @@ fn main() -> AppExit {
     if let Some(path) = args.screenshot {
         app.insert_resource(ScreenshotRun {
             path,
-            frames_left: SCREENSHOT_WARMUP_FRAMES,
+            frames_left: args.warmup,
             taken: false,
         })
         .add_systems(Update, screenshot_then_exit);
@@ -119,18 +186,30 @@ fn main() -> AppExit {
     app.run()
 }
 
-/// `--screenshot PATH` and `--edit MODE CX CY R`.
+/// `--screenshot PATH`, `--edit MODE CX CY R`, `--free-camera` and `--drive SECS`.
 ///
-/// Hand-rolled rather than a dependency: two flags, both of them development
+/// Hand-rolled rather than a dependency: four flags, all of them development
 /// scaffolding, is not worth an argument parser in the tree.
 fn parse_args() -> Args {
     let mut argv = std::env::args().skip(1);
     let mut args = Args {
         screenshot: None,
         edit: None,
+        free_camera: false,
+        drive: None,
+        warmup: SCREENSHOT_WARMUP_FRAMES,
     };
     while let Some(flag) = argv.next() {
         match flag.as_str() {
+            "--free-camera" => args.free_camera = true,
+            "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
+            "--drive" => {
+                let secs = argv.next().unwrap_or_else(|| usage());
+                args.drive = Some(match secs.parse::<f32>() {
+                    Ok(s) if s.is_finite() => s,
+                    _ => usage(),
+                });
+            }
             "--screenshot" => {
                 let Some(path) = argv.next() else { usage() };
                 args.screenshot = Some(PathBuf::from(path));
@@ -178,8 +257,15 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: godgame [--screenshot PATH] [--edit dig|BLOCK_ID CX CY R]");
-    eprintln!("  --edit  one brush stroke at load; CX/CY are cells from the view centre");
+    eprintln!(
+        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--drive SECS]"
+    );
+    eprintln!("  --edit         one brush stroke at load; CX/CY are cells from the view centre");
+    eprintln!("  --free-camera  no player; WASD flies the view and streams the world");
+    eprintln!("  --drive SECS   run right by itself, jumping every SECS (0 = never)");
+    eprintln!(
+        "  --warmup N     frames to render before --screenshot fires (default {SCREENSHOT_WARMUP_FRAMES}); creatures need a few hundred"
+    );
     std::process::exit(2)
 }
 
@@ -200,6 +286,67 @@ fn stamp_startup_edit(
     info!("--edit {:?} at cell ({cx}, {cy}) r={}", edit.mode, edit.r);
     // Once is the whole contract; removing the resource stops the system.
     commands.remove_resource::<StartupEdit>();
+}
+
+/// Hold right, and raise a jump edge every [`Autodrive::jump_every`] seconds.
+///
+/// `jump_queued` is set for exactly one FRAME, not one step: the rising edge is
+/// what the keyboard produces and what
+/// [`Intent::for_substep`](godgame_core::input::Intent::for_substep) narrows to
+/// one substep. Holding it true would be a different input from the one a
+/// player can give, and it would pogo.
+fn autodrive(time: Res<Time>, mut drive: ResMut<Autodrive>, mut intent: ResMut<PlayerIntent>) {
+    intent.dir_x = 1.0;
+    if drive.jump_every <= 0.0 {
+        return;
+    }
+    drive.since += time.delta_secs();
+    if drive.since >= drive.jump_every {
+        drive.since = 0.0;
+        intent.jump_queued = true;
+    }
+    // Held is what keeps a jump from being cut short a step after it starts; the
+    // autodrive never releases early, so a tap here is a full-height jump.
+    intent.jump_held = true;
+    intent.up = true;
+}
+
+/// Once a second under `--drive`: where the body is, whether the window has
+/// followed it, and how long a frame is taking.
+///
+/// The window origin is in the line because it is the streaming half of the
+/// milestone and the one thing a screenshot cannot show: a body can run for a
+/// mile in a window that never recentres, and the frame would look identical
+/// right up to the moment it hit the unloaded margin and stopped dead.
+fn drive_report(
+    time: Res<Time>,
+    body: Res<PlayerBody>,
+    world: Res<SimWorld>,
+    creatures: Res<Creatures>,
+    ground: Res<GroundItems>,
+    mut since: Local<f32>,
+    mut frames: Local<u32>,
+) {
+    *since += time.delta_secs();
+    *frames += 1;
+    if *since < 1.0 {
+        return;
+    }
+    let ms = *since * 1000.0 / *frames as f32;
+    let grid = &world.level.grid;
+    info!(
+        "drive: body ({:.0}, {:.0}) vx {:>4.0} ground {} | window origin cell ({}, {}) | mobs {} drops {} | {ms:.2} ms/frame",
+        body.x,
+        body.y,
+        body.vx,
+        u8::from(body.on_ground),
+        grid.origin_cell_x(),
+        grid.origin_cell_y(),
+        creatures.lock().count(),
+        ground.active(),
+    );
+    *since = 0.0;
+    *frames = 0;
 }
 
 /// Render a few frames, write a PNG, then quit.

@@ -21,9 +21,19 @@
 //! one algorithm lives next to that algorithm. `ACCEL_SMOOTH` is the exception
 //! that proves it: the lean's low-pass is applied inside `update_anim`, which
 //! runs on the fixed step, so the constant stays with the code that uses it.
+//!
+//! [`projectiles`] lost its `draw`/`drawGlow` the same way and answers the same
+//! way: [`ProjectileSystem::shots`](projectiles::ProjectileSystem::shots) plus
+//! the two style tables is everything the two passes read.
 
+pub mod mobs;
 pub mod player;
+pub mod projectiles;
 
 pub use player::{
-    AmmoSource, AnimState, NoProjectiles, Player, PlayerEvent, PlayerWeapon, Projectiles, ShotSpec,
+    AmmoSource, AnimState, NoProjectiles, Player, PlayerEvent, PlayerWeapon, Projectiles,
+};
+pub use projectiles::{
+    MAX_SHOTS, ProjectileSystem, SHOT_STYLE_ARROW, SharedPool, Shot, ShotHitTest, ShotImpact,
+    ShotSpec,
 };

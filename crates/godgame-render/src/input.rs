@@ -32,17 +32,20 @@
 //! latency window the TypeScript documented (Game.ts:519-523) is not mitigated
 //! here — it does not exist to mitigate.
 
+use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use godgame_core::config::{CELL_SIZE, MAX_RUN_SPEED};
+use godgame_core::config::{CELL_SIZE, MAX_RUN_SPEED, PLAYER_H, PLAYER_W};
 use godgame_core::input::{Intent, KEYS, KeyState};
-use godgame_core::interact::{BuildTool, Cursor, PALETTE_SLOTS};
-use godgame_core::sim::edits::apply_brush;
+use godgame_core::interact::{BuildTool, Cursor, Held, PALETTE_SLOTS};
+use godgame_core::sim::edits::{EditMode, apply_brush};
 
 use crate::cellmap::upload_dirty_chunks;
+use crate::items::Pack;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
+use crate::player::PlayerBody;
 use crate::world::{SimWorld, WorldFocus};
 
 /// How much faster the free camera flies than the player runs.
@@ -378,15 +381,32 @@ fn tool_keys(
     }
 }
 
+/// Who is swinging, and what they are holding.
+///
+/// Bundled rather than listed. A Bevy system's parameters are injected rather
+/// than passed by a caller, so a long list is not the call-site burden the
+/// `too_many_arguments` lint exists to catch — but three of these do answer one
+/// question, and grouping them says that outright instead of silencing a lint
+/// and leaving the reader to work out which three belong together.
+///
+/// `body` is optional because `--free-camera` runs with no player at all.
+#[derive(SystemParam)]
+struct Swinger<'w> {
+    focus: Res<'w, WorldFocus>,
+    body: Option<Res<'w, PlayerBody>>,
+    pack: Res<'w, Pack>,
+}
+
 /// Ask the tool for this frame's stroke and stamp it.
 fn swing_brush(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     cursor: Res<CursorWorld>,
-    focus: Res<WorldFocus>,
+    actor: Swinger,
     mut tool: ResMut<Tool>,
     mut world: ResMut<SimWorld>,
 ) {
+    let Swinger { focus, body, pack } = &actor;
     let Some(at) = cursor.0 else {
         return;
     };
@@ -397,16 +417,29 @@ fn swing_brush(
         place: buttons.pressed(MouseButton::Right),
     };
 
-    // SEAM (player): reach is measured from whoever is swinging. Until there is
-    // a body that is the view itself, which makes creative reach (infinite)
-    // correct and survival reach centred on the screen rather than on a
-    // character. One argument changes when the player lands.
+    // Reach is measured from whoever is swinging: the body when there is one,
+    // and the view itself under `--free-camera`, where there is no character to
+    // measure from and creative's infinite reach is the only sensible answer.
+    let (actor_x, actor_y) = match &body {
+        Some(b) => (b.x + PLAYER_W * 0.5, b.y + PLAYER_H * 0.5),
+        None => (focus.x, focus.y),
+    };
+
+    let held = {
+        let inv = pack.lock();
+        inv.held().map(|code| Held {
+            code,
+            count: u32::from(inv.held_count()),
+        })
+    };
+
     let Some(act) = tool.update(
         time.delta_secs(),
         swing,
         &world.level.grid,
-        focus.x,
-        focus.y,
+        actor_x,
+        actor_y,
+        held,
     ) else {
         return;
     };
@@ -420,6 +453,19 @@ fn swing_brush(
         act.r,
         act.mat,
     );
+
+    // Pay for it. The tool sized the disc to what the stack could cover and
+    // published the count rather than spending it itself — see `BuildTool::place`
+    // — so this is the other half of that contract and must not be skipped.
+    // Creative places for free, and `place_cost` is zero for a dig.
+    if act.mode == EditMode::Place && !tool.creative {
+        let cost = tool.place_cost();
+        if cost > 0 {
+            let mut inv = pack.lock();
+            let slot = inv.selected();
+            inv.remove_at(slot, cost as u32);
+        }
+    }
 }
 
 /// A translucent quad the size of the disc the next stroke would cut.
@@ -613,6 +659,11 @@ mod tests {
         world.insert_resource(CursorWorld(Some(at)));
         world.insert_resource(WorldFocus { x: at.x, y: at.y });
         world.insert_resource(Tool::default());
+        // Empty, and no `PlayerBody`: these tests are about the brush reaching
+        // the grid, and a fresh `Tool` is creative, which ignores both the pack
+        // and reach. The survival paths they would otherwise exercise are tested
+        // where they live, in `godgame_core::interact`.
+        world.insert_resource(Pack::default());
         world.insert_resource(SimWorld {
             level: Level::new(grid, SpawnPoint { x: at.x, y: at.y }),
             window: WindowManager::new(ChunkStore::new(SEED)),

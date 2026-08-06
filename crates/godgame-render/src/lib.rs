@@ -13,13 +13,16 @@
 //! | [`lowres::LowResPlugin`] | the offscreen buffer, the two cameras, the upscale blit |
 //! | [`cellmap::CellMapPlugin`] | the cell-id texture, the shading tables, and the quad that draws the window |
 //! | [`input::InputPlugin`] | keyboard and mouse onto `Intent`, the dig/place brush, and who drives the view |
+//! | [`player::PlayerPlugin`] | the body, its fixed step, the camera that follows it, and the figure on screen |
+//! | [`mobs::MobsPlugin`] | the creatures, their fixed step, the arrow hit test, and both shot pools on screen |
+//! | [`items::ItemsPlugin`] | the pack, the stacks on the floor, and the loot that becomes them |
 //!
 //! [`input`] is in this crate and not in the binary because it is the other half
 //! of the same boundary the rest of the crate is: `godgame-core` may not know
 //! what a `KeyCode` is, so something between it and Bevy has to, and that thing
 //! belongs with the other Bevy-facing translations rather than in a `main.rs`.
 //!
-//! [`GodGameRenderPlugin`] is all three, which is what the binary wants.
+//! [`GodGameRenderPlugin`] is all of them, which is what the binary wants.
 //!
 //! # The cell rasteriser, twice
 //!
@@ -35,15 +38,25 @@
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 
+pub mod ambience;
 pub mod cellmap;
 pub mod cells;
+pub mod daynight;
+pub mod effects;
 pub mod input;
+pub mod items;
+pub mod light;
 pub mod lowres;
+pub mod mobs;
+pub mod particles;
+pub mod player;
+pub mod sky;
+pub mod weather;
 pub mod world;
 
 /// The whole render/sim stack: the owned world and its fixed schedule, the
-/// low-res target, the cell pass that draws the window into it, and the input
-/// that moves the view and edits the cells.
+/// low-res target, the cell pass that draws the window into it, the input that
+/// moves the view and edits the cells, and the body those inputs move.
 pub struct GodGameRenderPlugin;
 
 impl PluginGroup for GodGameRenderPlugin {
@@ -53,5 +66,8 @@ impl PluginGroup for GodGameRenderPlugin {
             .add(lowres::LowResPlugin)
             .add(cellmap::CellMapPlugin)
             .add(input::InputPlugin)
+            .add(player::PlayerPlugin)
+            .add(mobs::MobsPlugin)
+            .add(items::ItemsPlugin)
     }
 }

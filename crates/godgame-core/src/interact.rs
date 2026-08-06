@@ -44,6 +44,8 @@
 //! block feel unbreakable instead of merely unchanged.
 
 use crate::config::{BRUSH_MAX, BRUSH_MIN, BRUSH_RADIUS, CELL_SIZE};
+use crate::items::drops::{DropBag, roll_cell_drops};
+use crate::items::registry::{ItemCode, item_by_code, places_block};
 use crate::sim::coords::WorldCell;
 use crate::sim::edits::EditMode;
 use crate::sim::grid::CellGrid;
@@ -63,10 +65,15 @@ const PLACE_INTERVAL: f32 = 0.1;
 /// The mode a fresh tool starts in.
 ///
 /// The TypeScript started in survival, because it had an inventory to start
-/// with. Until the items milestone lands one there is nothing to place and bare
-/// hands only clear soft cover, so a fresh tool starts creative and the game is
-/// playable. Flip this to `false` the moment an inventory exists: the survival
-/// path below is fully ported and is exactly what `false` selects.
+/// with. There is one now — [`profile_for`] resolves a held pickaxe's numbers,
+/// and `godgame-render`'s items plugin fills the pack from mined cells and
+/// killed creatures — so the survival path is not merely ported, it is wired.
+///
+/// It still starts creative, and the reason has moved: the pack starts EMPTY and
+/// there is no hotbar on screen until the UI milestone. Survival from an empty
+/// pack with no way to see it is bare hands on soft cover and nothing to place.
+/// Flip this to `false` when the HUD lands, or the moment a run starts with
+/// something in it.
 const START_CREATIVE: bool = true;
 
 /// A dig/place command for one frame.
@@ -107,6 +114,20 @@ pub struct Cursor {
     pub place: bool,
 }
 
+/// The selected slot, as the tool needs to see it.
+///
+/// Two fields and not an `&Inventory`: digging reads the item's `tool` block and
+/// placing reads how many of THIS stack there are, and neither is a reason to
+/// hand a build tool the whole pack. `count` is the selected slot's count alone
+/// — see [`BuildTool::place`] on why a second stack elsewhere does not count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    /// What is in the slot.
+    pub code: ItemCode,
+    /// How many, in that slot only.
+    pub count: u32,
+}
+
 /// The four numbers a held item contributes to digging.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ToolProfile {
@@ -141,6 +162,43 @@ pub const CREATIVE: ToolProfile = ToolProfile {
     reach: f32::INFINITY,
     brush_max: BRUSH_MAX,
 };
+
+/// What a tool item leaves unsaid.
+///
+/// `dig_power` is the one field with no default: an `ItemTool` block that did
+/// not say how hard it digs is a content bug, not a tool that digs nothing, and
+/// the schema makes it required for that reason. The other three are optional in
+/// the content format and these are the values the TypeScript filled in.
+///
+/// Note that `reach` is 6 and NOT [`HANDS`]'s 4. A tool is held at arm's length
+/// and the original said so; defaulting to the bare-handed number would quietly
+/// shorten every tool in `content/items/` that does not name a reach.
+const TOOL_DEFAULT_DIG_SPEED: f32 = 1.0;
+/// See [`TOOL_DEFAULT_DIG_SPEED`].
+const TOOL_DEFAULT_REACH: f32 = 6.0;
+/// See [`TOOL_DEFAULT_DIG_SPEED`].
+const TOOL_DEFAULT_BRUSH_MAX: i32 = 1;
+
+/// Which profile is in force for this actor, this frame.
+///
+/// The TypeScript kept a `heldProfile` scratch object and mutated it in place,
+/// "so the per-frame path allocates nothing". A [`ToolProfile`] is four numbers
+/// and `Copy`; there is nothing to allocate and nothing to reuse, so the scratch
+/// did not come across.
+fn profile_for(creative: bool, held: Option<ItemCode>) -> ToolProfile {
+    if creative {
+        return CREATIVE;
+    }
+    let Some(tool) = held.and_then(|code| item_by_code(code).tool) else {
+        return HANDS;
+    };
+    ToolProfile {
+        dig_power: tool.dig_power,
+        dig_speed: tool.dig_speed.unwrap_or(TOOL_DEFAULT_DIG_SPEED),
+        reach: tool.reach.map_or(TOOL_DEFAULT_REACH, |r| r as f32),
+        brush_max: tool.brush_max.unwrap_or(TOOL_DEFAULT_BRUSH_MAX),
+    }
+}
 
 /// One family of placeable materials, behind one digit key.
 pub struct PaletteGroup {
@@ -246,6 +304,17 @@ pub struct BuildTool {
     place_timer: f32,
     /// Cells the last [`BuildTool::place_radius`] would fill, i.e. items it costs.
     place_cost: i32,
+    /// What the dig ticks since the last drain yielded. See
+    /// [`BuildTool::drops_mut`].
+    ///
+    /// The TypeScript's caller owned this bag and passed it in on every
+    /// `update`. It is a field here because the alternative was a bag argument
+    /// on `update`, and `update` is the tool's whole public surface: a host that
+    /// wanted no drops at all would still have to own one, and every existing
+    /// call site would change shape for a value it does not use. The pool is
+    /// unchanged and so is the contract — the tool fills it, the host decides
+    /// whether the yield becomes world stacks or goes straight into a pack.
+    drops: DropBag,
 }
 
 impl Default for BuildTool {
@@ -264,6 +333,7 @@ impl Default for BuildTool {
             dig_timer: 0.0,
             place_timer: 0.0,
             place_cost: 0,
+            drops: DropBag::new(),
         }
     }
 }
@@ -418,11 +488,15 @@ impl BuildTool {
     /// measured centre to centre in cells, which is what the player reads off
     /// the screen: a radius, not a bounding box.
     ///
-    /// SEAM (items): the TypeScript resolved `profile` from the held item's
-    /// `tool` block, taking `dig_power` / `dig_speed` / `reach` / `brush_max`
-    /// off the item registry. There is no registry yet, so survival gets
-    /// [`HANDS`]. When the registry lands, that resolution is the only new code
-    /// this function needs — everything downstream already reads `profile`.
+    /// `held` is the selected slot, and it decides both halves of survival: the
+    /// dig profile comes from its `tool` block (or [`HANDS`] for anything else
+    /// and for an empty hand), and placing puts down its block and is limited to
+    /// what the stack can pay for. Creative outranks both.
+    ///
+    /// Passing one slot rather than an `&Inventory` is the same call the
+    /// TypeScript made through `inv.held`/`inv.heldCount` — the tool needs one
+    /// item, not a pack, and a build tool that borrowed the whole inventory
+    /// could reach for things that are none of its business. See [`Held`].
     pub fn update(
         &mut self,
         dt: f32,
@@ -430,6 +504,7 @@ impl BuildTool {
         grid: &CellGrid,
         actor_x: f32,
         actor_y: f32,
+        held: Option<Held>,
     ) -> Option<BrushAction> {
         let cx = cell_of(cursor.x);
         let cy = cell_of(cursor.y);
@@ -439,7 +514,7 @@ impl BuildTool {
         self.dig_timer -= dt;
         self.place_timer -= dt;
 
-        self.profile = if self.creative { CREATIVE } else { HANDS };
+        self.profile = profile_for(self.creative, held.map(|h| h.code));
 
         let pcx = cell_of(actor_x);
         let pcy = cell_of(actor_y);
@@ -462,7 +537,7 @@ impl BuildTool {
             return None;
         }
         if cursor.place {
-            return self.place(cx, cy);
+            return self.place(grid, cx, cy, held);
         }
         if cursor.dig {
             return self.dig(grid, cx, cy);
@@ -472,13 +547,20 @@ impl BuildTool {
 
     // --- Digging -------------------------------------------------------------
 
-    /// SEAM (items): the TypeScript rolled the drop table over the same disc
-    /// here, BEFORE emitting the edit, which is why drops could be computed
-    /// without the sim reporting anything back. That loop stayed on the main
-    /// thread only because "the worker's bundle does not carry" the item
-    /// registry — a constraint that died with the worker. When drops land they
-    /// go in this function against `dig_radius`'s result, with no main/worker
-    /// split to work around and no double-roll window to reason about.
+    /// The drop table is rolled over the same disc HERE, before the edit is
+    /// emitted, which is the whole reason drops can be computed without the sim
+    /// reporting anything back.
+    ///
+    /// In the TypeScript that loop stayed on the main thread only because "the
+    /// worker's bundle does not carry" the item registry. That constraint died
+    /// with the worker, and none of it is compensated for here: `apply_brush`
+    /// runs synchronously on the action this returns, so there is no
+    /// double-roll window and no main/worker split to reason about. The ordering
+    /// survives on its own merit — the cells have to be read while they are
+    /// still there.
+    ///
+    /// Creative digs roll nothing, which is what "no drops, no cost" on
+    /// [`BuildTool::creative`] has always meant.
     fn dig(&mut self, grid: &CellGrid, cx: i32, cy: i32) -> Option<BrushAction> {
         if self.dig_timer > 0.0 {
             return None;
@@ -500,6 +582,7 @@ impl BuildTool {
         let r = self.dig_radius(grid, cx, cy, self.profile.dig_power, self.profile.brush_max)?;
 
         self.dig_timer = DIG_INTERVAL / self.profile.dig_speed;
+        self.collect(grid, cx, cy, r, self.profile.dig_power);
         Some(BrushAction {
             mode: EditMode::Dig,
             cx,
@@ -507,6 +590,57 @@ impl BuildTool {
             r,
             mat: EMPTY,
         })
+    }
+
+    /// Roll the drop table for every cell the pending edit will clear.
+    ///
+    /// The disc walked here is `dig_radius`'s answer, not the requested radius,
+    /// so the yield and the hole agree by construction: exactly the cells
+    /// `apply_brush` is about to clear are the cells that pay out.
+    ///
+    /// The hardness test is therefore redundant — [`BuildTool::dig_radius`]
+    /// already excluded every cell that fails it — and it is kept anyway,
+    /// exactly as the TypeScript kept it. `apply_brush` has no per-cell veto and
+    /// clears the whole disc, so this is the ONE place that decides a cell was
+    /// mined rather than merely inside a circle. A payout rule that depends on
+    /// the caller having shrunk the radius correctly is a payout rule one
+    /// refactor away from paying out for obsidian.
+    fn collect(&mut self, grid: &CellGrid, cx: i32, cy: i32, r: i32, dig_power: f32) {
+        let r2 = r * r;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx * dx + dy * dy > r2 {
+                    continue;
+                }
+                let cell = WorldCell::new(cx + dx, cy + dy);
+                if !grid.is_loaded_world(cell) {
+                    continue;
+                }
+                let m = grid.get_world(cell);
+                if m == EMPTY || hardness(m) > dig_power {
+                    continue;
+                }
+                roll_cell_drops(m, cell.x, cell.y, &mut self.drops);
+            }
+        }
+    }
+
+    /// What the dig ticks since the last drain yielded.
+    ///
+    /// The bag ACCUMULATES: a tool that digs faster than the host drains it
+    /// merges the ticks, which is the same thing the TypeScript's shared bag did
+    /// between two `spawnBag` calls. Read it, spawn or flush it, then
+    /// [`DropBag::clear`] it — or hand it to
+    /// [`WorldItems::spawn_bag`](crate::items::world_items::WorldItems::spawn_bag),
+    /// which clears it for you.
+    pub fn drops_mut(&mut self) -> &mut DropBag {
+        &mut self.drops
+    }
+
+    /// Read-only view of the same bag, for a host that only wants to know
+    /// whether this frame produced anything.
+    pub fn drops(&self) -> &DropBag {
+        &self.drops
     }
 
     /// Largest radius <= `r_max` whose disc contains no cell this tool cannot
@@ -564,14 +698,31 @@ impl BuildTool {
 
     // --- Placing -------------------------------------------------------------
 
-    /// SEAM (items): survival placing spends a stack out of the hotbar, so both
-    /// WHAT it puts down and how many cells it may cover come from the
-    /// inventory. There is no inventory yet, so survival place is a no-op rather
-    /// than an invented interface. [`BuildTool::place_radius`] is the entire
-    /// grid-side half of that decision and needs nothing from the registry; it
-    /// is public and tested, waiting for a caller that can say how many items
-    /// are available and which block they turn into.
-    fn place(&mut self, cx: i32, cy: i32) -> Option<BrushAction> {
+    /// Survival placing spends the SELECTED stack, so both what it puts down and
+    /// how many cells it may cover come from [`Held`].
+    ///
+    /// Spending only from the selected slot is deliberate and is the TypeScript's
+    /// rule: the hotbar count under the cursor is the number the player is
+    /// watching go down, and quietly topping the swing up from a second stack of
+    /// the same block elsewhere in the pack would make that number a lie.
+    ///
+    /// # The tool does not spend
+    ///
+    /// The TypeScript called `inv.removeAt` from inside here. This does not,
+    /// because a build tool that could reach into a pack could reach for things
+    /// that are none of its business — the same reason [`BuildTool::update`]
+    /// takes one item rather than an `&Inventory`. The count is published through
+    /// [`BuildTool::place_cost`] and the host spends it after the edit lands.
+    /// That is not a weaker contract: `place_radius` sizes the disc to what was
+    /// declared available, so the charge and the effect still agree by
+    /// construction.
+    fn place(
+        &mut self,
+        grid: &CellGrid,
+        cx: i32,
+        cy: i32,
+        held: Option<Held>,
+    ) -> Option<BrushAction> {
         if self.place_timer > 0.0 {
             return None;
         }
@@ -587,7 +738,22 @@ impl BuildTool {
             });
         }
 
-        None
+        let held = held?;
+        // EMPTY is air, i.e. "places nothing" — a pickaxe is not a block.
+        let mat = places_block(held.code);
+        if mat == EMPTY {
+            return None;
+        }
+
+        let r = self.place_radius(grid, cx, cy, held.count as i32)?;
+        self.place_timer = PLACE_INTERVAL;
+        Some(BrushAction {
+            mode: EditMode::Place,
+            cx,
+            cy,
+            r,
+            mat,
+        })
     }
 
     /// Largest radius whose disc holds no more empty cells than `avail`, or
@@ -674,10 +840,69 @@ fn isqrt_ceil(n: i32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::items::registry::ITEM_DEFS;
     use crate::sim::edits::apply_brush;
 
     fn grid() -> CellGrid {
         CellGrid::new(64, 64)
+    }
+
+    /// The first item in the registry that actually digs, with its `tool` block.
+    ///
+    /// Found rather than named, so the test does not break the next time
+    /// `content/items/` is reordered or a pickaxe is renamed.
+    fn a_tool() -> (ItemCode, godgame_data::items::ItemTool) {
+        ITEM_DEFS
+            .iter()
+            .find_map(|d| d.tool.map(|t| (d.code, t)))
+            .expect("content/items/ should define at least one tool")
+    }
+
+    #[test]
+    fn an_empty_hand_digs_with_hands() {
+        assert_eq!(profile_for(false, None), HANDS);
+    }
+
+    #[test]
+    fn creative_outranks_whatever_is_held() {
+        let (code, _) = a_tool();
+        assert_eq!(profile_for(true, Some(code)), CREATIVE);
+        assert_eq!(profile_for(true, None), CREATIVE);
+    }
+
+    #[test]
+    fn a_held_tool_brings_its_own_numbers() {
+        let (code, tool) = a_tool();
+        let p = profile_for(false, Some(code));
+        assert_eq!(p.dig_power, tool.dig_power);
+        assert!(
+            p.dig_power > HANDS.dig_power,
+            "a tool that does not out-dig bare hands is not a tool"
+        );
+    }
+
+    #[test]
+    fn a_tool_that_names_no_reach_gets_six_cells_and_not_four() {
+        // The one default worth a test of its own: `HANDS.reach` is 4 and the
+        // TypeScript's `tool.reach ?? 6` is 6, so taking the nearer-looking
+        // constant would shorten every tool in the registry that stays silent.
+        let (code, tool) = a_tool();
+        if tool.reach.is_none() {
+            assert_eq!(profile_for(false, Some(code)).reach, TOOL_DEFAULT_REACH);
+        }
+        assert_ne!(TOOL_DEFAULT_REACH, HANDS.reach);
+    }
+
+    #[test]
+    fn a_non_tool_item_in_hand_still_digs_with_hands() {
+        // A stack of dirt is not a pickaxe. `places_block` items have no `tool`
+        // block, and holding one must not silently grant a tool's reach.
+        let code = ITEM_DEFS
+            .iter()
+            .find(|d| d.tool.is_none())
+            .expect("content/items/ should define something that is not a tool")
+            .code;
+        assert_eq!(profile_for(false, Some(code)), HANDS);
     }
 
     fn creative() -> BuildTool {
@@ -797,7 +1022,7 @@ mod tests {
         }
 
         let act = t
-            .update(0.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            .update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
             .expect("creative dig always swings");
         assert_eq!(act.mode, EditMode::Dig);
         assert_eq!((act.cx, act.cy, act.r), (30, 30, 3));
@@ -815,16 +1040,16 @@ mod tests {
         g.set(30, 30, block::STONE);
 
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
                 .is_some()
         );
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
                 .is_none(),
             "a second swing in the same instant must be refused"
         );
         assert!(
-            t.update(1.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            t.update(1.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
                 .is_some(),
             "a second later it swings again"
         );
@@ -835,7 +1060,7 @@ mod tests {
         let mut t = creative();
         let g = grid();
         let act = t
-            .update(0.0, at(30, 30, true, true), &g, 0.0, 0.0)
+            .update(0.0, at(30, 30, true, true), &g, 0.0, 0.0, None)
             .expect("both held still swings");
         assert_eq!(act.mode, EditMode::Place);
         assert_eq!(act.mat, t.selected());
@@ -845,7 +1070,7 @@ mod tests {
     fn the_cursor_cell_floors_negative_world_px() {
         let mut t = creative();
         let g = grid();
-        t.update(0.0, at(-3, -2, false, false), &g, 0.0, 0.0);
+        t.update(0.0, at(-3, -2, false, false), &g, 0.0, 0.0, None);
         assert_eq!((t.cursor_cx, t.cursor_cy), (-3, -2));
     }
 
@@ -856,7 +1081,7 @@ mod tests {
         g.set(30, 30, block::SAND);
         // HANDS reach is 4 cells; the actor sits at cell 0,0.
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
                 .is_none()
         );
         assert!(!t.in_reach);
@@ -864,7 +1089,7 @@ mod tests {
         // Same swing, actor next to it.
         let near = (30 * CELL_SIZE) as f32;
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, near, near)
+            t.update(0.0, at(30, 30, true, false), &g, near, near, None)
                 .is_some()
         );
         assert!(t.in_reach);
@@ -877,14 +1102,14 @@ mod tests {
         g.set(30, 30, block::DIRT); // hardness 1.0, over HANDS' 0.5
         let here = (30 * CELL_SIZE) as f32;
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, here, here)
+            t.update(0.0, at(30, 30, true, false), &g, here, here, None)
                 .is_none()
         );
         assert!(t.target_too_hard, "and the HUD is told why");
 
         g.set(30, 30, block::SAND); // hardness 0.5, exactly at the limit
         let act = t
-            .update(0.0, at(30, 30, true, false), &g, here, here)
+            .update(0.0, at(30, 30, true, false), &g, here, here, None)
             .expect("sand is diggable by hand");
         assert!(!t.target_too_hard);
         assert_eq!(act.r, HANDS.brush_max);
@@ -988,7 +1213,7 @@ mod tests {
         let mut t = creative();
         t.brush = 3;
         let g = grid();
-        t.update(0.0, at(30, 30, false, false), &g, 0.0, 0.0);
+        t.update(0.0, at(30, 30, false, false), &g, 0.0, 0.0, None);
 
         let mut preview = Vec::new();
         t.preview_cells(|x, y| preview.push((x, y)));
@@ -1016,14 +1241,146 @@ mod tests {
     }
 
     #[test]
-    fn survival_place_is_a_no_op_until_there_is_an_inventory() {
+    fn survival_place_with_an_empty_hand_puts_nothing_down() {
         let mut t = survival();
         let g = grid();
         let here = (30 * CELL_SIZE) as f32;
         assert!(
-            t.update(0.0, at(30, 30, false, true), &g, here, here)
+            t.update(0.0, at(30, 30, false, true), &g, here, here, None)
                 .is_none(),
-            "see the SEAM note on place()"
+            "an empty hand has nothing to place"
+        );
+    }
+
+    /// The first item in the registry that turns into a block when placed.
+    fn a_placeable() -> (ItemCode, CellId) {
+        ITEM_DEFS
+            .iter()
+            .map(|d| (d.code, places_block(d.code)))
+            .find(|&(_, mat)| mat != EMPTY)
+            .expect("content/items/ should define at least one placeable")
+    }
+
+    #[test]
+    fn survival_place_puts_down_the_held_items_own_block() {
+        let (code, mat) = a_placeable();
+        let mut t = survival();
+        let g = grid();
+        let here = (30 * CELL_SIZE) as f32;
+        let act = t
+            .update(
+                0.0,
+                at(30, 30, false, true),
+                &g,
+                here,
+                here,
+                Some(Held { code, count: 64 }),
+            )
+            .expect("a full stack over empty cells should place");
+        assert_eq!(act.mode, EditMode::Place);
+        assert_eq!(act.mat, mat, "it places what the ITEM says, not a palette");
+    }
+
+    #[test]
+    fn a_pickaxe_is_not_a_block() {
+        // `places_block` is EMPTY for anything that is not placeable, and EMPTY
+        // is air. Placing "air" would be a silent no-op edit rather than a
+        // refusal, so the refusal is explicit and this is what checks it.
+        let (code, tool) = a_tool();
+        assert_eq!(places_block(code), EMPTY, "the test's tool is placeable");
+        let _ = tool;
+        let mut t = survival();
+        let g = grid();
+        let here = (30 * CELL_SIZE) as f32;
+        assert!(
+            t.update(
+                0.0,
+                at(30, 30, false, true),
+                &g,
+                here,
+                here,
+                Some(Held { code, count: 1 })
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_placement_costs_exactly_the_cells_it_filled() {
+        // The charge and the effect agree by construction — `place_radius` sizes
+        // the disc to what the stack can pay for and records the count. This is
+        // the assertion the host's spend depends on.
+        let (code, _) = a_placeable();
+        let mut t = survival();
+        let g = grid();
+        let here = (30 * CELL_SIZE) as f32;
+        let act = t
+            .update(
+                0.0,
+                at(30, 30, false, true),
+                &g,
+                here,
+                here,
+                Some(Held { code, count: 64 }),
+            )
+            .expect("a full stack over empty cells should place");
+
+        let cost = t.place_cost();
+        assert!(cost > 0, "a placement that filled cells must cost");
+        assert!(cost <= 64, "it must never cost more than was available");
+
+        // Count the empty cells of the disc it actually emitted.
+        let mut filled = 0;
+        for dy in -act.r..=act.r {
+            for dx in -act.r..=act.r {
+                if dx * dx + dy * dy > act.r * act.r {
+                    continue;
+                }
+                let cell = WorldCell::new(act.cx + dx, act.cy + dy);
+                if g.is_loaded_world(cell) && g.is_empty_world(cell) {
+                    filled += 1;
+                }
+            }
+        }
+        assert_eq!(cost, filled, "one item spent per cell placed");
+    }
+
+    #[test]
+    fn a_single_item_places_a_single_cell() {
+        let (code, _) = a_placeable();
+        let mut t = survival();
+        let g = grid();
+        let here = (30 * CELL_SIZE) as f32;
+        let act = t
+            .update(
+                0.0,
+                at(30, 30, false, true),
+                &g,
+                here,
+                here,
+                Some(Held { code, count: 1 }),
+            )
+            .expect("one item should still place one cell");
+        assert_eq!(act.r, 0, "one item buys the centre cell and no ring");
+        assert_eq!(t.place_cost(), 1);
+    }
+
+    #[test]
+    fn an_empty_stack_places_nothing() {
+        let (code, _) = a_placeable();
+        let mut t = survival();
+        let g = grid();
+        let here = (30 * CELL_SIZE) as f32;
+        assert!(
+            t.update(
+                0.0,
+                at(30, 30, false, true),
+                &g,
+                here,
+                here,
+                Some(Held { code, count: 0 })
+            )
+            .is_none()
         );
     }
 
@@ -1032,11 +1389,11 @@ mod tests {
         let mut t = creative();
         let mut g = grid();
         g.set(30, 30, block::STONE);
-        t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0);
+        t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None);
         t.toggle_creative();
         t.toggle_creative();
         assert!(
-            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0)
+            t.update(0.0, at(30, 30, true, false), &g, 0.0, 0.0, None)
                 .is_some(),
             "a mode flip is a fresh swing"
         );
@@ -1046,7 +1403,14 @@ mod tests {
     fn a_brush_outside_the_loaded_window_reads_as_air() {
         let mut t = creative();
         let g = grid();
-        t.update(0.0, at(-500, -500, false, false), &g, -2500.0, -2500.0);
+        t.update(
+            0.0,
+            at(-500, -500, false, false),
+            &g,
+            -2500.0,
+            -2500.0,
+            None,
+        );
         assert_eq!(t.target_block, EMPTY);
         assert!(!t.target_too_hard);
     }
