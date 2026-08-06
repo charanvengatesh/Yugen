@@ -261,14 +261,13 @@ impl ChunkGen {
         chunk_y: i32,
         back: Option<&mut [CellId]>,
     ) -> Vec<CellId> {
-        // Commit A of this phase threads the parameter and writes nothing, so the
-        // no-op can be gated on its own. The writes arrive next.
-        let _ = back;
-
         let base_x = chunk_x * CHUNK_CELLS;
         let base_y = chunk_y * CHUNK_CELLS;
         let mut out = vec![AIR; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         let chunk_bottom = base_y + CHUNK_CELLS;
+        // Taken by reference once rather than re-matched per cell, so the hot
+        // loops below branch on an `Option` that is constant for the whole chunk.
+        let mut back = back;
 
         // --- Pass 1: per-column profile, ground line, cave parameters --------
         // Climate, biome blend, underground layer blend, surface height and the
@@ -337,6 +336,7 @@ impl ChunkGen {
                 let depth = wcy - surf;
                 // Only columns that can host a surface chasm pay for a carve test
                 // up here.
+                let i = (ly * CHUNK_CELLS + lx) as usize;
                 if carving
                     && cc.breaches
                     && self
@@ -344,11 +344,22 @@ impl ChunkGen {
                         .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc)
                         != Carve::Solid
                 {
+                    // Carved out of the cap by a surface chasm. The front is air;
+                    // the WALL is the topsoil the chasm removed, which is what
+                    // stops a chasm reading as a hole punched through to nothing.
+                    if let Some(back) = back.as_deref_mut() {
+                        back[i] = cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                    }
                     ly += 1;
                     continue; // already AIR
                 }
-                out[(ly * CHUNK_CELLS + lx) as usize] =
-                    cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                let cap = cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                out[i] = cap;
+                // Solid front, so the wall behind it is the same material and the
+                // word is copied rather than recomputed.
+                if let Some(back) = back.as_deref_mut() {
+                    back[i] = cap;
+                }
                 ly += 1;
             }
 
@@ -359,24 +370,51 @@ impl ChunkGen {
                 let c = self
                     .lattice
                     .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc);
-                if c == Carve::Air {
-                    ly += 1;
-                    continue; // already AIR
-                }
                 let i = (ly * CHUNK_CELLS + lx) as usize;
+
+                // The wall is the rock that WOULD be here if nothing had carved,
+                // so it is the same `solid_at` the front plane takes on its solid
+                // branch — evaluated whatever the carve said. That is the whole
+                // rule, and it is why a fresh shaft mined into virgin rock has a
+                // wall behind it rather than a black void.
                 let u = ug_fade_at(depth, &col);
                 let bd = band_depth(depth, &cc);
-                if c != Carve::Solid {
-                    out[i] = liquid_at(&self.noise, wcx, wcy, bd, &col, u);
-                    ly += 1;
-                    continue;
-                }
                 let strata = if bd >= f64::from(DEEP_DEPTH) {
                     self.lattice.strata_at(lx, ly)
                 } else {
                     0.0
                 };
-                out[i] = solid_at(&self.noise, wcx, wcy, bd, &col, u, strata);
+                //
+                // Wherever the front is already solid this is the SAME word the
+                // front takes, so the common case is one evaluation shared by both
+                // planes rather than two. Only carved cells — air and liquid, the
+                // ones the front pass used to `continue` straight past — pay for an
+                // extra `solid_at`, which is why asking for walls costs about 1% on
+                // a recenter and 3% on a whole shift tick rather than doubling it.
+                // (Measured: `recenter only` 328.9 -> 332.3 us, `shift tick`
+                // 475.0 -> 489.2 us, same criterion session.)
+                let rock = if back.is_some() || c == Carve::Solid {
+                    solid_at(&self.noise, wcx, wcy, bd, &col, u, strata)
+                } else {
+                    // Never read on this branch, and never evaluated either: a
+                    // carved cell with no back plane asked for must not pay for a
+                    // wall nobody wants. This is the arithmetic `generate` skips.
+                    AIR
+                };
+                if let Some(back) = back.as_deref_mut() {
+                    back[i] = rock;
+                }
+
+                if c == Carve::Air {
+                    ly += 1;
+                    continue; // already AIR
+                }
+                if c != Carve::Solid {
+                    out[i] = liquid_at(&self.noise, wcx, wcy, bd, &col, u);
+                    ly += 1;
+                    continue;
+                }
+                out[i] = rock;
                 ly += 1;
             }
         }

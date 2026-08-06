@@ -271,7 +271,9 @@ impl ChunkStore {
                 Some(snap) => Chunk::from_snapshot(&snap),
                 None => {
                     let mut chunk = Chunk::new(chunk_x, chunk_y);
-                    chunk.set_generated_material(&self.chunk_gen.generate(chunk_x, chunk_y));
+                    let (material, back) = self.chunk_gen.generate_with_back(chunk_x, chunk_y);
+                    chunk.set_generated_material(&material);
+                    chunk.set_generated_back(&back);
                     // flags / aux / temp start zeroed — a freshly generated
                     // chunk has no sim state.
                     chunk
@@ -341,7 +343,9 @@ impl ChunkStore {
                 || ChunkGen::new(seed),
                 |chunk_gen, &(cx, cy)| {
                     let mut chunk = Chunk::new(cx, cy);
-                    chunk.set_generated_material(&chunk_gen.generate(cx, cy));
+                    let (material, back) = chunk_gen.generate_with_back(cx, cy);
+                    chunk.set_generated_material(&material);
+                    chunk.set_generated_back(&back);
                     // flags / aux / temp start zeroed — a freshly generated
                     // chunk has no sim state.
                     chunk

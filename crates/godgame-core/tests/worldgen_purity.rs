@@ -37,7 +37,7 @@ use rayon::prelude::*;
 use godgame_core::config::CHUNK_CELLS;
 use godgame_core::sim::biomes::column_profile_at;
 use godgame_core::sim::decor::{DecorContext, Decorator};
-use godgame_core::sim::materials::CellId;
+use godgame_core::sim::materials::{CellId, EMPTY};
 use godgame_core::sim::noise::Noise;
 use godgame_core::sim::worldgen::containers::{containers_present, is_container};
 use godgame_core::sim::worldgen::features::LANDMARK_DECORATOR;
@@ -557,6 +557,167 @@ fn container_recovery() {
     assert!(
         found > 0,
         "no containers in the sweep — the mark pass is placing nothing"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. THE BACK PLANE (no TypeScript ancestor)
+// ---------------------------------------------------------------------------
+
+/// Asking for the background wall plane must not perturb the front one.
+///
+/// `ChunkGen::generate_with_back` walks the same passes as `generate` and takes
+/// extra branches inside them. If any of those branches leaked into the front
+/// plane — an evaluation order changed, a value computed where it was previously
+/// skipped and then written to the wrong array — the world would silently move.
+///
+/// `ts_worldgen_parity` would catch that, and would report it as 357 opaque hash
+/// mismatches. This reports it as one cell, with its coordinate. The two are
+/// worth having separately for exactly that reason: one says the port is wrong,
+/// this one says where.
+#[test]
+fn asking_for_walls_does_not_move_the_world() {
+    let mut plain = ChunkGen::new(SEED);
+    let mut walled = ChunkGen::new(SEED);
+
+    for &(cx, cy) in &coords() {
+        let front = plain.generate(cx, cy);
+        let (front_with_back, _) = walled.generate_with_back(cx, cy);
+        if let Some(at) = first_difference(&front, &front_with_back) {
+            panic!(
+                "chunk ({cx},{cy}) generated a different FRONT plane when the back \
+                 plane was asked for, at {} — the wall pass is not additive",
+                locate(at, cx, cy)
+            );
+        }
+    }
+}
+
+/// The back plane is a pure function of `(chunk_x, chunk_y, seed)` too.
+///
+/// Check 8 is structurally blind to this: it only ever calls `generate`, which
+/// passes `None` and never touches the wall plane at all. The wall pass evaluates
+/// `solid_at` and `cap_at` on cells the front pass skips, and it reads
+/// `CaveLattice::strata_at` — so it has its own opportunities to carry state a
+/// worker could see, and needs its own check.
+#[test]
+fn the_back_plane_is_pure_across_a_pool() {
+    let mut work: Vec<(i32, i32)> = Vec::new();
+    for cx in -6..=6 {
+        for cy in [0, 1, 3, 5, 8, 12, 17] {
+            work.push((cx, cy));
+        }
+    }
+
+    let mut serial_cg = ChunkGen::new(SEED);
+    let serial: Vec<Vec<CellId>> = work
+        .iter()
+        .map(|&(cx, cy)| serial_cg.generate_with_back(cx, cy).1)
+        .collect();
+
+    let parallel: Vec<Vec<CellId>> = work
+        .par_iter()
+        .map_init(
+            || ChunkGen::new(SEED),
+            |cg, &(cx, cy)| cg.generate_with_back(cx, cy).1,
+        )
+        .collect();
+
+    for (i, &(cx, cy)) in work.iter().enumerate() {
+        if let Some(at) = first_difference(&serial[i], &parallel[i]) {
+            panic!(
+                "the wall plane of chunk ({cx},{cy}) differs between a rayon worker \
+                 and the serial result at {} — the wall pass carries state a thread \
+                 can see",
+                locate(at, cx, cy)
+            );
+        }
+    }
+
+    // And a second serial run agrees with the first, which is the plain
+    // determinism half — a wall pass that consumed an RNG would fail here even
+    // where the pool happened to agree with itself.
+    let mut again = ChunkGen::new(SEED);
+    for (i, &(cx, cy)) in work.iter().enumerate() {
+        let back = again.generate_with_back(cx, cy).1;
+        assert!(
+            first_difference(&serial[i], &back).is_none(),
+            "chunk ({cx},{cy}) generated a different wall plane the second time"
+        );
+    }
+}
+
+/// Above the ground line there is no wall, and below it there always is.
+///
+/// This is the feature's whole readable state, so it is pinned as a property
+/// rather than left to a screenshot: "you have dug through to open sky" is
+/// literally `back == EMPTY`, and a black void behind a fresh shaft — the thing
+/// the back plane exists to remove — is `back == EMPTY` where it should not be.
+///
+/// # The sweep is wider than `coords()` on purpose
+///
+/// The narrow sweep every other check here uses (cx -3..=3) passed this test
+/// while the carved-cap branch was deleted, because a surface chasm that BREACHES
+/// the topsoil never occurs in those seven columns. Measured over cx -60..=60 at
+/// the surface rows there are 172 such cells, so the range below is what makes
+/// the assertion cover the branch rather than merely agree with it.
+///
+/// That branch is the interesting one: it is where the front plane is air because
+/// a chasm cut through the cap, and the wall behind it has to be the topsoil that
+/// was removed — otherwise a chasm reads as a hole punched through to nothing.
+#[test]
+fn walls_stop_at_the_sky_and_never_gap_below_it() {
+    let mut cg = ChunkGen::new(SEED);
+    // A heightmap of this test's own, so the surface line is read without
+    // borrowing the generator that is producing the chunks.
+    let noise = world_noise(SEED);
+    let mut heights = Heightmap::new();
+    let mut checked_sky = 0;
+    let mut checked_ground = 0;
+
+    let mut sweep: Vec<(i32, i32)> = Vec::new();
+    for cx in -60..=60 {
+        for cy in [-1, 0, 1, 2, 5, 11, 18] {
+            sweep.push((cx, cy));
+        }
+    }
+
+    for &(cx, cy) in &sweep {
+        let (_, back) = cg.generate_with_back(cx, cy);
+        let base_y = cy * CHUNK_CELLS;
+        let base_x = cx * CHUNK_CELLS;
+        for lx in 0..CHUNK_CELLS {
+            let col = column_profile_at(&noise, base_x + lx);
+            let surf = heights.surface_row_at(&noise, base_x + lx, Some(&col));
+            for ly in 0..CHUNK_CELLS {
+                let wcy = base_y + ly;
+                let wall = back[(ly * CHUNK_CELLS + lx) as usize];
+                if wcy < surf {
+                    assert_eq!(
+                        wall,
+                        EMPTY,
+                        "a wall at ({}, {wcy}) is above the ground line at {surf} — \
+                         open sky must stay open, or digging out to it shows nothing",
+                        base_x + lx
+                    );
+                    checked_sky += 1;
+                } else {
+                    assert_ne!(
+                        wall,
+                        EMPTY,
+                        "no wall at ({}, {wcy}), below the ground line at {surf} — \
+                         a shaft mined here would open onto a black void",
+                        base_x + lx
+                    );
+                    checked_ground += 1;
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked_sky > 0 && checked_ground > 0,
+        "the sweep saw both cases"
     );
 }
 
