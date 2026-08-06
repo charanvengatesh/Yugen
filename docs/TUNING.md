@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 546 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 544 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -217,43 +217,44 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_MOBS` | `32` | Hard population cap. | 98 |
-| `MOB_DT` (private) | `1.0 / 60.0` | Mobs integrate at a fixed 60Hz (the player runs at 120Hz; mobs do not need it). | 102 |
-| `MAX_MOB_STEPS` (private) | `3` | Catch-up steps per frame, to avoid a spiral of death after a stall. | 104 |
-| `SPAWN_INTERVAL` (private) | `0.15` | Seconds between spawn attempts. | 107 |
-| `SPAWN_TRIES` (private) | `12` | Rejection-sampled candidate cells per attempt. | 109 |
-| `OFFSCREEN_MARGIN` (private) | `32.0` | How far outside the viewport edge a spawn must be to be genuinely unseen. | 111 |
-| `SPAWN_SEPARATION` (private) | `30.0` | Minimum gap between two freshly spawned creatures, world px. | 113 |
-| `PACK_SPREAD` (private) | `5.0` | Cells either side of the pack leader that a follower may be sampled at. | 115 |
-| `MAX_SHOTS` (private) | `24` | Hard cap on projectiles in flight. | 121 |
-| `MAX_LOOT` (private) | `32` | Hard cap on undrained loot entries. | 123 |
-| `MAX_EVENTS` (private) | `48` | Hard cap on undrained events. | 125 |
-| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 233 |
-| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 235 |
+| `MAX_MOBS` | `32` | Hard population cap. | 116 |
+| `MOB_DT` (private) | `1.0 / 60.0` | Mobs integrate at a fixed 60Hz (the player runs at 120Hz; mobs do not need it). | 120 |
+| `MAX_MOB_STEPS` (private) | `3` | Catch-up steps per frame, to avoid a spiral of death after a stall. | 122 |
+| `SPAWN_INTERVAL` (private) | `0.15` | Seconds between spawn attempts. | 125 |
+| `SPAWN_TRIES` (private) | `12` | Rejection-sampled candidate cells per attempt. | 127 |
+| `OFFSCREEN_MARGIN` (private) | `32.0` | How far outside the viewport edge a spawn must be to be genuinely unseen. | 129 |
+| `SPAWN_SEPARATION` (private) | `30.0` | Minimum gap between two freshly spawned creatures, world px. | 131 |
+| `PACK_SPREAD` (private) | `5.0` | Cells either side of the pack leader that a follower may be sampled at. | 133 |
+| `OUT_OF_RANGE_OFFSET` (private) | `1.0e6` | How far from the player the phantom target sits when the real one may not be perceived ([`MobTarget::targetable`] is `false`). | 175 |
+| `MAX_SHOTS` (private) | `24` | Hard cap on projectiles in flight. | 179 |
+| `MAX_LOOT` (private) | `32` | Hard cap on undrained loot entries. | 181 |
+| `MAX_EVENTS` (private) | `48` | Hard cap on undrained events. | 183 |
+| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 317 |
+| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 319 |
 
 ### `crates/godgame-core/src/entities/player.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 193 |
-| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 208 |
-| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 210 |
-| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 212 |
-| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 214 |
-| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 216 |
-| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 218 |
-| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 220 |
-| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 222 |
-| `LAND_HOLD` (private) | `0.13` | … and for how long. | 224 |
-| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 226 |
-| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 228 |
-| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 235 |
-| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 237 |
-| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 239 |
-| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 244 |
-| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 246 |
-| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 248 |
-| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 251 |
+| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 209 |
+| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 224 |
+| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 226 |
+| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 228 |
+| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 230 |
+| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 232 |
+| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 234 |
+| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 236 |
+| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 238 |
+| `LAND_HOLD` (private) | `0.13` | … and for how long. | 240 |
+| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 242 |
+| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 244 |
+| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 251 |
+| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 253 |
+| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 255 |
+| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 260 |
+| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 262 |
+| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 264 |
+| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 267 |
 
 ### `crates/godgame-core/src/entities/projectiles.rs`
 
@@ -629,35 +630,35 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 118 |
-| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 125 |
-| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 137 |
-| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 141 |
-| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 148 |
-| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 155 |
-| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 158 |
-| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 162 |
-| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 168 |
-| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 171 |
-| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 174 |
-| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 186 |
-| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 191 |
-| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 198 |
-| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 203 |
-| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 215 |
-| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 222 |
-| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 226 |
-| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 233 |
-| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 242 |
-| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 249 |
-| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 253 |
-| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 260 |
-| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 266 |
-| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 272 |
-| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 283 |
-| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 313 |
-| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 398 |
-| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 401 |
+| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 120 |
+| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 127 |
+| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 139 |
+| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 143 |
+| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 150 |
+| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 157 |
+| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 160 |
+| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 164 |
+| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 170 |
+| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 173 |
+| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 176 |
+| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 188 |
+| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 193 |
+| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 200 |
+| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 205 |
+| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 217 |
+| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 224 |
+| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 228 |
+| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 235 |
+| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 244 |
+| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 251 |
+| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 255 |
+| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 262 |
+| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 268 |
+| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 274 |
+| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 285 |
+| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 315 |
+| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 400 |
+| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 403 |
 
 ### `crates/godgame-render/src/cellmap.rs`
 
@@ -742,9 +743,9 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CAMERA_SPEED_SCALE` (private) | `4.0` | How much faster the free camera flies than the player runs. | 55 |
-| `CAMERA_BOOST` (private) | `4.0` | Extra multiplier on the free camera while shift is held. | 58 |
-| `PREVIEW_ALPHA` (private) | `0.18` | How solid the brush preview is over the cells it covers. | 65 |
+| `CAMERA_SPEED_SCALE` (private) | `4.0` | How much faster the free camera flies than the player runs. | 58 |
+| `CAMERA_BOOST` (private) | `4.0` | Extra multiplier on the free camera while shift is held. | 61 |
+| `PREVIEW_ALPHA` (private) | `0.18` | How solid the brush preview is over the cells it covers. | 68 |
 
 ### `crates/godgame-render/src/items.rs`
 
@@ -756,59 +757,55 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `EMIT_MAX_LEVEL` (private) | `15.0` | The authored `lightEmit` level a material must declare to be at full scale. | 119 |
-| `EMIT_FALLBACK_GAIN` (private) | `0.8` | What a material that declares `emissive` but no `lightEmit` is worth. | 126 |
-| `EMIT_SATURATION` (private) | `1.35` | How far an emitter's cast is pushed away from grey. | 135 |
-| `GLOW_COUNT` (private) | `3` | How many baked glow sprites the bloom pass chooses between. | 138 |
-| `DEPTH_RANGE_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which depth walks from 0 to 1. | 291 |
-| `AMBIENT_FLOOR` (private) | `0.12` | Ambient floor so unlit caves stay readable rather than pure black. | 294 |
-| `AMBIENT_DEPTH_FALL` (private) | `0.05` | How much of the ambient floor the deep takes away. | 300 |
-| `SKY_NIGHT` (private) | `0.22` | Open sky at midnight. | 305 |
-| `SKY_DAY_GAIN` (private) | `0.78` | What full daylight adds on top of [`SKY_NIGHT`]. | 308 |
-| `OPEN_DECAY` (private) | `0.99` | What a light cell of open air costs the flood. | 323 |
-| `SOLID_DECAY` (private) | `0.55` | What a light cell of opaque rock costs the flood. | 330 |
-| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 339 |
-| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 344 |
-| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 346 |
-| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 351 |
-| `SPLAT_EDGE` (private) | `0.42` | What the four neighbours of a scalar splat get, relative to its centre. | 354 |
-| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 363 |
-| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 366 |
-| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 372 |
-| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 375 |
-| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 381 |
-| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 387 |
-| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 390 |
-| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 393 |
-| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 402 |
-| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 432 |
-| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 440 |
-| `BLOOM_STRIDE_CELLS` (private) | `LIGHT_DOWNSCALE * 2` | Cells between bloom probes — one probe per ~40 world px. | 445 |
-| `BLOOM_BUDGET` | `120` | Hard cap on bloom sprites per frame, so a lava lake never floods the frame. | 448 |
-| `GLOW_RADIUS_PX` (private) | `64` | Glow sprite radius, in world px — one logical pixel of the low-res buffer. | 451 |
-| `GLOW_CORE_ALPHA` (private) | `0.55` | Alpha of the glow sprite's hot core. | 454 |
-| `GLOW_HALO_ALPHA` (private) | `0.28` | Alpha where the core has finished handing over to the halo. | 456 |
-| `GLOW_CORE_STOP` (private) | `0.4` | Fraction of the radius the core occupies. | 458 |
-| `BLOOM_BASE` (private) | `0.72` | Bloom flicker midpoint. | 464 |
-| `BLOOM_SWING` (private) | `0.28` | Bloom flicker amplitude. | 466 |
-| `BLOOM_RATE` (private) | `3.1` | Bloom flicker rate, radians per second. | 468 |
-| `BLOOM_PHASE_SCALE` (private) | `0.7` | How much of the cell's hash phase the bloom wave uses. | 470 |
-| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 479 |
-| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 482 |
-| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 484 |
-| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 486 |
-| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 488 |
-| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 490 |
-| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 492 |
-| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 494 |
-| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 519 |
-| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 521 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.6` | Strength of a biome's ambient cast. | 529 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 1466 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 1468 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 1470 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 1472 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 1474 |
+| `EMIT_MAX_LEVEL` (private) | `15.0` | The authored `lightEmit` level a material must declare to be at full scale. | 185 |
+| `EMIT_FALLBACK_GAIN` (private) | `0.8` | What a material that declares `emissive` but no `lightEmit` is worth. | 192 |
+| `EMIT_SATURATION` (private) | `1.35` | How far an emitter's cast is pushed away from grey. | 201 |
+| `DEPTH_RANGE_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which depth walks from 0 to 1. | 305 |
+| `AMBIENT_FLOOR` (private) | `0.12` | Ambient floor so unlit caves stay readable rather than pure black. | 308 |
+| `AMBIENT_DEPTH_FALL` (private) | `0.05` | How much of the ambient floor the deep takes away. | 314 |
+| `SKY_NIGHT` (private) | `0.22` | Open sky at midnight. | 319 |
+| `SKY_DAY_GAIN` (private) | `0.78` | What full daylight adds on top of [`SKY_NIGHT`]. | 322 |
+| `OPEN_DECAY` (private) | `0.99` | What a light cell of open air costs the flood. | 337 |
+| `SOLID_DECAY` (private) | `0.55` | What a light cell of opaque rock costs the flood. | 344 |
+| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 353 |
+| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 358 |
+| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 360 |
+| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 365 |
+| `SPLAT_EDGE` (private) | `0.42` | What the four neighbours of a scalar splat get, relative to its centre. | 368 |
+| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 377 |
+| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 380 |
+| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 386 |
+| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 389 |
+| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 395 |
+| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 401 |
+| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 404 |
+| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 407 |
+| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 416 |
+| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 446 |
+| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 454 |
+| `BLOOM_RADIUS_CELLS` (private) | `3` | Gather radius of the bloom blur, in CELLS. | 469 |
+| `BLOOM_EMIT_SLOTS` (private) | `MATERIAL_SLOTS` | Materials the bloom's emit table has room for. | 477 |
+| `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 489 |
+| `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 498 |
+| `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 505 |
+| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 522 |
+| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 531 |
+| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 540 |
+| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 543 |
+| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 545 |
+| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 547 |
+| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 549 |
+| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 551 |
+| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 553 |
+| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 555 |
+| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 580 |
+| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 582 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.6` | Strength of a biome's ambient cast. | 590 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 1694 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 1696 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 1708 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 1723 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 1725 |
 
 ### `crates/godgame-render/src/lowres.rs`
 
@@ -892,30 +889,31 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 138 |
-| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 141 |
-| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 163 |
-| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 169 |
-| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 173 |
-| `STAR_COUNT` | `90` | How many stars the field holds. | 176 |
-| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 183 |
-| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 189 |
-| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 192 |
-| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 195 |
-| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 198 |
-| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 201 |
-| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 204 |
-| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 222 |
-| `DISC_SEGMENTS` (private) | `24` | Segments in a disc's ring fan. | 240 |
-| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 243 |
-| `RIDGE_STEP_PX` (private) | `20.0` | How far apart a ridge is sampled, in view px. | 277 |
-| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 283 |
-| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 286 |
-| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 298 |
-| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 869 |
-| `STARS_Z` | `-99.0` | Stars, over the gradient. | 872 |
-| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 875 |
-| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 878 |
+| `SKY_PIXEL_PX` (private) | `CELL_SIZE` | The side of one backdrop pixel, in view px. | 163 |
+| `SKY_DITHER` (private) | `1.0` | How much of a block's own height the ordered dither is allowed to move the sample by. | 180 |
+| `BAYER_N` (private) | `4` | Side of [`BAYER`]. | 193 |
+| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 222 |
+| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 225 |
+| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 247 |
+| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 253 |
+| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 257 |
+| `STAR_COUNT` | `90` | How many stars the field holds. | 260 |
+| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 267 |
+| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 273 |
+| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 276 |
+| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 279 |
+| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 282 |
+| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 285 |
+| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 288 |
+| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 306 |
+| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 321 |
+| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 354 |
+| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 357 |
+| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 369 |
+| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 1050 |
+| `STARS_Z` | `-99.0` | Stars, over the gradient. | 1053 |
+| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 1056 |
+| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 1059 |
 
 ### `crates/godgame-render/src/sprite.rs`
 

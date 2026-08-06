@@ -62,8 +62,7 @@ use godgame_data::sprites::SPRITES;
 
 use godgame_render::cells::{CellShades, paint_cells};
 use godgame_render::light::{
-    EmitterScan, LightFrame, LightGrid, Rect2, bake_vignette, bloom_probes, grid_size,
-    scan_emitters, vignette_size,
+    EmitterScan, LightFrame, LightGrid, bake_vignette, grid_size, scan_emitters, vignette_size,
 };
 use godgame_render::particles::{MAX_PARTICLES, ParticleSystem};
 use godgame_render::sprite::{BakedSprite, FromContentOpts, sprite_art_from_content};
@@ -434,30 +433,16 @@ fn light(c: &mut Criterion) {
 
     scans.finish();
 
-    let mut bloom = c.benchmark_group("light/bloom");
-    let rect = Rect2 {
-        x: (40 * CELL_SIZE) as f32,
-        y: (40 * CELL_SIZE) as f32,
-        w: view.w as f32,
-        h: view.h as f32,
-    };
-    let mut probes = Vec::new();
-    bloom_probes(&grid, rect, 0.0, &mut probes);
-    println!("  bloom probes found: {}", probes.len());
-    // No throughput on this one. `bloom_probes` samples on a stride the module
-    // keeps private, so the only denominator this file could state would be a
-    // guess at a constant it cannot see — and a per-element rate against a made-up
-    // element count is worse than no rate at all. Time per call is the honest
-    // figure, and the probe count above says what that call found.
-    let mut t = 0.0f32;
-    bloom.bench_function("bloom_probes (view rect)", |b| {
-        b.iter(|| {
-            t += 1.0 / 120.0;
-            bloom_probes(&grid, rect, t, &mut probes);
-            black_box(probes.len())
-        });
-    });
-    bloom.finish();
+    // There is no `light/bloom` group any more, and there is nothing left here
+    // for one to time. `bloom_probes` — 333 ns, the cheapest thing this file
+    // measured — walked the view on a stride to decide where to stamp up to 120
+    // additive glow sprites, and `light.rs` replaced that whole path with a
+    // single GPU gather over `cellmap`'s cell plane. The CPU cost of the bloom
+    // is now three `Transform` writes in `place_bloom` and no asset mutation at
+    // all, and neither is a function this harness can call: see `docs/PERF.md`
+    // §8.5, which flagged the 120 per-frame `Assets::get_mut` calls as the one
+    // renderer cost criterion could not reach. Deleting the thing is the only
+    // honest way to close a measurement that could not be taken.
 }
 
 // --- Particles ---------------------------------------------------------------

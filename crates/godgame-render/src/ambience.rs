@@ -103,7 +103,9 @@ use godgame_core::sim::worldgen::heightmap::Heightmap;
 use godgame_core::sim::worldgen::world_noise;
 
 use crate::daynight::{DayPhase, WorldClock};
+use crate::light::BiomeAmbient;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
+use crate::weather::WeatherWeights;
 use crate::world::{SimWorld, WorldFocus};
 
 // ---------------------------------------------------------------------------
@@ -542,11 +544,11 @@ pub struct Mood {
     pub layer: [f32; UG_COUNT],
     /// Blended weather weights, indexed by `Weather as usize`.
     ///
-    /// This is ambience's one published output that ambience itself does not
-    /// consume: `crate::weather` reads it to crossfade the backdrop layer. It is
-    /// blended on the SAME weights rather than hard-switching to whichever biome
-    /// happens to be dominant, so the sky and the motes agree about where the
-    /// desert starts.
+    /// One of two published outputs that ambience itself does not consume:
+    /// [`crate::weather`] reads it to crossfade the backdrop layer (the other is
+    /// [`Mood::ambient`]). It is blended on the SAME weights rather than
+    /// hard-switching to whichever biome happens to be dominant, so the sky and
+    /// the motes agree about where the desert starts.
     pub weather: [f32; WEATHER_COUNT],
     /// 0 outdoors, 1 in the underground layers, smooth between.
     pub underground: f32,
@@ -569,6 +571,36 @@ impl Mood {
     #[inline]
     pub fn weather_of(&self, w: Weather) -> f32 {
         self.weather[w as usize]
+    }
+
+    /// The biome's additive ambient cast, 0..1 per channel.
+    ///
+    /// The second published output — [`crate::light`] adds it as a flat wash over
+    /// the finished frame, which is what makes a tundra read cold and a magma
+    /// chamber warm instead of every biome being lit the same colour.
+    ///
+    /// The colours are not invented here: each is the biome's own authored
+    /// `atmo.ambient`, and they are summed over the SAME normalised weights the
+    /// terrain is dithered with. That is the whole reason this lives on [`Mood`]
+    /// rather than on a call to
+    /// [`resolve_atmosphere`](godgame_core::sim::biomes::resolve_atmosphere),
+    /// which would sample the noise a second time to arrive at the same number.
+    /// Plains sends `[0, 0, 0]`, so a plains column is a no-op in the composite
+    /// exactly as it was before anything wrote this at all.
+    ///
+    /// Surface weights only, and deliberately: the cast is the colour of the sky
+    /// OVERHEAD, so a cave under a tundra is still cast cold. How dark that cave
+    /// is belongs to the light pass's own depth term and is not this number's
+    /// business.
+    pub fn ambient(&self) -> [f32; 3] {
+        let mut out = [0.0f32; 3];
+        for b in Biome::ALL {
+            let w = self.surface[b.index()];
+            for (channel, cast) in out.iter_mut().zip(b.def().atmo.ambient) {
+                *channel += cast as f32 * w;
+            }
+        }
+        out
     }
 }
 
@@ -1333,10 +1365,46 @@ impl Plugin for AmbiencePlugin {
         // what makes a runtime seed a non-event rather than a silent mismatch.
         app.insert_resource(AmbientLife::new(SEED))
             .add_systems(Startup, spawn_motes)
+            // `PreUpdate` and not `Update`, which is where the mood is resolved:
+            // both consumers read in `Update` and neither is nameable from here
+            // — `crate::light`'s solve is a private system in no set, and
+            // ordering against a system you cannot name is not expressible. A
+            // whole schedule earlier is the edge that IS expressible, and Bevy
+            // runs `PreUpdate` before `Update` every frame, so the write always
+            // lands before both reads. The mood it publishes is therefore the
+            // one resolved on the previous frame; that is a colour wash which
+            // takes hundreds of columns of walking to change, so a frame of lag
+            // in it is not a thing an eye can find.
+            .add_systems(PreUpdate, publish_mood)
             .add_systems(
                 Update,
                 (breathe.run_if(resource_exists::<SimWorld>), place_motes).chain(),
             );
+    }
+}
+
+/// Hand the resolved mood to the two passes that consume it.
+///
+/// Both targets are optional because this plugin has to stand on its own: a
+/// caller may add [`AmbiencePlugin`] without the light composite or without the
+/// weather backdrop, and a missing consumer is a system that publishes nothing,
+/// not a panic.
+fn publish_mood(
+    life: Res<AmbientLife>,
+    ambient: Option<ResMut<BiomeAmbient>>,
+    weather: Option<ResMut<WeatherWeights>>,
+) {
+    let mood = life.ambience.mood();
+
+    if let Some(mut ambient) = ambient {
+        ambient.0 = mood.ambient();
+    }
+    if let Some(mut weather) = weather {
+        // A move and not a translation: both vectors are five slots indexed by
+        // `Weather as usize`, so the only thing that could ever put snow in the
+        // embers slot is one of them changing width — and that is a type error
+        // on this line rather than a silent mistint.
+        weather.0 = mood.weather;
     }
 }
 
@@ -1503,6 +1571,27 @@ mod tests {
             view: view(),
             hot,
         }
+    }
+
+    /// The mood at the first column of the real world that casts anything.
+    ///
+    /// Found rather than written down: which biome sits at which column is
+    /// worldgen's business, and plains — the commonest biome, and the one the
+    /// origin tends to land in — authored a black cast deliberately, so a
+    /// hard-coded column would be testing the wrong thing the day the climate
+    /// centroids moved.
+    fn a_lit_column(a: &mut Ambience) -> Mood {
+        /// How far to look before giving up. A whole climate region is a few
+        /// hundred columns wide, so this is several of them.
+        const SEARCH_COLS: i32 = 4000;
+
+        for col in 0..SEARCH_COLS {
+            let mood = a.resolve(col as f32, 0.0);
+            if mood.ambient() != [0.0; 3] {
+                return mood;
+            }
+        }
+        panic!("none of the first {SEARCH_COLS} columns casts anything at all");
     }
 
     // --- Biome gating ------------------------------------------------------
@@ -2333,6 +2422,97 @@ mod tests {
         assert!((rect.centre_col() * CELL_SIZE as f32 - 1000.0).abs() < 1e-3);
         assert!((rect.centre_row() * CELL_SIZE as f32 - 500.0).abs() < 1e-3);
         assert!(rect.x < 1000.0 && rect.x + rect.w > 1000.0);
+    }
+
+    // --- The biome's ambient cast ------------------------------------------
+
+    #[test]
+    fn a_lone_biome_casts_exactly_the_colour_its_content_authored() {
+        // The cast is not a palette this module invented. It is each biome's own
+        // `atmo.ambient` — the same numbers `Game.ts` handed the light pass —
+        // and weighted onto a single biome the sum has to come back as that
+        // biome's entry, unchanged and unscaled.
+        for b in Biome::ALL {
+            let want = b.def().atmo.ambient.map(|c| c as f32);
+            assert_eq!(all_surface(b).ambient(), want, "{b:?} cast");
+        }
+    }
+
+    #[test]
+    fn the_frozen_and_the_volcanic_are_not_lit_the_same_colour() {
+        // The bug this test exists for: the composite read a cast that nothing
+        // wrote, so it stayed at the black `Default` and every biome in the game
+        // was lit identically. Two biomes at opposite ends of the palette have to
+        // disagree, and neither may be black.
+        let frozen = all_surface(Biome::Glacier).ambient();
+        let hot = all_surface(Biome::Volcanic).ambient();
+
+        assert_ne!(frozen, hot, "a glacier is lit like a magma chamber");
+        assert!(frozen.iter().any(|c| *c > 0.0), "the glacier casts nothing");
+        assert!(hot.iter().any(|c| *c > 0.0), "the volcano casts nothing");
+        // And in the directions a player would name them, so a channel swap on
+        // the way through is a failure rather than merely a different colour.
+        assert!(frozen[2] > frozen[0], "the glacier does not read cold");
+        assert!(hot[0] > hot[2], "the volcano does not read warm");
+    }
+
+    #[test]
+    fn the_cast_crossfades_across_a_boundary_rather_than_switching() {
+        // Half and half has to land on the midpoint. Anything that picked the
+        // dominant biome instead would return one end or the other.
+        let (a, b) = (Biome::Desert, Biome::Tundra);
+        let mut half = Mood::default();
+        half.surface[a.index()] = 0.5;
+        half.surface[b.index()] = 0.5;
+
+        let mid = half.ambient();
+        let (ca, cb) = (all_surface(a).ambient(), all_surface(b).ambient());
+        assert_ne!(mid, ca);
+        assert_ne!(mid, cb);
+        for i in 0..3 {
+            assert!(
+                (mid[i] - (ca[i] + cb[i]) * 0.5).abs() < 1e-6,
+                "channel {i} is not the midpoint"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cavern_is_cast_by_the_sky_over_it_and_not_by_the_rock() {
+        // Depth is the light pass's own term. A cavern under a tundra is still a
+        // COLD cavern; darkening it here as well would put one handover in two
+        // places and neither would be tunable on its own.
+        let mut deep = all_surface(Biome::Tundra);
+        deep.underground = 1.0;
+        deep.layer[UndergroundLayerId::Caverns.index()] = 1.0;
+        assert_eq!(deep.ambient(), all_surface(Biome::Tundra).ambient());
+    }
+
+    #[test]
+    fn the_plugin_publishes_the_cast_and_the_weather_blend_to_their_consumers() {
+        // The join itself, and the one thing the value tests above cannot reach:
+        // both resources were declared, read by their pass, and written by
+        // nobody, and every other test in this file passed throughout. So this
+        // one boots the real plugin, hands it a resolved mood, and demands that
+        // the resources the two passes read actually move.
+        let mut app = App::new();
+        app.add_plugins(AmbiencePlugin)
+            .init_resource::<BiomeAmbient>()
+            .init_resource::<WeatherWeights>();
+
+        let mood = {
+            let mut life = app.world_mut().resource_mut::<AmbientLife>();
+            a_lit_column(&mut life.ambience)
+        };
+        app.update();
+
+        assert_eq!(app.world().resource::<BiomeAmbient>().0, mood.ambient());
+        assert_ne!(
+            app.world().resource::<BiomeAmbient>().0,
+            [0.0; 3],
+            "the composite is still being sent black"
+        );
+        assert_eq!(app.world().resource::<WeatherWeights>().0, mood.weather);
     }
 
     #[test]

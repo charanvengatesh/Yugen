@@ -14,8 +14,8 @@
 //!   2. **emissive** — lava, fire and anything else declaring `lightEmit` smear
 //!      glow into the light grid so their pockets read as lit underground;
 //!   3. **composite** — the grid, blurred and upscaled, multiplied over the
-//!      scene (a floor keeps caves moody, not pitch black), then additive bloom
-//!      over emissive clusters, and finally a vignette and a depth wash.
+//!      scene (a floor keeps caves moody, not pitch black), then an additive
+//!      bloom of the emissive field, and finally a vignette and a depth wash.
 //!
 //! [`LightGrid`] is layers 1 and 2 and knows nothing about Bevy. It is a plain
 //! struct with a `solve` that takes a [`CellGrid`] and gives back four grids of
@@ -61,6 +61,68 @@
 //! quantised to 8 bits per channel on a grid a sixteenth of the viewport's
 //! resolution.
 //!
+//! # The bloom is NOT a port, and the thing it replaced is worth naming
+//!
+//! **Do not read the bloom below as what the original did.** It is not, and the
+//! difference is the point of the pass.
+//!
+//! The TypeScript — and this port, faithfully, until the pass described here
+//! replaced it — drew bloom as **stamped sprites**. `bloomProbes` walked the
+//! visible cells on a coarse stride, and every emissive cell it landed on got a
+//! prebaked radial glow `drawImage`d over it at `globalAlpha`: up to 120 of
+//! them, each 64 px in radius, in a buffer whose whole width is 640. One sprite
+//! was **a fifth of the screen across**, its core alpha was 0.55 and its halo
+//! 0.28, and they were drawn with `lighter`. Over a lava lake — which is a
+//! *field* of emissive cells, so the stride found one every 8 cells in both axes
+//! — dozens of those discs overlapped, and additive blending of dozens of 0.55
+//! cores does exactly what the arithmetic says it does: it clips to white and
+//! takes the lava, the rock around it and half the frame with it. The pass had
+//! no bound at all on what it could add to a pixel; it had a bound on how many
+//! sprites it could draw, which is not the same thing and does not help.
+//!
+//! It was also the renderer's one unmeasurable cost. `place_bloom` called
+//! `Assets::get_mut` on up to 120 materials **every frame** to retint them, and
+//! every one of those marks an asset modified — a re-extract and a uniform
+//! upload per sprite per frame, in the render world where `docs/PERF.md` §8.5
+//! says outright that criterion cannot reach it.
+//!
+//! What is here instead is an actual bloom: **threshold, downsample, blur,
+//! composite once.**
+//!
+//!   - **Threshold and downsample happen together, and for free.** The source is
+//!     [`crate::cellmap`]'s cell-id texture — the same `R16Uint` plane the cell
+//!     pass shades the world from, so the bloom is derived from what is actually
+//!     drawn rather than from a second guess at where the lights are. One texel
+//!     per cell IS a 5x downsample of the buffer, because a cell is
+//!     [`CELL_SIZE`] px. The threshold is a 64-entry lookup baked on the CPU by
+//!     [`bake_bloom_params`]: a material's contribution is its own emitted
+//!     colour, in LINEAR light, weighted by a smooth knee on its authored
+//!     `lightEmit`. Gold's derived level of 1/15 falls off the bottom of that
+//!     knee and contributes nothing; lava's 13/15 contributes in full.
+//!   - **The blur is one gather pass** over a
+//!     [`BLOOM_RADIUS_CELLS`]-radius separable Gaussian, into a target sized in
+//!     cells rather than pixels — ~166x106 texels for the largest view this game
+//!     allows. It runs on its own camera at [`BLOOM_CAMERA_ORDER`], which is
+//!     BEFORE the world camera's `-1`, so the frame the world camera composites
+//!     is this frame's, not last frame's.
+//!   - **The composite is one additive quad** at [`BLOOM_Z`], sampled linearly,
+//!     in exactly the slot the sprites used to occupy.
+//!
+//! **It cannot blow out, and that is provable rather than tuned.** The gather
+//! weights are normalised on the CPU to sum to one ([`bake_bloom_params`], and
+//! there is a test), and every entry of the emit table is in 0..1, so the pass's
+//! output is a convex combination of values in 0..1 and the most it can add to
+//! any pixel is [`BLOOM_INTENSITY`]. A lava lake is the WORST case for the old
+//! pass and the *tamest* case for this one: a solid field of emitters blurs to
+//! itself, so the lake reads as evenly warm and the interesting gradient is at
+//! its shore, which is where a glow belongs.
+//!
+//! Per frame this costs three `Transform` writes and no asset mutation at all —
+//! the bloom's material tint is set once in [`setup`] and never touched again.
+//! It also deleted `bloom_probes`, the 333 ns CPU scan that fed the sprites.
+//! [`scan_emitters`] is unaffected and still runs: it feeds the light SOLVE, and
+//! never fed the bloom.
+//!
 //! # What the port dropped on the way in
 //!
 //! - **The profiler bracket.** `PROF.begin(P_LIGHT)` / `PROF.end` around the
@@ -84,13 +146,16 @@
 //! `follow_window`.
 
 use bevy::asset::{RenderAssetUsages, uuid_handle};
+use bevy::camera::visibility::RenderLayers;
+use bevy::camera::{RenderTarget, ScalingMode};
 use bevy::ecs::system::SystemParam;
 use bevy::image::ImageSampler;
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, Extent3d,
-    RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureDimension, TextureFormat,
+    RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages,
 };
 use bevy::shader::{Shader, ShaderRef};
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
@@ -105,6 +170,7 @@ use godgame_core::sim::noise::Noise;
 use godgame_core::sim::worldgen::heightmap::Heightmap;
 use godgame_core::sim::worldgen::world_noise;
 
+use crate::cellmap::{CellMap, MATERIAL_SLOTS};
 use crate::daynight::WorldClock;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
 use crate::world::{SimWorld, WorldFocus};
@@ -134,57 +200,19 @@ const EMIT_FALLBACK_GAIN: f32 = 0.8;
 /// block's brightness, which is what the level is for.
 const EMIT_SATURATION: f32 = 1.35;
 
-/// How many baked glow sprites the bloom pass chooses between.
-const GLOW_COUNT: usize = 3;
-
-/// Which prebaked glow sprite an emitter blooms with.
-///
-/// Three, because three is what the content set actually needs. The alternative
-/// — tinting one sprite per draw — costs a filter or a scratch composite per
-/// call, which is more than baking the three.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GlowHue {
-    /// Lava, fire, embers.
-    Warm,
-    /// Crystal and the other cold-violet emitters.
-    Violet,
-    /// Fungal light.
-    Green,
-}
-
-/// Every glow hue, in the order [`GlowHue::index`] numbers them.
-pub const GLOW_HUES: [GlowHue; GLOW_COUNT] = [GlowHue::Warm, GlowHue::Violet, GlowHue::Green];
-
-impl GlowHue {
-    /// Index into the baked sprite set.
-    #[inline]
-    pub const fn index(self) -> usize {
-        match self {
-            GlowHue::Warm => 0,
-            GlowHue::Violet => 1,
-            GlowHue::Green => 2,
-        }
-    }
-
-    /// The hot core and the halo the sprite fades through, 0..255.
-    const fn stops(self) -> ([f32; 3], [f32; 3]) {
-        match self {
-            GlowHue::Warm => ([255.0, 240.0, 200.0], [255.0, 150.0, 60.0]),
-            GlowHue::Violet => ([236.0, 224.0, 255.0], [150.0, 90.0, 240.0]),
-            GlowHue::Green => ([226.0, 255.0, 226.0], [90.0, 220.0, 120.0]),
-        }
-    }
-}
-
 /// What one material contributes as a light source.
+///
+/// No `hue` field any more. The sprite bloom this module used to draw picked
+/// between three prebaked glow images by asking which channel of `rgb` won, and
+/// that enum existed only to index them. The bloom is an image pass now and
+/// carries the emitter's actual colour through to the frame, so quantising a
+/// cast to one of three families is a question nothing asks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Emitter {
     /// Emission strength, 0..1. Zero means "not a light source".
     pub level: f32,
     /// The hue the cast carries, each channel 0..1, normalised of brightness.
     pub rgb: [f32; 3],
-    /// Which baked sprite this emitter blooms with.
-    pub hue: GlowHue,
 }
 
 impl Emitter {
@@ -192,7 +220,6 @@ impl Emitter {
     pub const NONE: Emitter = Emitter {
         level: 0.0,
         rgb: [0.0; 3],
-        hue: GlowHue::Warm,
     };
 
     /// Whether this material is a light source at all.
@@ -236,20 +263,7 @@ static EMITTERS: LazyLock<[Emitter; MAT_COUNT]> = LazyLock::new(|| {
         let sat = |c: f32| (mean + (c / mx - mean) * EMIT_SATURATION).min(1.0);
         let rgb = [sat(r), sat(g), sat(b)];
 
-        // Hue family by which channel wins. The 0.95 slack means a cast that is
-        // merely AS blue as it is red still counts as violet, which is what a
-        // crystal wants, and the same for green. Blue is tested first, exactly
-        // as the original's nested ternary did — a cast that is both would
-        // otherwise depend on the order rather than on the content.
-        let hue = if rgb[2] > rgb[0] * 0.95 {
-            GlowHue::Violet
-        } else if rgb[1] > rgb[0] * 0.95 {
-            GlowHue::Green
-        } else {
-            GlowHue::Warm
-        };
-
-        *slot = Emitter { level, rgb, hue };
+        *slot = Emitter { level, rgb };
     }
     table
 });
@@ -441,33 +455,80 @@ const CENSUS_GROUP: i32 = LIGHT_DOWNSCALE;
 
 // --- Bloom -------------------------------------------------------------------
 
-/// Cells between bloom probes — one probe per ~40 world px.
-const BLOOM_STRIDE_CELLS: i32 = LIGHT_DOWNSCALE * 2;
-
-/// Hard cap on bloom sprites per frame, so a lava lake never floods the frame.
-pub const BLOOM_BUDGET: usize = 120;
-
-/// Glow sprite radius, in world px — one logical pixel of the low-res buffer.
-const GLOW_RADIUS_PX: i32 = 64;
-
-/// Alpha of the glow sprite's hot core.
-const GLOW_CORE_ALPHA: f32 = 0.55;
-/// Alpha where the core has finished handing over to the halo.
-const GLOW_HALO_ALPHA: f32 = 0.28;
-/// Fraction of the radius the core occupies.
-const GLOW_CORE_STOP: f32 = 0.4;
-
-/// Bloom flicker midpoint.
+/// Gather radius of the bloom blur, in CELLS.
 ///
-/// Bloom breathes on its own slower phase, decorrelated from the light grid's,
-/// so the halo swells and settles instead of strobing with it.
-const BLOOM_BASE: f32 = 0.72;
-/// Bloom flicker amplitude.
-const BLOOM_SWING: f32 = 0.28;
-/// Bloom flicker rate, radians per second.
-const BLOOM_RATE: f32 = 3.1;
-/// How much of the cell's hash phase the bloom wave uses.
-const BLOOM_PHASE_SCALE: f32 = 0.7;
+/// A cell is [`CELL_SIZE`] px, so three cells is a halo that reaches 15 world px
+/// past the lit surface — against the 64 px RADIUS of the sprite it replaced,
+/// which was a fifth of the buffer's width per stamp. Fifteen px is roughly the
+/// width of a player, which is the scale at which a glow still reads as
+/// belonging to the thing that cast it rather than as fog over the frame.
+///
+/// **Hard-coded a second time in [`BLOOM_WGSL`]** as the loop bounds and the
+/// tap-array length. WGSL has no way to import a Rust constant, so the const
+/// assert below is the thing that stops the two drifting.
+const BLOOM_RADIUS_CELLS: i32 = 3;
+
+/// Materials the bloom's emit table has room for.
+///
+/// [`crate::cellmap::MATERIAL_SLOTS`] and not a second 64 of this module's own:
+/// the table below is indexed by a texel of `cellmap`'s id texture, so the two
+/// shaders must agree on the padding or a block added to `content/` would light
+/// one pass and not the other.
+const BLOOM_EMIT_SLOTS: usize = MATERIAL_SLOTS;
+
+/// Emitted level below which a material contributes nothing to the bloom.
+///
+/// THE THRESHOLD, and it is on the content's declared `lightEmit` rather than on
+/// the drawn pixel's luminance. That is deliberate and it is the better signal:
+/// sunlit sand is one of the brightest things in the frame and must not bloom,
+/// so a luminance threshold would have to sit above sand — at which point it is
+/// above everything except lava anyway, and it would still bloom a white UI
+/// panel. `lightEmit` says "this block is a light source" in the one place that
+/// actually knows. Gold's derived 1/15 and the level-3 emitters fall below this
+/// and are glints, not lamps.
+const BLOOM_LEVEL_KNEE_LO: f32 = 0.25;
+
+/// Emitted level at which a material contributes its colour in full.
+///
+/// The knee between it and [`BLOOM_LEVEL_KNEE_LO`] is smooth rather than a step
+/// so that a level moving by one authored point cannot pop a whole cavern's glow
+/// into existence. Against the content set as it stands: mushroom cap (6/15)
+/// lands at 0.22, crystal (7/15) at 0.40, brazier (10/15) at 0.93, and lava,
+/// fire and the torch (13..15) are all at 1.
+const BLOOM_LEVEL_KNEE_HI: f32 = 0.75;
+
+/// Standard deviation of the bloom's gather kernel, in cells.
+///
+/// Half [`BLOOM_RADIUS_CELLS`], which is the usual place to truncate a Gaussian:
+/// the tap at the rim is `exp(-2)` of the centre, so the kernel is ~98% of the
+/// untruncated one and the seam at the edge of the gather is invisible.
+const BLOOM_SIGMA_CELLS: f32 = 1.5;
+
+/// How much of the blurred emissive field reaches the frame.
+///
+/// THIS NUMBER IS A HARD CEILING, not a starting point for taste. The gather
+/// weights sum to one and every emit-table entry is in 0..1, so the pass's
+/// output is a convex combination of values in 0..1: this is the most the bloom
+/// can add to any channel of any pixel, under any world, ever. Compare the pass
+/// it replaced, whose 120 sprites at 0.55 core alpha could add 66 to a channel
+/// and routinely added enough to clip.
+///
+/// It is low, and it does not need to be high: an additive 0.3 in LINEAR light
+/// over dark rock is about +0.58 in sRGB, which is a plainly visible halo, while
+/// the same 0.3 over daylit ground is lost in a value that was already near 1.
+/// A bloom that shows up exactly where it should and nowhere else is what the
+/// non-linearity buys, and it is the reason this is tuned in linear rather than
+/// against the 0..255 bytes the original was written in.
+const BLOOM_INTENSITY: f32 = 0.3;
+
+/// Where the bloom's gather pass sits in camera order.
+///
+/// BEFORE `crate::lowres`' world camera at `-1`, so the texture the composite
+/// quad samples was written by this frame's gather and not by last frame's. That
+/// ordering is the whole reason the bloom can be a same-frame image pass without
+/// a custom render-graph node: two cameras with different targets and different
+/// orders are two render passes, and Bevy runs them in the order given.
+const BLOOM_CAMERA_ORDER: isize = -2;
 
 // --- Vignette and washes -----------------------------------------------------
 
@@ -1212,69 +1273,130 @@ pub struct Rect2 {
     pub h: f32,
 }
 
-/// One additive glow sprite to draw this frame.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct BloomProbe {
-    /// World px, +x right — the sprite's centre.
-    pub x: f32,
-    /// World px, +y DOWN. The Bevy flip happens at draw time.
-    pub y: f32,
-    /// Which baked sprite to draw.
-    pub hue: GlowHue,
-    /// Strength, 0..1. Folds the emitter's declared level and its bloom flicker.
-    pub alpha: f32,
+/// Everything the bloom's gather pass needs, and all of it is baked once.
+///
+/// The whole threshold-and-weight decision is a CPU function of the content
+/// build ([`bake_bloom_params`]), for the same reason [`LightGrid::bake_shadow`]
+/// is: a lookup table can be asserted about by a test on this machine, and an
+/// expression buried in a fragment shader cannot. `BLOOM_WGSL` reads this and
+/// does nothing but the sum.
+#[derive(Clone, Copy, Debug, ShaderType)]
+pub struct BloomParams {
+    /// Per material: the LINEAR-light colour it contributes to the bloom,
+    /// already multiplied by its threshold weight. `w` is unused padding —
+    /// a WGSL uniform array pads a scalar to 16 bytes regardless, so a `vec4`
+    /// is what an `array<f32>` would have cost anyway.
+    pub emit: [Vec4; BLOOM_EMIT_SLOTS],
+    /// The separable Gaussian's taps, `x` at the centre out to `w` at the rim.
+    ///
+    /// One `vec4` because [`BLOOM_RADIUS_CELLS`] is 3 and 3 + 1 is 4. Normalised
+    /// so the 1D sum is one, which makes the 2D product kernel sum to one too —
+    /// that is the identity the no-blowout guarantee rests on.
+    pub taps: Vec4,
 }
 
-/// Find the emissive clusters worth a glow sprite over the visible rect.
+const _: () = assert!(
+    BLOOM_RADIUS_CELLS == 3,
+    "BLOOM_WGSL hard-codes a radius of 3 in its loop bounds and packs its four \
+     taps into one vec4 — change both together or not at all"
+);
+
+const _: () = assert!(
+    MAT_COUNT <= BLOOM_EMIT_SLOTS,
+    "more materials than bloom emit slots — widen cellmap::MATERIAL_SLOTS, \
+     BLOOM_WGSL and cellmap.wgsl together"
+);
+
+/// Bake the emit table and the gather weights the bloom pass runs on.
 ///
-/// Walks visible cells on a coarse stride and stops at [`BLOOM_BUDGET`] so cost
-/// is bounded no matter how much lava is on screen. Refills `out` for the same
-/// reason [`scan_emitters`] does.
-pub fn bloom_probes(grid: &CellGrid, view: Rect2, t: f32, out: &mut Vec<BloomProbe>) {
-    out.clear();
-    let stride = BLOOM_STRIDE_CELLS;
-    let half = stride / 2;
-    let wpx = (stride * CELL_SIZE) as f32;
-
-    let cx0 = (view.x / wpx).floor() as i32;
-    let cy0 = (view.y / wpx).floor() as i32;
-    let cols = (view.w / wpx).ceil() as i32 + 1;
-    let rows = (view.h / wpx).ceil() as i32 + 1;
-
-    let gx0 = grid.origin_cell_x();
-    let gy0 = grid.origin_cell_y();
-    let (gw, gh) = (grid.cols(), grid.rows());
-
-    for ry in 0..rows {
-        let cy = (cy0 + ry) * stride + half;
-        let gy = cy - gy0;
-        if gy < 0 || gy >= gh {
+/// A pure function of the content build and of the four constants above, called
+/// once in [`setup`] and never again. Two decisions live here rather than in the
+/// shader:
+///
+///   - **The threshold.** A smooth knee on the authored `lightEmit`, so the
+///     table entry for a material that is not a light source is exactly zero and
+///     the gather adds literally nothing for it.
+///   - **The transfer function.** [`Emitter::rgb`] is derived from the AUTHORED
+///     sRGB bytes, because that is the space `cells::build_material_shades`
+///     clamps in and the space a human picked `(235, 110, 35)` in. The bloom is
+///     composited by a fixed-function ADD, and a GPU adds in linear light — so
+///     the conversion has to happen, and here is the only place it can happen
+///     once instead of per fragment. Skipping it would make every glow
+///     noticeably more washed-out and less saturated than the block casting it,
+///     which is the specific mistake this module's header already records the
+///     multiply pass having to live with.
+pub fn bake_bloom_params() -> BloomParams {
+    let mut emit = [Vec4::ZERO; BLOOM_EMIT_SLOTS];
+    for (id, slot) in emit.iter_mut().enumerate().take(MAT_COUNT) {
+        let e = emitter(id as CellId);
+        let weight = smooth_knee(e.level, BLOOM_LEVEL_KNEE_LO, BLOOM_LEVEL_KNEE_HI);
+        if weight <= 0.0 {
             continue;
         }
-        let row = gy * gw;
-        for rx in 0..cols {
-            let cx = (cx0 + rx) * stride + half;
-            let gx = cx - gx0;
-            if gx < 0 || gx >= gw {
-                continue;
-            }
-            let e = emitter(grid.material[(row + gx) as usize]);
-            if !e.emits() {
-                continue;
-            }
-            // The halo's strength follows the emitter's declared level, so a
-            // weak source gets a halo rather than the same flare as a lava lake.
-            let wave = (t * BLOOM_RATE + hash_phase(cx, cy) * BLOOM_PHASE_SCALE).sin();
-            out.push(BloomProbe {
-                x: (cx * CELL_SIZE) as f32,
-                y: (cy * CELL_SIZE) as f32,
-                hue: e.hue,
-                alpha: e.level * (BLOOM_BASE + BLOOM_SWING * wave),
-            });
-            if out.len() >= BLOOM_BUDGET {
-                return;
-            }
-        }
+        let linear = Color::srgb(e.rgb[0], e.rgb[1], e.rgb[2]).to_linear();
+        *slot = Vec4::new(linear.red, linear.green, linear.blue, 0.0) * weight;
+    }
+
+    // Normalise the 1D taps to sum to one over the FULL kernel — the centre once
+    // and every other ring twice, because `w[|d|]` is read on both sides.
+    let mut taps = [0.0f32; BLOOM_RADIUS_CELLS as usize + 1];
+    let denom = 2.0 * BLOOM_SIGMA_CELLS * BLOOM_SIGMA_CELLS;
+    let mut total = 0.0;
+    for (d, tap) in taps.iter_mut().enumerate() {
+        let x = d as f32;
+        *tap = (-(x * x) / denom).exp();
+        total += *tap * if d == 0 { 1.0 } else { 2.0 };
+    }
+    for tap in &mut taps {
+        *tap /= total;
+    }
+
+    BloomParams {
+        emit,
+        taps: Vec4::from_array(taps),
+    }
+}
+
+/// Hermite ramp from 0 at `lo` to 1 at `hi`, flat outside.
+///
+/// `smoothstep` by another name. Written out rather than reached for because
+/// `f32` has none and the two-line version is clearer than the clamp-and-fma
+/// dance that would import one.
+#[inline]
+fn smooth_knee(v: f32, lo: f32, hi: f32) -> f32 {
+    let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Bloom target size for a view, in texels — one texel per CELL.
+///
+/// Sized in cells and not in pixels: the cell grid is the resolution the
+/// emissive field actually has, so this IS the downsample and it costs nothing
+/// to take. [`BLOOM_RADIUS_CELLS`] of margin on every side so an emitter just
+/// off the left of the screen still casts its halo onto the left of the screen —
+/// without it, a lava lake would visibly switch its glow on as its first cell
+/// crossed the edge.
+pub fn bloom_size(view: View) -> (i32, i32) {
+    let ceil = |px: i32| (px.max(0) + CELL_SIZE - 1) / CELL_SIZE + 2 * BLOOM_RADIUS_CELLS;
+    (ceil(view.w), ceil(view.h))
+}
+
+/// Where the bloom's gather covers, in world px, sim convention.
+///
+/// Snapped to whole CELLS, which is the point of the function: one bloom texel
+/// is one cell, and if the rect drifted by a fraction of a cell then every texel
+/// would straddle two cells and the whole glow would crawl and shimmer as the
+/// camera moved. `view` is the visible rect; the result is it, grown by the
+/// gather margin and aligned down.
+pub fn bloom_rect(view: Rect2, texels: (i32, i32)) -> Rect2 {
+    let cell = CELL_SIZE as f32;
+    let x0 = (view.x / cell).floor() as i32 - BLOOM_RADIUS_CELLS;
+    let y0 = (view.y / cell).floor() as i32 - BLOOM_RADIUS_CELLS;
+    Rect2 {
+        x: (x0 * CELL_SIZE) as f32,
+        y: (y0 * CELL_SIZE) as f32,
+        w: (texels.0 * CELL_SIZE) as f32,
+        h: (texels.1 * CELL_SIZE) as f32,
     }
 }
 
@@ -1451,10 +1573,116 @@ light_material!(
 );
 
 light_material!(
-    /// The coloured light, the bloom sprites, and the flat washes.
+    /// The coloured light, the bloom composite, and the flat washes.
     LightGlowMaterial,
     BLEND_ADD
 );
+
+// --- The bloom's gather pass -------------------------------------------------
+
+/// `src`, ignoring whatever was there. The gather owns its target outright.
+///
+/// Not [`AlphaMode2d::Opaque`], which would say the same thing by putting the
+/// quad in the opaque phase: this module's other four materials are all
+/// transparent-phase with an overridden blend, and one pass that reaches the
+/// same place by a different mechanism is a thing a reader has to check.
+const BLEND_REPLACE: BlendState = BlendState {
+    color: BlendComponent::REPLACE,
+    alpha: BlendComponent::REPLACE,
+};
+
+/// Threshold, blur, done — the entire bloom, in one gather over the cell plane.
+///
+/// Held inline for the same reason [`LIGHT_WGSL`] is: every decision worth
+/// arguing about is in [`bake_bloom_params`], on the CPU, where a test can read
+/// it. What is left is a bounds-checked double loop and a multiply-add, and a
+/// `.wgsl` file beside the module would only put that four inches further from
+/// the constants that shape it.
+///
+/// The loop bounds are `BLOOM_RADIUS_CELLS` and the tap array is that plus one;
+/// a `const` assert beside [`BloomParams`] fails the build if either drifts.
+///
+/// `textureLoad` and no sampler at all. One texel is one cell — there is nothing
+/// between two cells to interpolate, which is exactly the reasoning
+/// [`crate::cellmap`]'s own id binding is written on. The SMOOTHING all happens
+/// in the gather; the sampler that matters is the linear one on the way back
+/// out, on the composite quad.
+const BLOOM_WGSL: &str = r#"
+#import bevy_sprite::mesh2d_vertex_output::VertexOutput
+
+struct BloomParams {
+    emit: array<vec4<f32>, 64>,
+    taps: vec4<f32>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var cell_ids: texture_2d<u32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var<uniform> params: BloomParams;
+
+@fragment
+fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    let dim = vec2<i32>(textureDimensions(cell_ids));
+    let centre = vec2<i32>(floor(mesh.uv * vec2<f32>(dim)));
+    let w = array<f32, 4>(params.taps.x, params.taps.y, params.taps.z, params.taps.w);
+
+    var sum = vec3<f32>(0.0);
+    for (var dy = -3; dy <= 3; dy = dy + 1) {
+        let y = centre.y + dy;
+        if (y < 0 || y >= dim.y) {
+            continue;
+        }
+        let wy = w[abs(dy)];
+        for (var dx = -3; dx <= 3; dx = dx + 1) {
+            let x = centre.x + dx;
+            if (x < 0 || x >= dim.x) {
+                continue;
+            }
+            let id = min(textureLoad(cell_ids, vec2<i32>(x, y), 0).r, 63u);
+            sum = sum + params.emit[id].rgb * (wy * w[abs(dx)]);
+        }
+    }
+    return vec4<f32>(sum, 1.0);
+}
+"#;
+
+/// Handle for [`BLOOM_WGSL`], inserted by [`LightPlugin`].
+const BLOOM_SHADER: Handle<Shader> = uuid_handle!("2f4c8d16-5b73-4e90-a1c2-7d6e8f0b3a45");
+
+/// The bloom's gather pass: `cellmap`'s cell ids in, blurred emissive light out.
+///
+/// This is the only material in the module that is not a passthrough, and the
+/// only one that reads a texture it does not own. That coupling to
+/// [`crate::cellmap::CellMap`] is the deliberate part: sharing the id plane is
+/// what makes this a bloom OF THE SCENE rather than a second, independently
+/// drifting opinion about where the lights are.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct BloomMaterial {
+    /// [`crate::cellmap::CellMap::ids`] — one `R16Uint` texel per cell of the
+    /// streaming window, not a copy of it. `u_int`, so `textureLoad` only.
+    #[texture(0, sample_type = "u_int")]
+    pub ids: Handle<Image>,
+    /// The baked threshold table and gather weights.
+    #[uniform(1)]
+    pub params: BloomParams,
+}
+
+impl Material2d for BloomMaterial {
+    fn fragment_shader() -> ShaderRef {
+        BLOOM_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
+    }
+
+    fn specialize(
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: Material2dKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        set_blend(descriptor, BLEND_REPLACE);
+        Ok(())
+    }
+}
 
 // --- The plugin --------------------------------------------------------------
 
@@ -1467,7 +1695,30 @@ const SHADOW_Z: f32 = 0.70;
 /// The coloured light, immediately over the darkness it re-lights.
 const COLOUR_Z: f32 = 0.71;
 /// Bloom, over the coloured light it belongs to.
+///
+/// **Unmoved.** The sprites this pass replaced sat here, and the ordering around
+/// it is load-bearing: after the darkness multiply and the coloured light,
+/// because a bloom is light being added to a scene that has already been lit and
+/// must not be dimmed by the multiply that darkened the rock it spills onto;
+/// BEFORE the vignette and the washes, because the frame's edges have to be able
+/// to close in over a glow the same as over anything else, and because a bloom
+/// that survived the vignette would light the one part of the frame the vignette
+/// exists to take away. Creature glow at 0.80 and the UI at 1.0 stay above it,
+/// which is why a lava lake cannot bloom the health bar.
 const BLOOM_Z: f32 = 0.72;
+
+/// The layer the bloom's gather quad lives on, and the only thing on it.
+///
+/// A layer of its own so [`BLOOM_CAMERA_ORDER`]'s camera renders exactly one
+/// quad and nothing else in the game can wander into the bloom source. It is
+/// NOT [`WORLD_LAYERS`] for the reason that decides the shape of this whole
+/// pass: everything the game draws is on `WORLD_LAYERS`, including the UI and
+/// including the bloom's own composite quad, so a gather that read a re-render
+/// of that layer would bloom the health bar and would feed its own output back
+/// into its own input a frame later. Deriving the bloom from the cell plane
+/// instead of from the finished framebuffer is what avoids both, and it is worth
+/// being explicit that this is the reason rather than an accident.
+const BLOOM_LAYERS: RenderLayers = RenderLayers::layer(2);
 /// The vignette, over everything in the world.
 const VIGNETTE_Z: f32 = 0.75;
 /// The flat washes, last, exactly as the original drew them.
@@ -1475,10 +1726,22 @@ const WASH_Z: f32 = 0.76;
 
 /// The biome's ambient cast, 0..1 per channel.
 ///
-/// SEAM: which biome the camera is standing in is the ambience milestone's to
-/// resolve. Until it lands this holds at black, which is what plains sends and
-/// is a no-op in the composite. When it arrives it writes this resource and
-/// nothing in this module changes.
+/// Written by [`crate::ambience`], which is the only thing that knows which
+/// biome the camera is standing in. The values are each biome's authored
+/// `atmo.ambient` from `godgame_core::sim::biomes`, blended over the same
+/// normalised surface weights the atmosphere is resolved from — so a tundra
+/// casts cold and a volcanic casts red, and nothing here invents a palette.
+///
+/// `Default` is black, which is what plains sends and is a no-op in the
+/// composite. That default is a real fallback rather than a placeholder: an app
+/// running the lighting without the ambience plugin composites correctly and
+/// merely uncast.
+///
+/// This carried a SEAM note for two milestones saying the ambience layer had not
+/// landed. It had — the resource was declared, read by the solve, and written by
+/// nothing, so every biome lit identically and no test could see it. If you are
+/// adding a resource that something else is expected to fill, that failure mode
+/// is worth remembering: it degrades to plausible output.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct BiomeAmbient(pub [f32; 3]);
 
@@ -1491,8 +1754,6 @@ pub struct LightPass {
     pub grid: LightGrid,
     /// The census the current frame solved against.
     pub census: EmitterScan,
-    /// The bloom probes the current frame found.
-    pub probes: Vec<BloomProbe>,
 
     /// The darkness multiply factors, one texel per light cell.
     shadow: Handle<Image>,
@@ -1500,13 +1761,15 @@ pub struct LightPass {
     colour: Handle<Image>,
     /// The radial vignette, in view space.
     vignette: Handle<Image>,
-    /// One premultiplied glow sprite per [`GlowHue`].
-    glows: [Handle<Image>; GLOW_COUNT],
+    /// The blurred emissive field, one texel per CELL. Written by the gather
+    /// camera at [`BLOOM_CAMERA_ORDER`], read by the composite quad.
+    bloom: Handle<Image>,
 
     shadow_mat: Handle<LightShadowMaterial>,
     colour_mat: Handle<LightGlowMaterial>,
     vignette_mat: Handle<LightShadowMaterial>,
     wash_mat: Handle<LightGlowMaterial>,
+    bloom_mat: Handle<LightGlowMaterial>,
 
     /// The view the textures above are currently sized for.
     view: View,
@@ -1516,6 +1779,8 @@ pub struct LightPass {
     extent: Vec2,
     /// World px of the view's centre, sim convention.
     centre: Vec2,
+    /// World px the bloom gather covers, snapped to cells, sim convention.
+    bloom_rect: Rect2,
     /// Whether anything emitted this frame — the colour quad's visibility.
     colour_visible: bool,
 }
@@ -1527,18 +1792,21 @@ pub enum LightQuad {
     Shadow,
     /// The coloured light. Follows the light grid in world space.
     Colour,
+    /// The blurred emissive field. Covers [`LightPass::bloom_rect`].
+    Bloom,
     /// The radial vignette. Covers the view.
     Vignette,
     /// The underworld glow and the biome cast, summed. Covers the view.
     Wash,
 }
 
-/// One pooled bloom sprite. `slot` indexes [`LightPass::probes`].
+/// The camera that runs the bloom's gather into [`LightPass::bloom`].
 #[derive(Component, Clone, Copy, Debug)]
-pub struct BloomSprite {
-    /// Index into the probe list.
-    pub slot: usize,
-}
+pub struct BloomCamera;
+
+/// The one quad [`BloomCamera`] renders: the cell plane, thresholded and blurred.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BloomSource;
 
 /// The light solver, the composite quads, and the world clock that drives them.
 ///
@@ -1551,22 +1819,29 @@ impl Plugin for LightPlugin {
         // this file, so there is no asset path for `embedded_asset!` to take.
         // Bevy's own `ColorMaterialPlugin` reaches into the world at build time
         // for the same kind of reason.
-        app.world_mut()
-            .resource_mut::<Assets<Shader>>()
+        let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
+        shaders
             .insert(&LIGHT_SHADER, Shader::from_wgsl(LIGHT_WGSL, file!()))
             .expect("the light shader handle is a uuid and cannot collide");
+        shaders
+            .insert(&BLOOM_SHADER, Shader::from_wgsl(BLOOM_WGSL, file!()))
+            .expect("the bloom shader handle is a uuid and cannot collide");
 
         app.add_plugins((
             Material2dPlugin::<LightShadowMaterial>::default(),
             Material2dPlugin::<LightGlowMaterial>::default(),
+            Material2dPlugin::<BloomMaterial>::default(),
         ))
         .init_resource::<BiomeAmbient>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            (solve_light, (place_quads, place_bloom).after(solve_light))
-                .run_if(resource_exists::<SimWorld>)
-                .run_if(resource_exists::<LowResTarget>)
+            (
+                bind_cell_ids.run_if(resource_exists::<CellMap>),
+                (solve_light, (place_quads, place_bloom).after(solve_light))
+                    .run_if(resource_exists::<SimWorld>)
+                    .run_if(resource_exists::<LowResTarget>),
+            )
                 .run_if(resource_exists::<LightPass>),
         );
     }
@@ -1574,27 +1849,30 @@ impl Plugin for LightPlugin {
 
 /// Allocate every texture and material, and spawn the quads.
 ///
-/// The glow sprites are baked here and never touched again — they are a pure
-/// function of [`GlowHue::stops`]. The other three textures are rewritten every
-/// frame, and RESIZED by [`solve_light`] on the first frame, because
-/// [`LowResTarget`] is inserted by a command and so does not exist yet while
-/// this runs. Sizing from [`View::default`] here and letting the first solve
-/// correct it is the same trade [`crate::mobs`] makes with its spawn rectangles.
+/// The four view-sized textures are rewritten or re-rendered every frame, and
+/// RESIZED by [`solve_light`] on the first frame, because [`LowResTarget`] is
+/// inserted by a command and so does not exist yet while this runs. Sizing from
+/// [`View::default`] here and letting the first solve correct it is the same
+/// trade [`crate::mobs`] makes with its spawn rectangles. [`CellMap`] is
+/// inserted by a command too, which is why the bloom's id binding is left blank
+/// here and filled by [`bind_cell_ids`] rather than read out of the world.
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut shadow_materials: ResMut<Assets<LightShadowMaterial>>,
     mut glow_materials: ResMut<Assets<LightGlowMaterial>>,
+    mut bloom_materials: ResMut<Assets<BloomMaterial>>,
 ) {
     let view = View::default();
     let (lw, lh) = grid_size(view);
     let (vw, vh) = vignette_size(view);
+    let (bw, bh) = bloom_size(view);
 
     let shadow = images.add(new_light_texture(lw, lh));
     let colour = images.add(new_light_texture(lw, lh));
     let vignette = images.add(new_light_texture(vw, vh));
-    let glows = GLOW_HUES.map(|hue| images.add(new_glow_texture(hue)));
+    let bloom = images.add(new_bloom_target(bw, bh));
     // A single white texel, so the flat washes go through the same shader as
     // everything else and the tint uniform carries the whole signal.
     let white = images.add(new_light_texture(1, 1));
@@ -1614,6 +1892,13 @@ fn setup(
     let wash_mat = glow_materials.add(LightGlowMaterial {
         texture: white,
         tint: Vec4::ZERO,
+    });
+    // Set ONCE, here, and never touched again for the life of the process. The
+    // strength of the bloom is a constant; the pass this replaced re-tinted up
+    // to 120 materials every frame to say the same thing with a flicker on it.
+    let bloom_mat = glow_materials.add(LightGlowMaterial {
+        texture: bloom.clone(),
+        tint: Vec4::new(BLOOM_INTENSITY, BLOOM_INTENSITY, BLOOM_INTENSITY, 1.0),
     });
 
     let quad = meshes.add(Rectangle::default());
@@ -1637,47 +1922,79 @@ fn setup(
     ));
     commands.spawn(quad_bundle(
         &quad,
+        MeshMaterial2d(bloom_mat.clone()),
+        LightQuad::Bloom,
+        BLOOM_Z,
+    ));
+    commands.spawn(quad_bundle(
+        &quad,
         MeshMaterial2d(wash_mat.clone()),
         LightQuad::Wash,
         WASH_Z,
     ));
 
-    // The bloom sprites are POOLED, on the same terms `crate::mobs`' creature
-    // rectangles are: a fixed budget of entities, hidden when their slot is not
-    // live. A lava lake scrolling into view must not churn the ECS's archetypes
-    // once per probe per frame.
-    let side = glow_side();
-    for slot in 0..BLOOM_BUDGET {
-        let material = glow_materials.add(LightGlowMaterial {
-            texture: glows[0].clone(),
-            tint: Vec4::ZERO,
-        });
-        commands.spawn((
-            Mesh2d(quad.clone()),
-            MeshMaterial2d(material),
-            Transform::from_xyz(0.0, 0.0, BLOOM_Z).with_scale(Vec3::new(side, side, 1.0)),
-            Visibility::Hidden,
-            BloomSprite { slot },
-            WORLD_LAYERS,
-        ));
-    }
+    // The gather. ONE quad and ONE camera, in place of 120 pooled sprites and
+    // the 120 material writes a frame that kept them tinted. The quad covers the
+    // whole streaming window so its uv IS the cell plane's uv and the shader
+    // needs no origin uniform at all; the camera crops that to the view, at one
+    // texel per cell, which is the downsample.
+    commands.spawn((
+        Mesh2d(quad.clone()),
+        MeshMaterial2d(bloom_materials.add(BloomMaterial {
+            ids: Handle::default(),
+            params: bake_bloom_params(),
+        })),
+        Transform::default(),
+        BloomSource,
+        BLOOM_LAYERS,
+    ));
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: BLOOM_CAMERA_ORDER,
+            // Black and not the sky: every texel of this target is an amount of
+            // light to ADD, so "nothing here" has to be a literal zero.
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderTarget::Image(bloom.clone().into()),
+        // Fixed and not `WindowSize`, which would map one world px per texel and
+        // shrink the gather to a fifth of the view. Corrected every frame by
+        // `place_bloom`; this only avoids a frame at the wrong extent.
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: (bw * CELL_SIZE) as f32,
+                height: (bh * CELL_SIZE) as f32,
+            },
+            ..OrthographicProjection::default_2d()
+        }),
+        Msaa::Off,
+        BloomCamera,
+        BLOOM_LAYERS,
+    ));
 
     commands.insert_resource(LightPass {
         grid: LightGrid::new(view, SEED),
         census: EmitterScan::default(),
-        probes: Vec::with_capacity(BLOOM_BUDGET),
         shadow,
         colour,
         vignette,
-        glows,
+        bloom,
         shadow_mat,
         colour_mat,
         vignette_mat,
         wash_mat,
+        bloom_mat,
         view,
         origin: Vec2::ZERO,
         extent: Vec2::ZERO,
         centre: Vec2::ZERO,
+        bloom_rect: Rect2 {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        },
         colour_visible: false,
     });
 }
@@ -1698,11 +2015,6 @@ fn quad_bundle<M: Material2d>(
         which,
         WORLD_LAYERS,
     )
-}
-
-/// The glow sprite's side, in world px.
-fn glow_side() -> f32 {
-    (GLOW_RADIUS_PX * 2) as f32
 }
 
 /// A blank `Rgba8Unorm` grid with a LINEAR sampler.
@@ -1732,63 +2044,76 @@ fn new_light_texture(w: i32, h: i32) -> Image {
     image
 }
 
-/// Bake one radial glow: hot core, tinted halo, fully transparent rim.
+/// The bloom's render target: `w x h` CELLS, cleared and rewritten every frame.
 ///
-/// PREMULTIPLIED. The sprite is only ever drawn additively, and an additive draw
-/// adds `rgb * alpha` — so the texel that gets added IS the premultiplied value.
-/// Storing it that way means the shader has nothing to do, the linear sampler
-/// interpolates the right quantity, and the two gradient stops interpolate the
-/// way Canvas2D's specification says a gradient must, which straight RGBA
-/// between a white core and a saturated halo would not.
-fn new_glow_texture(hue: GlowHue) -> Image {
-    let (core, halo) = hue.stops();
-    let r = GLOW_RADIUS_PX as f32;
-    let side = (GLOW_RADIUS_PX * 2) as usize;
-    let mut data = vec![0u8; side * side * 4];
-
-    for (i, px) in data.chunks_exact_mut(4).enumerate() {
-        let x = (i % side) as f32 - r + 0.5;
-        let y = (i / side) as f32 - r + 0.5;
-        let u = (x * x + y * y).sqrt() / r;
-        if u >= 1.0 {
-            continue;
-        }
-        // Two segments: core handing over to halo across `GLOW_CORE_STOP`, then
-        // the halo fading to nothing over the rest of the radius.
-        let (rgb, a) = if u <= GLOW_CORE_STOP {
-            let k = u / GLOW_CORE_STOP;
-            let mut c = [0.0f32; 3];
-            for (ch, o) in c.iter_mut().enumerate() {
-                *o = (core[ch] + (halo[ch] - core[ch]) * k) / 255.0;
-            }
-            (c, GLOW_CORE_ALPHA + (GLOW_HALO_ALPHA - GLOW_CORE_ALPHA) * k)
-        } else {
-            let k = (u - GLOW_CORE_STOP) / (1.0 - GLOW_CORE_STOP);
-            let mut c = [0.0f32; 3];
-            for (ch, o) in c.iter_mut().enumerate() {
-                *o = halo[ch] / 255.0;
-            }
-            (c, GLOW_HALO_ALPHA * (1.0 - k))
-        };
-        for (dst, v) in px.iter_mut().zip(rgb) {
-            *dst = unit_byte(v * a);
-        }
-        px[3] = u8::MAX;
-    }
-
-    let mut image = Image::new(
-        Extent3d {
-            width: side as u32,
-            height: side as u32,
-            depth_or_array_layers: 1,
+/// `Rgba8Unorm`, for [`new_light_texture`]'s reason and one more of its own: the
+/// gather writes LINEAR light, the composite ADDS it in linear, and an sRGB
+/// target would encode on the way in and decode on the way out for no purpose
+/// except to lose the darkest two stops of a pass whose whole output lives near
+/// zero.
+///
+/// **`RENDER_ATTACHMENT`, which is what makes this a camera target rather than a
+/// texture**, and `TEXTURE_BINDING`, which is what lets the composite quad read
+/// it back. `COPY_DST` because [`Image::resize`] writes through it.
+///
+/// The sampler is LINEAR and that is the deliberate answer to the one thing a
+/// bloom can do wrong in a pixel-art game. One texel is 5 world px, so nearest
+/// would stamp a hard 5px lattice of its own over the frame — a second grid,
+/// misaligned with the art's. Linear here does NOT soften the art: the composite
+/// resolves into the 640x400 buffer, and the buffer is still blitted to the
+/// window with the game's one nearest sampler, so every pixel edge in the image
+/// is exactly as hard as it was. What interpolates is the amount of GLOW across
+/// a low-res pixel, which is the one quantity in the frame that should be
+/// smooth. This is the same trade [`new_light_texture`] already makes for the
+/// light grid at four times the texel size.
+fn new_bloom_target(w: i32, h: i32) -> Image {
+    let size = Extent3d {
+        width: w.max(1) as u32,
+        height: h.max(1) as u32,
+        depth_or_array_layers: 1,
+    };
+    let mut image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: Some("godgame_bloom"),
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
         },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    );
-    image.sampler = ImageSampler::linear();
+        sampler: ImageSampler::linear(),
+        ..default()
+    };
+    image.resize(size);
     image
+}
+
+/// Point the bloom's gather at [`CellMap`]'s id plane, once.
+///
+/// Separate from [`setup`] and not merely late in it: `CellMap` is inserted by a
+/// `Commands` call in another plugin's `Startup` system, so it does not exist
+/// until that schedule's sync point — no ordering constraint inside `Startup`
+/// can make it visible there. Guarded on inequality rather than on a `Local`
+/// flag so it also survives `CellMap` being rebuilt, and so the common case is a
+/// handle compare and no asset mutation at all.
+fn bind_cell_ids(
+    cellmap: Res<CellMap>,
+    source: Single<&MeshMaterial2d<BloomMaterial>, With<BloomSource>>,
+    mut materials: ResMut<Assets<BloomMaterial>>,
+) {
+    if materials
+        .get(source.id())
+        .is_some_and(|m| m.ids == cellmap.ids)
+    {
+        return;
+    }
+    if let Some(mut material) = materials.get_mut(source.id()) {
+        material.ids = cellmap.ids.clone();
+    }
 }
 
 /// Everything the solve reads, bundled so the system stays five parameters.
@@ -1823,6 +2148,7 @@ fn solve_light(
         touch(&mut shadow_materials, &pass.shadow_mat.clone());
         touch(&mut shadow_materials, &pass.vignette_mat.clone());
         touch(&mut glow_materials, &pass.colour_mat.clone());
+        touch(&mut glow_materials, &pass.bloom_mat.clone());
     }
 
     // The view rect in world px, sim convention. `WorldFocus` is its centre.
@@ -1859,14 +2185,8 @@ fn solve_light(
     // Split the borrow: `solve` needs the grid mutably and the census by
     // reference, and they are two fields of the same resource.
     {
-        let LightPass {
-            grid,
-            census,
-            probes,
-            ..
-        } = &mut *pass;
+        let LightPass { grid, census, .. } = &mut *pass;
         grid.solve(cells, frame, census.x(), census.y());
-        bloom_probes(cells, rect, t, probes);
     }
 
     pass.origin = Vec2::new(frame.ox as f32 * stride, frame.oy as f32 * stride);
@@ -1875,6 +2195,11 @@ fn solve_light(
         pass.grid.rows() as f32 * stride,
     );
     pass.centre = centre;
+    // Geometry only. The bloom has NO per-frame CPU work beyond this line and no
+    // asset write at all — the gather runs on the GPU from a texture the cell
+    // pass already maintains, which is the whole difference from the sprite
+    // stamping this replaced.
+    pass.bloom_rect = bloom_rect(rect, bloom_size(view));
     pass.colour_visible = pass.grid.colour_dirty();
 
     let (shadow, colour, vignette) = (
@@ -1920,10 +2245,15 @@ fn resize(pass: &mut LightPass, view: View, images: &mut Assets<Image>) {
     pass.grid = LightGrid::new(view, SEED);
     let (lw, lh) = grid_size(view);
     let (vw, vh) = vignette_size(view);
+    let (bw, bh) = bloom_size(view);
     for (handle, (w, h)) in [
         (pass.shadow.clone(), (lw, lh)),
         (pass.colour.clone(), (lw, lh)),
         (pass.vignette.clone(), (vw, vh)),
+        // Resized like the rest. It is a camera TARGET as well as a sampled
+        // texture, and Bevy sizes the attachment from the asset, so this one
+        // line is also what keeps the gather camera's viewport correct.
+        (pass.bloom.clone(), (bw, bh)),
     ] {
         if let Some(mut image) = images.get_mut(&handle) {
             image.resize(Extent3d {
@@ -1955,7 +2285,7 @@ fn upload(handle: &Handle<Image>, images: &mut Assets<Image>, fill: impl FnOnce(
     }
 }
 
-/// Put the four composite quads where this frame's geometry says they go.
+/// Put the five composite quads where this frame's geometry says they go.
 ///
 /// Bevy's +y is up and the sim's is down. This function and [`place_bloom`] are
 /// the only two places in the module where that is true.
@@ -1964,10 +2294,21 @@ fn place_quads(
     mut quads: Query<(&LightQuad, &mut Transform, &mut Visibility)>,
 ) {
     let grid_centre = pass.origin + pass.extent * 0.5;
+    let bloom = pass.bloom_rect;
     for (which, mut transform, mut visibility) in &mut quads {
         let (centre, extent, shown) = match which {
             LightQuad::Shadow => (grid_centre, pass.extent, true),
             LightQuad::Colour => (grid_centre, pass.extent, pass.colour_visible),
+            // Exactly the rect the gather camera covered, to the world px. The
+            // texel centres of the bloom target then land on cell centres in
+            // this quad's uv, which is what makes the linear upscale interpolate
+            // between the two cells it should be between rather than smearing a
+            // half-cell offset across the frame.
+            LightQuad::Bloom => (
+                Vec2::new(bloom.x + bloom.w * 0.5, bloom.y + bloom.h * 0.5),
+                Vec2::new(bloom.w, bloom.h),
+                true,
+            ),
             // The view quads are one px proud on each axis. The world camera is
             // snapped to whole pixels by `crate::lowres` and the focus is not,
             // so an exactly view-sized quad can leave a hairline of uncomposited
@@ -1990,34 +2331,58 @@ fn place_quads(
     }
 }
 
-/// Point every pooled bloom sprite at a probe, or hide its slot.
+/// Aim the bloom's gather: its camera at the view, its quad at the window.
+///
+/// **This function used to move 120 sprites and rewrite 120 materials.** It now
+/// writes two transforms and, on a resize, one projection. Nothing here touches
+/// an asset, which is the point: `docs/PERF.md` §8.5 flagged the 120
+/// `Assets::get_mut` calls a frame as the one renderer cost it could not measure
+/// because the cost was in the render-world extract, and the honest way to close
+/// a measurement you cannot take is to delete the thing being measured.
+///
+/// Bevy's +y is up and the sim's is down; this and [`place_quads`] are the only
+/// two places in the module where that is true.
 fn place_bloom(
     pass: Res<LightPass>,
-    mut materials: ResMut<Assets<LightGlowMaterial>>,
-    mut sprites: Query<(
-        &BloomSprite,
-        &MeshMaterial2d<LightGlowMaterial>,
-        &mut Transform,
-        &mut Visibility,
-    )>,
+    world: Res<SimWorld>,
+    camera: Single<(&mut Transform, &mut Projection), With<BloomCamera>>,
+    source: Single<&mut Transform, (With<BloomSource>, Without<BloomCamera>)>,
 ) {
-    for (sprite, handle, mut transform, mut visibility) in &mut sprites {
-        let Some(probe) = pass.probes.get(sprite.slot) else {
-            *visibility = Visibility::Hidden;
-            continue;
+    let rect = pass.bloom_rect;
+    let (mut camera_transform, mut projection) = camera.into_inner();
+    camera_transform.translation.x = rect.x + rect.w * 0.5;
+    camera_transform.translation.y = -(rect.y + rect.h * 0.5);
+
+    // Written only when it moves — matched on rather than compared because
+    // `ScalingMode` is not `PartialEq`. A `Projection` write is change detection
+    // the render world acts on, and the view changes on a window drag and never
+    // otherwise.
+    if let Projection::Orthographic(ortho) = &mut *projection
+        && !matches!(
+            ortho.scaling_mode,
+            ScalingMode::Fixed { width, height } if width == rect.w && height == rect.h
+        )
+    {
+        ortho.scaling_mode = ScalingMode::Fixed {
+            width: rect.w,
+            height: rect.h,
         };
-        *visibility = Visibility::Inherited;
-        transform.translation.x = probe.x;
-        transform.translation.y = -probe.y;
-        if let Some(mut material) = materials.get_mut(handle.id()) {
-            material.texture = pass.glows[probe.hue.index()].clone();
-            // The strength rides in the tint: an additive draw of a
-            // premultiplied sprite scaled by `alpha` is exactly Canvas2D's
-            // `globalAlpha` with `lighter`, which is what the original did once
-            // per `drawImage`.
-            material.tint = Vec4::splat(probe.alpha.clamp(0.0, 1.0)).with_w(1.0);
-        }
     }
+
+    // The source quad is the whole streaming window, placed exactly as
+    // `cellmap::follow_window` places the cell quad — same rect, same reasoning
+    // about which edge is grid row 0. That is what lets the shader read its cell
+    // coordinate straight out of `mesh.uv` with no origin uniform to keep in
+    // step, and what makes the margin work: the gather camera can look at cells
+    // outside the view because the quad it is looking at is bigger than it.
+    let grid = &world.level.grid;
+    let w = (grid.cols() * CELL_SIZE) as f32;
+    let h = (grid.rows() * CELL_SIZE) as f32;
+    let x = (grid.origin_cell_x() * CELL_SIZE) as f32;
+    let y = (grid.origin_cell_y() * CELL_SIZE) as f32;
+    let mut source = source.into_inner();
+    source.translation = Vec3::new(x + w * 0.5, -(y + h * 0.5), 0.0);
+    source.scale = Vec3::new(w, h, 1.0);
 }
 
 #[cfg(test)]
@@ -2614,58 +2979,84 @@ mod tests {
     }
 
     #[test]
-    fn bloom_probes_stop_at_the_budget() {
-        let id = an_emitter(0.0);
-        let mut g = CellGrid::new(512, 512);
-        for y in 0..512 {
-            for x in 0..512 {
-                g.set(x, y, id);
-            }
-        }
-        let huge = Rect2 {
-            x: 0.0,
-            y: 0.0,
-            w: 100_000.0,
-            h: 100_000.0,
-        };
-        let mut probes = Vec::new();
-        bloom_probes(&g, huge, 0.0, &mut probes);
-        assert_eq!(probes.len(), BLOOM_BUDGET);
-        for p in &probes {
-            assert!((0.0..=1.0).contains(&p.alpha), "probe alpha {}", p.alpha);
-        }
+    fn the_bloom_kernel_sums_to_one_so_the_pass_cannot_blow_out() {
+        // THE guarantee the sprite bloom did not have, and the only reason
+        // `BLOOM_INTENSITY` can be read as a hard ceiling rather than as taste.
+        // The shader reads `w[|d|]` on both sides of the centre, so the sum that
+        // has to be one is the centre once and every other ring twice — and the
+        // 2D kernel is the product of two of those, so it sums to one squared.
+        let p = bake_bloom_params();
+        let taps = p.taps.to_array();
+        let full: f32 = taps[0] + 2.0 * (taps[1] + taps[2] + taps[3]);
+        assert!((full - 1.0).abs() < 1e-6, "1D kernel sums to {full}");
 
-        // A world with nothing in it produces nothing to draw.
-        bloom_probes(&air(64, 64), huge, 0.0, &mut probes);
-        assert!(probes.is_empty(), "empty air bloomed");
+        // And it is a Gaussian, not an accident: strictly falling outward, and
+        // every tap positive so no pixel can be darkened by a light source.
+        for w in taps.windows(2) {
+            assert!(w[1] > 0.0 && w[1] < w[0], "taps not falling: {taps:?}");
+        }
     }
 
     #[test]
-    fn the_glow_sprite_fades_to_nothing_at_its_rim() {
-        let side = (GLOW_RADIUS_PX * 2) as usize;
-        for hue in GLOW_HUES {
-            let image = new_glow_texture(hue);
-            let data = image.data.expect("the sprite is baked with its bytes");
-            let at = |x: usize, y: usize| {
-                let i = (y * side + x) * 4;
-                [data[i], data[i + 1], data[i + 2]]
-            };
+    fn the_bloom_threshold_admits_lamps_and_rejects_glints() {
+        let p = bake_bloom_params();
+        let weight = |id: CellId| {
+            let v = p.emit[id as usize];
+            // The table entry is the emitter's linear colour times the knee, so
+            // the largest channel recovers the knee for any saturated emitter —
+            // `EMIT_SATURATION` drives at least one channel of every cast to 1.
+            v.x.max(v.y).max(v.z)
+        };
+
+        // Lava declares 13/15 and is over the top of the knee: full weight.
+        assert!(weight(block::LAVA) > 0.99, "lava is not blooming in full");
+        // Gold ore derives a level of 1/15 from its `emissive`. It is a glint on
+        // a wall, and a glint that bloomed would put a halo on every ore vein in
+        // the game.
+        assert_eq!(weight(block::GOLD_ORE), 0.0, "gold ore is blooming");
+        // Air is not a light source and its slot has to be a literal zero: the
+        // gather reads it for every empty cell in the kernel and adds it.
+        assert_eq!(p.emit[EMPTY as usize], Vec4::ZERO, "air blooms");
+        // Nothing in the table can push the convex combination above one.
+        for (id, v) in p.emit.iter().enumerate() {
             assert!(
-                at(side / 2, side / 2).iter().any(|c| *c > 0),
-                "{hue:?} has no hot core at all"
+                v.to_array().iter().all(|c| (0.0..=1.0).contains(c)),
+                "slot {id} is out of range: {v:?}"
             );
-            // The corner is outside the radius and the rim is at it: both add
-            // nothing, which is what makes the sprite a circle and not a box.
-            assert_eq!(at(0, 0), [0, 0, 0], "{hue:?} has a lit corner");
-            assert_eq!(at(side - 1, side / 2), [0, 0, 0], "{hue:?} has a lit rim");
-            // And it falls off monotonically along a radius.
-            let mut previous = u16::MAX;
-            for x in (side / 2..side).step_by(4) {
-                let mean: u16 = at(x, side / 2).iter().map(|c| u16::from(*c)).sum::<u16>() / 3;
-                assert!(mean <= previous, "{hue:?} brightens outward at x={x}");
-                previous = mean;
-            }
         }
+    }
+
+    #[test]
+    fn the_bloom_rect_is_cell_aligned_and_covers_the_view_with_margin() {
+        let view = View::for_screen(1000, 500);
+        let texels = bloom_size(view);
+        // A texel per cell, plus the gather margin on both sides.
+        assert_eq!(texels.0, view.w / CELL_SIZE + 2 * BLOOM_RADIUS_CELLS);
+        assert_eq!(texels.1, view.h / CELL_SIZE + 2 * BLOOM_RADIUS_CELLS);
+
+        // Sub-cell camera motion must not move the rect, or the whole glow
+        // crawls against the art as the player walks.
+        let at = |x: f32| {
+            bloom_rect(
+                Rect2 {
+                    x,
+                    y: 0.0,
+                    w: view.w as f32,
+                    h: view.h as f32,
+                },
+                texels,
+            )
+        };
+        let base = at(1000.0);
+        assert_eq!(base.x, at(1000.0 + CELL_SIZE as f32 - 1.0).x);
+        assert_eq!(base.x + CELL_SIZE as f32, at(1000.0 + CELL_SIZE as f32).x);
+        assert_eq!(base.x % CELL_SIZE as f32, 0.0, "rect is off the cell grid");
+
+        // And it really does contain the view it was asked about, margin and
+        // all — an emitter this far off screen still reaches the screen.
+        let margin = (BLOOM_RADIUS_CELLS * CELL_SIZE) as f32;
+        assert!(base.x <= 1000.0 - margin, "left margin lost");
+        assert!(base.x + base.w >= 1000.0 + view.w as f32 + margin, "right");
     }
 
     #[test]

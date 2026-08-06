@@ -28,10 +28,10 @@
 //!
 //! | z | Entity | Canvas pass |
 //! |---|---|---|
-//! | [`GRADIENT_Z`] | a `1 x view.h` image on a stretched sprite | the base gradient AND the twilight band |
+//! | [`GRADIENT_Z`] | a `cols x rows` image on a stretched sprite | the base gradient AND the twilight band |
 //! | [`STARS_Z`] | one vertex-coloured mesh, 90 quads | the starfield |
-//! | [`DISCS_Z`] | one vertex-coloured mesh, two ring fans | sun and moon |
-//! | [`RIDGES_Z`] | one vertex-coloured mesh, two strips | the hill silhouettes |
+//! | [`DISCS_Z`] | one vertex-coloured mesh, two block grids | sun and moon |
+//! | [`RIDGES_Z`] | one vertex-coloured mesh, two block strips | the hill silhouettes |
 //!
 //! Parenting to the camera rather than following it in a system is what makes the
 //! backdrop screen-locked with no ordering rule to get wrong: transform
@@ -39,25 +39,53 @@
 //! never be a frame behind the view it is meant to fill. It also inherits the
 //! camera's pixel snap for free, which is what keeps a 1px star from shimmering.
 //!
+//! # The backdrop is drawn on the world's own pixel grid
+//!
+//! THIS IS A DELIBERATE DEPARTURE FROM THE ORIGINAL AND IT IS NOT A BUG. The
+//! TypeScript drew this backdrop the way Canvas2D wants to be drawn: a
+//! `createLinearGradient` ramp, `arc()` discs with a `createRadialGradient` falloff,
+//! and a `lineTo` polyline for the hills. All three are SMOOTH — the gradient
+//! resolves to one colour per device row, the discs are round with a continuous
+//! radial falloff, and the hills are straight lines at whatever slope the sines
+//! ask for.
+//!
+//! The world in front of them is not. Cells rasterise at
+//! [`CELL_SIZE`] into a 640x400 buffer that is then upscaled with NEAREST, so
+//! everything the player looks at has a hard 5px feature size. A smooth ramp
+//! directly behind blocky terrain does not read as the same material; it reads as
+//! a photograph someone pasted a sprite onto. So every backdrop element here is
+//! rasterised onto [`SKY_PIXEL_PX`] blocks, which is [`CELL_SIZE`]: the gradient
+//! becomes a grid of flat blocks rather than a ramp, the discs become block
+//! circles rather than ring fans, and the ridges become block columns rather than
+//! a polyline.
+//!
+//! The stars needed none of this. They were already rounding to a whole view pixel
+//! — see [`place_stars`] — for precisely the reason everything else now does, and
+//! they stay 1px, because a star is a point of light and a 5px star is a planet.
+//!
+//! Setting [`SKY_PIXEL_PX`] to 1 restores the smooth original almost exactly,
+//! which is the intended way to look at what this bought.
+//!
 //! # What the port changed
 //!
 //! **The base gradient and the twilight band are one image.** The canvas painted
 //! a two-stop vertical gradient and then a second, `lighter`-composited gradient
 //! over the whole rect. Both are functions of y ALONE, so the two composite
-//! exactly into one colour per row — [`sky_texel`] — and the row set is a
-//! `1 x view.h` texture stretched across the view. That is `view.h` texel writes
-//! a frame instead of a full-screen fill, and the arithmetic is identical to the
-//! canvas's because it is done in sRGB, on the same premultiplied stops.
+//! exactly into one colour per row — [`sky_texel`] — and the row set is a small
+//! texture stretched across the view. The arithmetic is identical to the canvas's
+//! because it is done in sRGB, on the same premultiplied stops; only the SAMPLE
+//! POSITIONS changed, from one per view row to one per [`SKY_PIXEL_PX`] block,
+//! ordered-dithered within the block by [`BAYER`].
 //!
 //! **The discs are geometry, not a baked sprite.** `Sky.disc` prebaked a soft
 //! radial sprite into an offscreen canvas and blitted it. A canvas radial gradient
-//! IS a piecewise-linear ramp between its stops, so the same thing here is a fan
-//! of rings at the stop radii with the stop colours on their vertices — see
-//! [`DISC_STOPS`]. It removes the bake, the two offscreen canvases, and the blit's
-//! `x`/`y` culling test. The one difference is that the GPU interpolates between
-//! rings in LINEAR light where the canvas interpolated in sRGB, which moves the
-//! middle of a soft glow by roughly a value step. It is not visible on a 46px disc
-//! and it is the price of not shipping a texture bake.
+//! IS a piecewise-linear ramp between its stops — see [`DISC_STOPS`] — so here
+//! that ramp is evaluated on the CPU, once per block, by [`ring_at`]. It removes
+//! the bake, the two offscreen canvases, and the blit's `x`/`y` culling test. It
+//! also puts the ramp's interpolation back in sRGB where the canvas did it: the
+//! ring fan this replaced handed the stops to the GPU as vertex colours and got
+//! LINEAR-light interpolation between them, which moved the middle of a soft glow
+//! by about a value step.
 //!
 //! **Additive is a blend state, not a composite op.** `globalCompositeOperation =
 //! "lighter"` has no equivalent in Bevy's 2D materials — [`AlphaMode2d`] offers
@@ -87,6 +115,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::ecs::system::SystemParam;
+use bevy::image::ImageSampler;
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -107,6 +136,61 @@ use crate::world::WorldFocus;
 // ---------------------------------------------------------------------------
 // Tuning
 // ---------------------------------------------------------------------------
+
+/// The side of one backdrop pixel, in view px. **The knob for this whole file.**
+///
+/// [`CELL_SIZE`], because the backdrop's job is to read as the same MATERIAL as
+/// the terrain in front of it and the terrain's feature size is one cell. Nothing
+/// subtler than "match the world" survives contact with a nearest-neighbour
+/// upscale: at 2x zoom a 4px backdrop block and a 5px terrain cell beat against
+/// each other and the sky looks like a different game's asset.
+///
+/// The gradient, the discs and the ridges all take the same quantum, and that is
+/// the non-obvious half of the decision. A gradient is the one element with a
+/// case for a FINER grid — it is a very shallow ramp, so a coarse grid turns it
+/// into a staircase of near-identical bands and the eye finds Mach edges in it
+/// that are not really there. Two quanta in one backdrop would have been worse
+/// than either: the sun would have sat on a grid the sky behind it did not share,
+/// which is the exact mismatch this whole change exists to remove. [`BAYER`] is
+/// what makes one quantum affordable — it breaks the staircase without making the
+/// blocks any smaller. See [`SKY_DITHER`].
+///
+/// Set this to 1 and the backdrop goes back to the smooth Canvas2D original: one
+/// texel per view row, a per-pixel disc falloff, a 1px ridge step. That is the
+/// intended before/after, and it is a LOOKING setting rather than a shipping one
+/// — every element here costs `(1/n)^2` of its geometry, so the sun alone goes
+/// from about 280 quads to about 8500.
+const SKY_PIXEL_PX: i32 = CELL_SIZE;
+
+/// How much of a block's own height the ordered dither is allowed to move the
+/// sample by. 0 disables dithering; 1 spreads it over the full block.
+///
+/// Banding is the whole risk of quantising a sky. A block row of the daytime
+/// gradient differs from the next by about one value step and a twilight one by
+/// about five, and a hard edge between two near-identical colours is exactly what
+/// the eye is best at inventing a line along.
+///
+/// Ordered dithering is the period-correct answer rather than a modern hack —
+/// every hand-drawn EGA and Amiga sky is a Bayer ramp, because that is what you
+/// do when you have big pixels and few colours, which is the situation this file
+/// is now deliberately in. It costs nothing here: the dither does not add
+/// resolution, it only decides WHERE INSIDE ITS OWN BLOCK a block samples the
+/// smooth function underneath. The blocks stay exactly [`SKY_PIXEL_PX`] and stay
+/// flat; the boundary between two bands stops being a straight line.
+const SKY_DITHER: f32 = 1.0;
+
+/// The ordered-dither threshold matrix, in `0..N*N`.
+///
+/// The standard 4x4 Bayer matrix. At [`SKY_PIXEL_PX`] its tile is 20 view px —
+/// four cells, which is a plausible size for a hand-placed dither cluster and
+/// small enough not to read as a second pattern in the sky. An 8x8 would grade
+/// more finely and tile at 40px; it is a drop-in replacement if the 4x4's texture
+/// ever shows.
+const BAYER: [[u8; BAYER_N]; BAYER_N] =
+    [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+
+/// Side of [`BAYER`].
+const BAYER_N: usize = 4;
 
 /// A backdrop colour, 0..255 per channel.
 ///
@@ -233,12 +317,6 @@ const DISC_STOPS: [(f32, bool, f32); 4] = [
     (1.00, true, 0.00),
 ];
 
-/// Segments in a disc's ring fan.
-///
-/// At the sun's 46px radius a 24-gon's edge bows in by `r * (1 - cos(pi/24))`,
-/// under half a view pixel — round, at the only size this is ever drawn.
-const DISC_SEGMENTS: usize = 24;
-
 /// Below this a disc is not drawn at all.
 const DISC_CUTOFF: f32 = 0.01;
 
@@ -268,13 +346,6 @@ const RIDGES: [Ridge; 2] = [
         shade: 0.55,
     },
 ];
-
-/// How far apart a ridge is sampled, in view px.
-///
-/// The silhouette is straight-line interpolated between samples. 20px is coarse
-/// enough to be cheap and fine enough that the shortest sine here (a period of
-/// about 270px) never shows a facet.
-const RIDGE_STEP_PX: f32 = 20.0;
 
 /// Ridge brightness floor: what is left of a ridge's colour at midnight.
 ///
@@ -435,9 +506,11 @@ impl HorizonGlow {
 
 /// The finished sRGB texel for view row `y`.
 ///
-/// `y` is a pixel CENTRE, so callers pass `row as f32 + 0.5` — a canvas gradient
-/// samples the centre of the pixel it fills, and being half a texel out would tilt
-/// the whole ramp.
+/// `y` is a sample POSITION inside whatever the caller is filling, not a row
+/// index. A canvas gradient samples the centre of the pixel it fills, and being
+/// half a texel out would tilt the whole ramp; [`paint_gradient`] fills
+/// [`SKY_PIXEL_PX`]-tall blocks rather than rows, so it passes a position inside
+/// the block chosen by [`block_sample`], whose mean is that same centre.
 ///
 /// Opaque: the backdrop is the bottom of the frame and there is nothing behind it
 /// but the camera's clear colour.
@@ -564,6 +637,31 @@ impl Ridge {
         view_h * self.base + (wx * self.f1).sin() * self.a1 + (wx * self.f2).sin() * self.a2
     }
 
+    /// The top of the block column covering ridge-space x `ridge_x`, snapped to
+    /// the backdrop's pixel grid.
+    ///
+    /// Takes a position in the RIDGE's own space rather than a screen x, and that
+    /// is the whole point: this is a constant per column, so the silhouette a
+    /// frame draws is the same set of columns translated, never a set of columns
+    /// whose heights changed. See [`build_ridges`].
+    pub fn column_top(&self, ridge_x: f32, view_h: f32) -> f32 {
+        // Sampled at the column's CENTRE, so a column represents the hill across
+        // its own width rather than at its left edge. At this feature size half a
+        // block of phase error is half a cell of hill, which is visible.
+        snap_to_block(self.height_at(ridge_x + block_px() * 0.5, 0.0, view_h))
+    }
+
+    /// How far along its own space this ridge has scrolled, in whole view px.
+    ///
+    /// Rounded, so the strip lands on the buffer's pixels and its blocks stay
+    /// exactly [`SKY_PIXEL_PX`] wide instead of straddling a pixel boundary.
+    /// Rounding to the BLOCK grid instead would make the hills jump a whole cell
+    /// at a time, which for a layer this close reads as stutter rather than as
+    /// parallax.
+    pub fn scroll(&self, cam_x: f32) -> f32 {
+        (cam_x * self.parallax).round()
+    }
+
     /// This ridge's silhouette colour for a frame.
     ///
     /// Truncated per channel, which is the canvas's `| 0` and worth keeping: it is
@@ -671,6 +769,89 @@ fn clamp01(v: f32) -> f32 {
 #[inline]
 fn clamp255(v: f32) -> f32 {
     v.clamp(0.0, 255.0)
+}
+
+// ---------------------------------------------------------------------------
+// The pixel grid
+// ---------------------------------------------------------------------------
+
+/// One backdrop block in view px, floored at one.
+///
+/// The floor is what makes `SKY_PIXEL_PX = 1` the "smooth original" setting
+/// rather than a division by zero, and it is the only place the constant is read
+/// as a length.
+#[inline]
+fn block_px() -> f32 {
+    SKY_PIXEL_PX.max(1) as f32
+}
+
+/// Where inside its own block the block at `(bx, by)` samples, as a fraction in
+/// `(0, 1)`.
+///
+/// This is the entire dither. A block is one flat colour and stays one flat
+/// colour; all that moves is which row of the smooth function underneath it took
+/// that colour from. Two vertically adjacent block rows whose ideal colours
+/// differ by a single value step therefore stop meeting along a straight line and
+/// start interleaving over a 4-block-wide ramp — the staircase goes, the block
+/// size does not.
+///
+/// The `+ 0.5` on the matrix entry centres the sixteen thresholds on 0.5, so the
+/// MEAN sample position is the block centre. Without it the whole sky would sit
+/// half a threshold high, which on a ramp this shallow is a real, if tiny, tilt.
+///
+/// `rem_euclid` rather than `%` because block indices are signed: the disc's
+/// lattice is built outward from its own centre and half its columns are
+/// negative.
+fn block_sample(bx: i32, by: i32) -> f32 {
+    let n = BAYER_N as i32;
+    let m = f32::from(BAYER[by.rem_euclid(n) as usize][bx.rem_euclid(n) as usize]);
+    let t = (m + 0.5) / (BAYER_N * BAYER_N) as f32;
+    0.5 + SKY_DITHER * (t - 0.5)
+}
+
+/// A view coordinate snapped to the nearest block edge.
+#[inline]
+fn snap_to_block(v: f32) -> f32 {
+    (v / block_px()).round() * block_px()
+}
+
+/// A [`Disc::rings`] ramp evaluated at radius `r`, or `None` where it adds
+/// nothing.
+///
+/// The canvas's `createRadialGradient` was a piecewise-linear ramp between its
+/// stops and this is that ramp, read on the CPU because a block is a flat colour
+/// and something has to decide which one. Interpolating here rather than across
+/// vertices also puts the lerp back in sRGB, where the canvas did it.
+///
+/// `None` past the rim AND at zero alpha: an additive draw at alpha zero adds
+/// nothing at all, so the caller can drop the block instead of emitting a quad
+/// that rasterises to a no-op. That is most of the bounding square of a disc.
+fn ring_at(rings: &[(f32, Rgb, f32)], r: f32) -> Option<(Rgb, f32)> {
+    let last = rings.last()?;
+    if r >= last.0 {
+        return None;
+    }
+    let mut lo = *rings.first()?;
+    for &hi in &rings[1..] {
+        if r <= hi.0 {
+            let t = if hi.0 > lo.0 {
+                clamp01((r - lo.0) / (hi.0 - lo.0))
+            } else {
+                1.0
+            };
+            let alpha = lo.2 + (hi.2 - lo.2) * t;
+            if alpha <= 0.0 {
+                return None;
+            }
+            let mut color = [0.0; 3];
+            for (slot, (lo_c, hi_c)) in color.iter_mut().zip(lo.1.iter().zip(hi.1.iter())) {
+                *slot = lo_c + (hi_c - lo_c) * t;
+            }
+            return Some((color, alpha));
+        }
+        lo = hi;
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -902,7 +1083,8 @@ pub struct Atmosphere {
 /// The star seeds and the gradient's texture.
 #[derive(Resource)]
 pub struct Backdrop {
-    /// `1 x view.h` sRGB: one texel per view row, stretched across the width.
+    /// sRGB, one texel per [`SKY_PIXEL_PX`] block, stretched over the view with a
+    /// nearest sampler so one texel is exactly one block.
     pub gradient: Handle<Image>,
     /// The fixed star set.
     pub stars: StarField,
@@ -1021,7 +1203,7 @@ fn setup(
     camera: Single<Entity, With<WorldCamera>>,
 ) {
     let camera = *camera;
-    let gradient = images.add(gradient_image(1));
+    let gradient = images.add(gradient_image(1, 1));
 
     commands.spawn((
         Sprite {
@@ -1084,11 +1266,17 @@ fn setup(
     });
 }
 
-/// A `1 x rows` sRGB strip: one texel per view row.
-fn gradient_image(rows: u32) -> Image {
-    Image::new_fill(
+/// A `cols x rows` sRGB image: one texel per [`SKY_PIXEL_PX`] block of sky.
+///
+/// The sampler is pinned to nearest here rather than inherited from
+/// `ImagePlugin::default_nearest()`. The binary does set that default, but this
+/// texture is the one place in the backdrop where a linear sampler would not look
+/// like a bug — it would look like the smooth gradient this file used to draw,
+/// silently undoing the whole point of [`SKY_PIXEL_PX`]. Say it out loud instead.
+fn gradient_image(cols: u32, rows: u32) -> Image {
+    let mut image = Image::new_fill(
         Extent3d {
-            width: 1,
+            width: cols.max(1),
             height: rows.max(1),
             depth_or_array_layers: 1,
         },
@@ -1096,7 +1284,9 @@ fn gradient_image(rows: u32) -> Image {
         &[0, 0, 0, 255],
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    )
+    );
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 /// Resolve the biome atmosphere and the camera's depth for this frame.
@@ -1106,7 +1296,14 @@ fn sample_atmosphere(focus: Res<WorldFocus>, noise: Res<SkyNoise>, mut atmo: Res
     atmo.depth = depth_at(focus.y);
 }
 
-/// Rewrite the gradient strip and stretch it over the view.
+/// Rewrite the gradient's block grid and stretch it over the view.
+///
+/// The texture is one texel per block and the sprite is sized to a WHOLE number
+/// of blocks, which is what makes every block exactly [`SKY_PIXEL_PX`] across
+/// under the nearest sampler. Sizing it to the view instead would divide `view.w`
+/// by a column count that does not divide it and scatter 4px and 6px blocks
+/// through the sky. The overhang — under one block on each axis — falls outside
+/// the view and is clipped.
 fn paint_gradient(
     frame: Frame,
     backdrop: Res<Backdrop>,
@@ -1114,15 +1311,18 @@ fn paint_gradient(
     mut sprite: Single<&mut Sprite, With<SkyGradient>>,
 ) {
     let view = frame.view();
-    let rows = view.h.max(1) as usize;
-    sprite.custom_size = Some(Vec2::new(view.w as f32, view.h as f32));
+    let block = block_px();
+    let cols = (view.w.max(1) as u32).div_ceil(block as u32) as usize;
+    let rows = (view.h.max(1) as u32).div_ceil(block as u32) as usize;
+    sprite.custom_size = Some(Vec2::new(cols as f32 * block, rows as f32 * block));
 
     let Some(mut image) = images.get_mut(&backdrop.gradient) else {
         return;
     };
-    if image.texture_descriptor.size.height as usize != rows {
+    let size = image.texture_descriptor.size;
+    if size.width as usize != cols || size.height as usize != rows {
         image.resize(Extent3d {
-            width: 1,
+            width: cols as u32,
             height: rows as u32,
             depth_or_array_layers: 1,
         });
@@ -1135,8 +1335,20 @@ fn paint_gradient(
     let gradient = gradient(&frame.atmo.resolved, frame.atmo.depth, phase);
     let glow = horizon_glow(phase, frame.atmo.depth, view.h as f32);
     for row in 0..rows {
-        let texel = sky_texel(&gradient, glow.as_ref(), row as f32 + 0.5, view.h as f32);
-        data[row * 4..row * 4 + 4].copy_from_slice(&texel);
+        // Every colour in a block row is a function of the dither phase alone, and
+        // [`BAYER`] has only `BAYER_N` of those. So the ramp is evaluated four
+        // times a row and the row is filled by repeating them, which keeps this at
+        // roughly the `view.h` gradient evaluations a frame it cost when it was a
+        // one-texel-wide strip rather than the `cols * rows` the grid implies.
+        let mut phases = [[0u8; 4]; BAYER_N];
+        for (bx, texel) in phases.iter_mut().enumerate() {
+            let y = (row as f32 + block_sample(bx as i32, row as i32)) * block;
+            *texel = sky_texel(&gradient, glow.as_ref(), y, view.h as f32);
+        }
+        for col in 0..cols {
+            let at = (row * cols + col) * 4;
+            data[at..at + 4].copy_from_slice(&phases[col % BAYER_N]);
+        }
     }
 }
 
@@ -1164,6 +1376,12 @@ fn place_stars(
             // Rounded to a whole view pixel: a canvas `fillRect` at a fractional
             // coordinate antialiases a 1px star across two, which at this buffer
             // size is a smear rather than a star.
+            //
+            // This one line is the oldest thing in the file and it is the argument
+            // the rest of the backdrop now follows — see the module header. It is
+            // also the one element that stays at 1px rather than moving to
+            // `SKY_PIXEL_PX`: a star is a point of light, and a 5px one is a
+            // planet.
             buf.rect(
                 star.x.round(),
                 star.y.round(),
@@ -1212,46 +1430,84 @@ fn place_discs(
     buf.write(&mut mesh);
 }
 
-/// One disc as a fan of rings, centre outward.
+/// One disc as a square block grid, centre outward.
+///
+/// A block circle, not a polygon. The disc used to be a 24-segment ring fan with
+/// the stop colours on its vertices, which is round to within half a view pixel
+/// and has a smooth radial falloff — a genuinely circular circle in a world made
+/// of squares. Here each [`SKY_PIXEL_PX`] block inside the radius is one flat
+/// quad whose colour is [`ring_at`] read at the block's own distance from the
+/// centre, so the rim staircases and the halo falls off in visible steps, exactly
+/// like the terrain does.
+///
+/// # The two snaps, and why they are different
+///
+/// The centre is snapped to a whole VIEW pixel and the lattice is then built out
+/// from it, rather than the disc being pinned to the same global block grid the
+/// gradient uses. Both were tried on paper and the global grid loses: a sun
+/// pinned to a 5px grid crosses the view in 128 discrete hops over a 300-second
+/// day, which is one visible jolt every two and a half seconds, and a jolting sun
+/// is a worse artefact than a sun whose blocks are half a block out of phase with
+/// the sky's. Nobody can see the phase. Everybody can see the jolt.
+///
+/// What the centre snap DOES buy is that every block edge lands on an integer
+/// view pixel, so the blocks are all exactly [`SKY_PIXEL_PX`] wide and none of
+/// them shimmers as the disc drifts. It is the same reasoning, and the same
+/// `round`, that [`place_stars`] has always applied to a 1px star.
 fn push_disc(buf: &mut VertexBuf, disc: &Disc, centre: Vec2, alpha: f32, view: View) {
     let rings = disc.rings(alpha);
-    let step = core::f32::consts::TAU / DISC_SEGMENTS as f32;
-    let at = |angle_sin: f32, angle_cos: f32, r: f32| {
-        view_to_local(centre.x + angle_cos * r, centre.y + angle_sin * r, view)
-    };
+    let block = block_px();
+    let cx = centre.x.round();
+    let cy = centre.y.round();
+    // Indices run `-n..n`, so the centre is a block CORNER and the disc comes out
+    // symmetric about it on both axes. Centring a block on the centre instead
+    // would make the diameter an odd number of blocks and give the circle a spine.
+    let n = (disc.radius / block).ceil() as i32;
 
-    for segment in 0..DISC_SEGMENTS {
-        let (s0, c0) = (segment as f32 * step).sin_cos();
-        let (s1, c1) = ((segment + 1) as f32 * step).sin_cos();
-
-        // The innermost ring has zero radius, so its two edges are the same point:
-        // that band is a triangle, not a quad.
-        let (r, color, a) = rings[1];
-        let hub = buf.vertex(at(0.0, 0.0, 0.0), linear(rings[0].1, rings[0].2));
-        let near = linear(color, a);
-        let n0 = buf.vertex(at(s0, c0, r), near);
-        let n1 = buf.vertex(at(s1, c1, r), near);
-        buf.tri(hub, n0, n1);
-
-        for band in 1..rings.len() - 1 {
-            let (r0, color0, a0) = rings[band];
-            let (r1, color1, a1) = rings[band + 1];
-            let inner = linear(color0, a0);
-            let outer = linear(color1, a1);
-            buf.quad(
-                [
-                    at(s0, c0, r0),
-                    at(s1, c1, r0),
-                    at(s1, c1, r1),
-                    at(s0, c0, r1),
-                ],
-                [inner, inner, outer, outer],
+    for row in -n..n {
+        for col in -n..n {
+            let dx = (col as f32 + 0.5) * block;
+            let dy = (row as f32 + 0.5) * block;
+            // The same dither as the gradient, on the radius instead of on y. The
+            // halo's alpha falls by about a twentieth per block, which without
+            // this reads as five concentric rings rather than one glow.
+            let r = dx.hypot(dy) + block * (block_sample(col, row) - 0.5);
+            let Some((color, a)) = ring_at(&rings, r) else {
+                continue;
+            };
+            buf.rect(
+                cx + col as f32 * block,
+                cy + row as f32 * block,
+                block,
+                block,
+                view,
+                linear(color, a),
             );
         }
     }
 }
 
-/// Rebuild both hill ridges.
+/// Rebuild both hill ridges as columns of blocks.
+///
+/// The canvas walked the silhouette with `lineTo` every 20px and let the fill
+/// draw whatever slope fell out, so a ridge was a polyline with smooth diagonal
+/// edges. Here it is a run of [`SKY_PIXEL_PX`]-wide columns whose tops are
+/// snapped to the same lattice — a staircase, which is what a hill drawn out of
+/// cells looks like.
+///
+/// # The lattice lives in the ridge's space, not the screen's
+///
+/// This is the part that is easy to get wrong and looks terrible when you do.
+/// Sampling at fixed SCREEN columns and snapping the height there means each
+/// column's height creeps with the camera and pops to the next lattice step at
+/// its own moment: the silhouette boils. So the columns are laid out in the
+/// RIDGE's own space, where the height of column `j` is a constant, and the whole
+/// strip is then translated onto the screen by a whole number of view px. The
+/// silhouette is rigid and slides; no column ever changes height.
+///
+/// That is also why the parallax offset is rounded and `height_at` is called with
+/// a camera of zero: the rounded offset IS the parallax, and passing it twice
+/// would apply it twice.
 fn build_ridges(
     frame: Frame,
     mesh: Single<&Mesh2d, With<SkyRidges>>,
@@ -1270,27 +1526,21 @@ fn build_ridges(
     let cam_x = frame.cam().x;
     let hill = rgb32(frame.atmo.resolved.hill);
 
+    let block = block_px();
     for ridge in &RIDGES {
         let color = linear(ridge.tint(hill, day), 1.0);
-        let mut x0 = 0.0f32;
-        let mut y0 = ridge.height_at(x0, cam_x, h);
-        while x0 < w {
-            // The last span is short whenever the view is not a whole number of
-            // steps wide. The canvas closed its path straight to the bottom-right
-            // corner there, which drew the same short last facet this does.
-            let x1 = (x0 + RIDGE_STEP_PX).min(w);
-            let y1 = ridge.height_at(x1, cam_x, h);
-            buf.quad(
-                [
-                    view_to_local(x0, y0, view),
-                    view_to_local(x1, y1, view),
-                    view_to_local(x1, h, view),
-                    view_to_local(x0, h, view),
-                ],
-                [color; 4],
-            );
-            x0 = x1;
-            y0 = y1;
+        let shift = ridge.scroll(cam_x);
+        // One column past each edge, so the partial column a shift that is not a
+        // whole number of blocks leaves at the left never opens a gap.
+        let first = (shift / block).floor() as i32;
+        let last = ((shift + w) / block).ceil() as i32;
+        for j in first..last {
+            let ridge_x = j as f32 * block;
+            let top = ridge.column_top(ridge_x, h);
+            if top >= h {
+                continue;
+            }
+            buf.rect(ridge_x - shift, top, block, h - top, view, color);
         }
     }
 
@@ -1748,6 +1998,226 @@ mod tests {
         let (sun_halo, moon_halo) = (sun[2].1, moon[2].1);
         assert!(moon_halo[2] > moon_halo[0], "the moon reads cold");
         assert!(sun_halo[0] > sun_halo[2], "the sun reads warm");
+    }
+
+    #[test]
+    fn the_dither_matrix_is_a_real_ordered_dither() {
+        // Every threshold once and only once is what MAKES a matrix an ordered
+        // dither: it is the property that guarantees a block row visits all
+        // sixteen sample positions and none of them twice, so the interleave is
+        // even. A hand-edit that duplicates an entry silently clumps the pattern.
+        let mut seen = [false; BAYER_N * BAYER_N];
+        for row in BAYER {
+            for m in row {
+                let m = m as usize;
+                assert!(m < seen.len(), "threshold {m} is outside 0..{}", seen.len());
+                assert!(!seen[m], "threshold {m} appears twice");
+                seen[m] = true;
+            }
+        }
+        assert!(seen.iter().all(|&s| s), "the matrix has a hole in it");
+    }
+
+    #[test]
+    fn a_dithered_block_samples_inside_itself_and_averages_to_its_own_centre() {
+        // Two things, and both are load-bearing whatever `SKY_DITHER` is set to.
+        //
+        // Inside itself: a block that sampled past its own edge would be showing
+        // the neighbouring band's colour, which is not dithering, it is being
+        // wrong.
+        //
+        // Averaging to the centre: the dither must not move the ramp. On a sky
+        // this shallow a half-threshold bias would tilt the whole gradient, and it
+        // is the `+ 0.5` in `block_sample` that stops it.
+        let mut total = 0.0;
+        for by in 0..BAYER_N as i32 {
+            for bx in 0..BAYER_N as i32 {
+                let s = block_sample(bx, by);
+                assert!(s > 0.0 && s < 1.0, "block ({bx},{by}) sampled at {s}");
+                total += s;
+            }
+        }
+        let mean = total / (BAYER_N * BAYER_N) as f32;
+        assert!(
+            (mean - 0.5).abs() < 1.0e-6,
+            "the dither is biased: mean {mean}"
+        );
+    }
+
+    #[test]
+    fn the_dither_pattern_tiles_and_takes_negative_block_indices() {
+        // The disc builds its lattice outward from its own centre, so half its
+        // columns are negative. `%` would hand those back negative and index out
+        // of the matrix; `rem_euclid` is what makes the tile continuous across the
+        // origin instead of mirrored about it.
+        let n = BAYER_N as i32;
+        for by in -2 * n..2 * n {
+            for bx in -2 * n..2 * n {
+                assert_eq!(block_sample(bx, by), block_sample(bx + n, by + n));
+            }
+        }
+    }
+
+    #[test]
+    fn the_dither_spreads_a_band_edge_over_more_than_one_colour() {
+        // The reason this file dithers at all, asserted on the steepest ramp the
+        // sky ever draws: a sunset's horizon glow, which climbs about five value
+        // steps per block. Undithered that is sixteen hard horizontal lines
+        // through the warmest part of the sky. Dithered, a block row spans more
+        // than one colour and the lines interleave away.
+        //
+        // This asserts at the shipping `SKY_DITHER`. Turning the knob to zero is
+        // meant to fail here — that is the knob doing what it says.
+        let view_h = 400.0;
+        let g = gradient(&plains(), 0.0, DayPhase::at(SUNSET));
+        let glow = horizon_glow(DayPhase::at(SUNSET), 0.0, view_h).expect("sunset is lit");
+        let block = block_px();
+
+        let mut rows_with_a_mixed_edge = 0;
+        for row in 0..(view_h / block) as i32 {
+            let mut colours = std::collections::BTreeSet::new();
+            for bx in 0..BAYER_N as i32 {
+                let y = (row as f32 + block_sample(bx, row)) * block;
+                colours.insert(sky_texel(&g, Some(&glow), y, view_h));
+            }
+            if colours.len() > 1 {
+                rows_with_a_mixed_edge += 1;
+            }
+        }
+        assert!(
+            rows_with_a_mixed_edge > 20,
+            "only {rows_with_a_mixed_edge} block rows dithered; the glow spans about \
+             {} of them and every one of those should",
+            (view_h * BAND_SPAN / block) as i32
+        );
+    }
+
+    #[test]
+    fn a_ridge_column_is_on_the_grid_and_does_not_move_with_the_camera() {
+        // The boiling bug, in test form. If a column's height were a function of
+        // where the camera is, then as the camera crept each column would pop to
+        // the next lattice step at its own moment and the silhouette would seethe
+        // instead of sliding. `column_top` takes ridge space precisely so it
+        // cannot.
+        let view_h = 400.0;
+        let block = block_px();
+        for ridge in &RIDGES {
+            for j in -400..400 {
+                let ridge_x = j as f32 * block;
+                let top = ridge.column_top(ridge_x, view_h);
+                assert!(
+                    (top / block - (top / block).round()).abs() < 1.0e-3,
+                    "column {j} topped at {top}, which is not on the {block}px grid"
+                );
+            }
+            // And the scroll is what moves it: a camera `d` further along shifts
+            // the strip by `scroll(d)` and changes nothing else.
+            let far = ridge.scroll(1.0e4);
+            assert!(far.fract() == 0.0, "the scroll must be whole px, was {far}");
+            assert!(
+                (far - 1.0e4 * ridge.parallax).abs() <= 0.5,
+                "the rounding must not change the parallax rate"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ridge_silhouette_is_the_same_shape_wherever_the_camera_stands() {
+        // The stronger form: run the column walk `build_ridges` runs, at two
+        // camera positions far apart, and every column the two have in common must
+        // come out at the same height. That is what "one rigid strip, translated"
+        // means, and it is the property a screen-space lattice would not have.
+        let (view_h, view_w) = (400.0, 640.0);
+        let block = block_px();
+        let walk = |ridge: &Ridge, cam_x: f32| {
+            let shift = ridge.scroll(cam_x);
+            let first = (shift / block).floor() as i32;
+            let last = ((shift + view_w) / block).ceil() as i32;
+            (first..last)
+                .map(|j| (j, ridge.column_top(j as f32 * block, view_h)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        for ridge in &RIDGES {
+            let near = walk(ridge, 0.0);
+            // Far enough that the two strips overlap by only part of a view, so
+            // the shared columns are a real intersection and not the whole set —
+            // and near enough that the faster ridge, at parallax 0.55, has not
+            // scrolled clean past the slower one's span.
+            let far = walk(ridge, 800.0);
+            let shared: Vec<_> = near.keys().filter(|j| far.contains_key(j)).collect();
+            assert!(
+                !shared.is_empty(),
+                "the two walks should still overlap at parallax {}",
+                ridge.parallax
+            );
+            for j in shared {
+                assert_eq!(
+                    near[j], far[j],
+                    "column {j} changed height when the camera moved"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_disc_block_reads_the_same_ramp_the_ring_fan_drew() {
+        // `ring_at` replaced GPU interpolation between ring vertices, so it has to
+        // agree with the stops it interpolates or the sun changes colour.
+        let rings = SUN.rings(1.0);
+        let (core, a) = ring_at(&rings, 0.0).expect("the centre is lit");
+        assert_eq!(core, SUN.core, "the centre is the core colour");
+        assert!((a - rings[0].2).abs() < 1.0e-6);
+        // On a stop, exactly that stop.
+        for &(r, color, alpha) in &rings[..rings.len() - 1] {
+            let (c, a) = ring_at(&rings, r).expect("a stop inside the rim is lit");
+            assert_eq!(c, color, "the ramp drifted off its own stop at r={r}");
+            assert!((a - alpha).abs() < 1.0e-6);
+        }
+        // And nothing at or past the rim, which is what lets the caller drop three
+        // quarters of the bounding square instead of emitting invisible quads.
+        assert!(ring_at(&rings, SUN.radius).is_none());
+        assert!(ring_at(&rings, SUN.radius + 1.0).is_none());
+    }
+
+    #[test]
+    fn a_disc_fades_outward_block_by_block() {
+        // Monotone alpha, sampled at every block ring rather than at the four
+        // stops: a block circle shows its ramp as visible rings, and one that rose
+        // outward would read as a halo with a dark moat in it.
+        for disc in [SUN, MOON] {
+            let rings = disc.rings(1.0);
+            let mut last = f32::MAX;
+            let mut steps = 0;
+            let mut r = 0.0;
+            while r < disc.radius {
+                if let Some((_, a)) = ring_at(&rings, r) {
+                    assert!(a <= last + 1.0e-6, "alpha rose outward at r={r}");
+                    last = a;
+                    steps += 1;
+                }
+                r += block_px();
+            }
+            assert!(
+                steps > 3,
+                "a {}px disc should be more than {steps} blocks deep",
+                disc.radius
+            );
+        }
+    }
+
+    #[test]
+    fn the_backdrop_grid_matches_the_world_it_sits_behind() {
+        // The claim the whole file is built on. If someone retunes `SKY_PIXEL_PX`
+        // off `CELL_SIZE` this fails and points at the module header, which is
+        // where the argument for keeping them equal is written down.
+        assert_eq!(
+            SKY_PIXEL_PX, CELL_SIZE,
+            "the sky's pixel and the world's cell are meant to be the same size"
+        );
+        assert_eq!(block_px(), CELL_SIZE as f32);
+        assert_eq!(snap_to_block(0.4 * CELL_SIZE as f32), 0.0);
+        assert_eq!(snap_to_block(0.6 * CELL_SIZE as f32), CELL_SIZE as f32);
+        assert_eq!(snap_to_block(-0.6 * CELL_SIZE as f32), -(CELL_SIZE as f32));
     }
 
     #[test]

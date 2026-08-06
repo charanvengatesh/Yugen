@@ -40,8 +40,8 @@
 //! **The weights are a resource, not an argument.** `Ambience` owned the blended
 //! weight vector and `Game.ts` passed it down. [`WeatherWeights`] is that vector
 //! as a resource, so the producer and the consumer no longer have to be called by
-//! the same function. See the SEAM on [`follow_dominant_biome`] for what fills it
-//! until the ambience layer lands.
+//! the same function. [`crate::ambience`] fills it from the mood it already
+//! resolves each frame, and nothing here has to learn where the number came from.
 //!
 //! **Per-kind motion is a table, not a `switch`.** The four cases differed only in
 //! eight numbers each, and written as a `match` those numbers sit in the middle of
@@ -477,12 +477,14 @@ pub const GLOW_Z: f32 = -49.0;
 
 /// Weight per kind, indexed by [`WEATHER_KINDS`]. Need not be normalised.
 ///
-/// SEAM: this is `Ambience.weatherW` — the dithered blend derived from the biome
-/// mix at the camera. The ambience layer does not exist in this port yet, so
-/// [`follow_dominant_biome`] fills it from the resolved atmosphere's single
-/// dominant kind, which is exactly the snapping the dithering exists to fix. When
-/// the ambience layer lands it writes this resource, that system is deleted, and
-/// nothing else in this module changes.
+/// This is `Ambience.weatherW`: the dithered blend derived from the biome mix at
+/// the camera, written every frame by [`crate::ambience`] from the mood it
+/// resolves there. Driving the field off the resolved atmosphere's single
+/// DOMINANT kind instead would make snow become dust between one step and the
+/// next, which is the exact snapping the dithering above exists to fix.
+///
+/// The default is a clear sky, so a [`WeatherPlugin`] running without an
+/// ambience layer draws nothing rather than guessing.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct WeatherWeights(pub [f32; WEATHER_KIND_COUNT]);
 
@@ -544,11 +546,12 @@ impl Plugin for WeatherPlugin {
             // After every `Startup`, so the world camera these parent themselves
             // to already exists.
             .add_systems(PostStartup, setup)
+            // `WeatherWeights` is written a whole schedule earlier, in
+            // `PreUpdate` by `crate::ambience`, so there is no edge to declare
+            // here — the weights this reads are always this frame's.
             .add_systems(
                 Update,
-                (follow_dominant_biome, place_particles)
-                    .chain()
-                    .run_if(resource_exists::<Atmosphere>),
+                place_particles.run_if(resource_exists::<Atmosphere>),
             );
     }
 }
@@ -588,18 +591,6 @@ fn setup(
         ChildOf(camera),
         WORLD_LAYERS,
     ));
-}
-
-/// Put the whole weight on the dominant biome's kind.
-///
-/// SEAM — see [`WeatherWeights`]. This is the un-dithered stand-in: it snaps from
-/// snow to dust in one step at a biome boundary, which is the exact behaviour the
-/// selector dithering above was written to replace. Delete this system when
-/// `Ambience` arrives to write the resource properly.
-fn follow_dominant_biome(atmo: Res<Atmosphere>, mut weights: ResMut<WeatherWeights>) {
-    let mut w = [0.0; WEATHER_KIND_COUNT];
-    w[kind_index(atmo.resolved.weather)] = 1.0;
-    weights.0 = w;
 }
 
 /// Rebuild both particle meshes.
@@ -650,6 +641,10 @@ fn place_particles(
 mod tests {
     use super::*;
 
+    use godgame_core::config::SEED;
+
+    use crate::ambience::Ambience;
+
     fn view() -> View {
         View::for_screen(1440, 900)
     }
@@ -673,6 +668,35 @@ mod tests {
 
     fn count_of(drawn: &[Drawn], kind: WeatherKind) -> usize {
         drawn.iter().filter(|p| p.kind == kind).count()
+    }
+
+    /// Which slot carries the most weight — the kind a column mostly is.
+    fn heaviest(w: &[f32; WEATHER_KIND_COUNT]) -> usize {
+        (0..WEATHER_KIND_COUNT).fold(0, |best, i| if w[i] > w[best] { i } else { best })
+    }
+
+    /// The weights the real producer resolves at one real column.
+    fn weights_at(a: &mut Ambience, col: i32) -> [f32; WEATHER_KIND_COUNT] {
+        a.resolve(col as f32, 0.0).weather
+    }
+
+    /// The first column of the world `SEED` grows where the heaviest kind
+    /// changes — a real boundary, found rather than written down, because which
+    /// column a climate region ends on is worldgen's business.
+    fn a_real_weather_boundary(a: &mut Ambience) -> i32 {
+        /// How far to look before giving up. A climate region is a few hundred
+        /// columns wide, so this crosses several of them.
+        const SEARCH_COLS: i32 = 4000;
+
+        let mut prev = heaviest(&weights_at(a, 0));
+        for col in 1..SEARCH_COLS {
+            let now = heaviest(&weights_at(a, col));
+            if now != prev {
+                return col;
+            }
+            prev = now;
+        }
+        panic!("no weather boundary in the first {SEARCH_COLS} columns");
     }
 
     #[test]
@@ -779,6 +803,79 @@ mod tests {
                 pair[1] - pair[0] <= WEATHER_COUNT / 10,
                 "{} particles converted in one step",
                 pair[1] - pair[0]
+            );
+        }
+    }
+
+    #[test]
+    fn walking_across_a_real_boundary_slides_the_weather_instead_of_snapping() {
+        // The join every other test in this file is blind to. The tests above
+        // hand the field its weights, so they proved the DITHER was gradual
+        // while the weights being fed to it in the running game came from the
+        // single dominant biome and converted the whole sky between one column
+        // and the next. This one takes the weights from the real producer, at
+        // real columns of the real world, and walks across a real boundary.
+        //
+        // Eighty columns either side of the crossing, one at a time — finer than
+        // a player can move, so any step this finds is a step the game would
+        // show.
+        const SPAN: i32 = 80;
+
+        let mut a = Ambience::new(SEED);
+        let boundary = a_real_weather_boundary(&mut a);
+
+        let field = WeatherField::new();
+        let mut drawn = Vec::new();
+        let mut weights = Vec::new();
+        let mut counts = Vec::new();
+
+        for col in (boundary - SPAN)..=(boundary + SPAN) {
+            let w = weights_at(&mut a, col);
+            field.paint(&frame(w), &mut drawn);
+            let mut per_kind = [0usize; WEATHER_KIND_COUNT];
+            for particle in &drawn {
+                per_kind[kind_index(particle.kind)] += 1;
+            }
+            weights.push(w);
+            counts.push(per_kind);
+        }
+
+        // The crossing is a real mix and not a hairline: somewhere in the span,
+        // two kinds are each carrying a quarter of the sky at once. The old
+        // dominant-kind fill could never produce this — it only ever wrote a 1
+        // and four 0s.
+        let mixed = weights.iter().any(|w| {
+            let mut sorted = *w;
+            sorted.sort_by(|l, r| r.total_cmp(l));
+            sorted[1] >= 0.25
+        });
+        assert!(mixed, "the boundary at {boundary} is a step, not a blend");
+
+        // And nothing jumps. A snap is an L1 move of 2 in the weights and of
+        // twice the whole field in the particles; both bounds below sit far
+        // under that, and a single column legitimately moves far less again —
+        // they are floors under "gradual", not measurements of it.
+        for (i, pair) in weights.windows(2).enumerate() {
+            let step: f32 = pair[0]
+                .iter()
+                .zip(&pair[1])
+                .map(|(was, now)| (was - now).abs())
+                .sum();
+            assert!(
+                step < 0.2,
+                "the weights moved {step} in one column, {} columns off the boundary",
+                i as i32 - SPAN
+            );
+        }
+        for pair in counts.windows(2) {
+            let converted: usize = pair[0]
+                .iter()
+                .zip(&pair[1])
+                .map(|(was, now)| was.abs_diff(*now))
+                .sum();
+            assert!(
+                converted <= WEATHER_COUNT / 4,
+                "{converted} of {WEATHER_COUNT} particles turned over in one column"
             );
         }
     }
@@ -1059,7 +1156,10 @@ mod tests {
     }
 
     #[test]
-    fn a_clear_sky_is_the_default_until_the_ambience_layer_lands() {
+    fn a_weather_layer_with_no_producer_behind_it_draws_a_clear_sky() {
+        // The default matters because this plugin can be added without the
+        // ambience layer that fills the resource. Weightless would be a sky with
+        // no weather system at all; clear is a sky that has one and is calm.
         let w = WeatherWeights::default().0;
         assert_eq!(w[kind_index(WeatherKind::None)], 1.0);
         assert!(w.iter().skip(1).all(|v| *v == 0.0));
