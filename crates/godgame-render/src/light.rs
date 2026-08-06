@@ -1455,12 +1455,32 @@ fn add(buf: &mut [f32], lw: i32, lh: i32, x: i32, y: i32, v: f32) {
 /// whole point of them being owned by the grid rather than allocated per pass:
 /// the vertical window has to carry a running sum per column, and walking the
 /// grid column by column to avoid that would read every cache line `h` times.
-fn blur_one(a: &mut [f32], scratch: &mut [f32], acc: &mut [f32], lw: i32, lh: i32) {
+///
+/// # This is now the ORACLE, not the shipping path
+///
+/// The blur runs on the GPU — `lightblur.wgsl`, two passes at
+/// [`BLUR_CAMERA_ORDER`] — and [`LightGrid::solve`] no longer calls this. It is
+/// kept, exported and still tested for exactly the reason `crate::cells`'
+/// `paint_cells` is kept beside `cells.wgsl`: a shader nothing can diff against
+/// is a shader nobody can change safely.
+/// `tests/light_blur_matches_cpu.rs` compiles the shipping WGSL on a headless
+/// adapter and compares it to this function, texel for texel.
+pub fn blur_one(a: &mut [f32], scratch: &mut [f32], acc: &mut [f32], lw: i32, lh: i32) {
     let (w, h) = (lw as usize, lh as usize);
     box_rows(a, scratch, w, h, BLUR_BACK, BLUR_FWD);
     box_rows(scratch, a, w, h, BLUR_FWD, BLUR_BACK);
     box_cols(a, scratch, acc, w, h, BLUR_BACK, BLUR_FWD);
     box_cols(scratch, a, acc, w, h, BLUR_FWD, BLUR_BACK);
+}
+
+/// The blur's window as `(back, fwd)`, for whatever has to restate it.
+///
+/// Two things do: the uniform `lightblur.wgsl` reads its loop bounds from, and
+/// the harness that diffs that shader against [`blur_one`]. Both get the numbers
+/// from here rather than from a literal, so re-tuning [`BLUR_REACH_CELLS`] moves
+/// the CPU pass, the GPU pass and the test together or moves none of them.
+pub const fn blur_window() -> (u32, u32) {
+    (BLUR_BACK as u32, BLUR_FWD as u32)
 }
 
 /// One box pass along the rows, window `[x - back, x + fwd]`, edges clamped.
