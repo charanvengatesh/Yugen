@@ -120,8 +120,14 @@
 //! Per frame this costs three `Transform` writes and no asset mutation at all —
 //! the bloom's material tint is set once in [`setup`] and never touched again.
 //! It also deleted `bloom_probes`, the 333 ns CPU scan that fed the sprites.
-//! [`scan_emitters`] is unaffected and still runs: it feeds the light SOLVE, and
-//! never fed the bloom.
+//!
+//! [`scan_emitters`] never fed the bloom either — but the claim that used to
+//! stand here, that it "is unaffected and still runs", stopped being true in the
+//! same milestone and is worth correcting rather than deleting. It runs only
+//! under [`CENSUS_NEEDED`], which is `LIGHT_DOWNSCALE > 1`, and the downscale is
+//! one — so it is not in the frame at all. Its ~10.7 µs is measured by a bench
+//! that exercises a path the shipping game does not take. See `docs/PERF.md` on
+//! which benchmarks describe the frame and which describe an oracle.
 //!
 //! # What the port dropped on the way in
 //!

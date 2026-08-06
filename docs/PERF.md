@@ -164,30 +164,43 @@ A shift is the one event in the sim that is **not** amortised over a frame: it
 saves the trailing edge, memmoves the survivors, generates and blits the leading
 edge, and hands the automata a freshly-woken region, all inside one tick.
 
-| | Run A | Run B | vs plain tick |
+| | Before the batch | Now | vs plain tick |
 |---|---|---|---|
-| Plain tick, streamed world at rest | 635 ns | 620 ns | 1× |
-| `recenter` alone (walks 2 chunks) | 575.9 µs | 581.2 µs | 918× |
-| **Shift tick** (`recenter` + `simulate`) | **721.9 µs** | 711.8 µs | **1 137×** |
+| Plain tick, streamed world at rest | 620 ns | 616 ns | 1× |
+| `recenter` alone (walks 2 chunks) | 575.9 µs | **340.7 µs** | 553× |
+| **Shift tick** (`recenter` + `simulate`) | **721.9 µs** | **494.6 µs** | **803×** |
 
-**721.9 µs against an 8.333 ms frame = 8.7%.** The most expensive single event
-in the game, and it fits with 11× headroom.
+**494.6 µs against an 8.333 ms frame = 5.9%**, down from 8.7%. Still the most
+expensive single event in the game, and it now fits with 17× headroom.
 
-Decomposition: `recenter` is **80%** of a shift tick; the sim tick over the
-freshly-woken incoming edge is the other **~146 µs (20%)**.
+The drop is `load_incoming` handing its whole incoming edge to
+`ChunkStore::prefetch` in one call instead of generating chunk by chunk on the
+calling thread. The "before" column is the same bench on the parent commit, run
+back to back in one thermal window.
+
+The back plane costs about 3% of that and is included above: generating walls
+took `recenter` from 328.9 to 332.3 µs, because wherever the front plane is
+already solid the wall is the same word and only carved cells pay an extra
+`solid_at`.
+
+Decomposition: `recenter` is **69%** of a shift tick; the sim tick over the
+freshly-woken incoming edge is the other **~154 µs (31%)**. The parallel generate
+shrank the numerator, so the sim's share of the event grew without the sim
+getting slower.
 
 Two chunks is not an arbitrary step size — it is the **minimum** shift the game
 can perform. `WindowManager::recenter` has a one-chunk dead zone, so a drift of
 one chunk returns `false` and a drift of two produces `dcx = 2`. Every real
 shift loads two chunk columns × 8 rows = **16 chunks**.
 
-That cross-checks against the independent worldgen bench: 575.9 µs ÷ 16 chunks =
-**36 µs per chunk**, against `worldgen.rs`'s measured 33.3 µs for the surface
-band. Two benchmarks that share no code agree to 8%.
+**What is left here is latency, not throughput.** The generate is parallel now,
+but it still happens inside the tick that crossed the dead zone. `recenter`'s
+one-chunk dead zone is exactly the lookahead needed to start it a shift early,
+and it is free. Not done.
 
 The settled world is genuinely settled — **2 of 88 chunks awake, 0.05% of the
-window swept per tick** — which is why the plain tick is 635 ns. After the walk
-it is 44/88 chunks and 26.3%, because a shift wakes everything it loads.
+window swept per tick** — which is why the plain tick is 616 ns. After the walk
+it is 34/88 chunks and 20.5%, because a shift wakes everything it loads.
 
 ---
 
@@ -224,51 +237,56 @@ derived from the real zoom policy rather than hard-coded.
 
 ### The light pass, which is where the cost is
 
-> **Superseded.** Every figure in this section was measured at
-> `LIGHT_DOWNSCALE = 4`, when the light grid stored one sample per 4 cells. It
-> is now **1** — light sits on the art's own lattice — which is 16x the light
-> cells. Re-measured on the same machine and viewport: the solve is **136.9 µs**
-> (skylight 16.6, emissive 23.9, blur 98.7), and the whole light stack is
-> **~161 µs, 1.93% of an 8.33 ms frame**, against 27.8 µs / 0.33% below.
->
-> Two things kept that affordable and are worth knowing before optimising here
-> again. `scan_emitters` is **no longer run at all** at downscale 1 — the
-> emissive splat now visits exactly the rect the scan walked, so every census
-> entry would have been a second splat of an already-splatted source. And the
-> blur was reimplemented: written the obvious way at the new resolution it
-> measured **171 µs alone**, so it is now four sliding-window passes, which is
-> O(1) in the radius rather than O(radius).
->
-> The numbers below are left as measured rather than deleted, because the
-> reasoning attached to them is still the reasoning, and because a perf document
-> that quietly rewrites history teaches nothing about what changed.
+**Re-measured in full, one clean run, after M10, the window prefetch, the
+background wall plane and its skylight rule.** Everything below is from that run;
+the tables further down that were taken at `LIGHT_DOWNSCALE = 4` have been
+replaced rather than annotated, because a superseded table nobody deletes is a
+table somebody eventually quotes.
 
-| | Run A | Run B | Notes |
-|---|---|---|---|
-| `scan_emitters` (view rect) | **11.02 µs** | 11.24 µs | full-res walk over 14 904 cells |
-| `LightGrid::solve` (over lava, worst case) | 8.41 µs | 8.62 µs | all four passes |
-| `bake_vignette` | **8.75 µs** | 8.87 µs | 51×30 radial evaluation |
-| `bake_shadow` | 690 ns | 678 ns | 42×25 |
-| `bake_colour` | 476 ns | 470 ns | 42×25 |
-| `bloom_probes` | 333 ns | 330 ns | found 14 probes |
-
-`solve` broken into its four passes (they sum to 8.58 µs against the 8.41 µs
-measured for the whole, which is the consistency check):
-
-| Pass | Run A | Share |
+| Pass | Cost | Share of the solve |
 |---|---|---|
-| blur | 4.52 µs | 53% |
-| emissive splat | 2.39 µs | 28% |
-| skylight flood | 1.17 µs | 14% |
-| census splat | 499 ns | 6% |
+| blur | **97.9 µs** | 68% |
+| emissive splat | 23.6 µs | 16% |
+| skylight flood | 18.0 µs | 13% |
+| census splat | 3.7 µs | 3% |
+| **`LightGrid::solve`, over lava (worst case)** | **143.6 µs** | |
+| `LightGrid::solve`, at the walk midpoint | 133.2 µs | |
+| `LightGrid::solve`, camera walking 6 px/frame | 133.9 µs | |
 
-**The single largest light cost is `scan_emitters`, not the solve.** It walks
-every visible cell at full resolution (14 904 of them, 0.74 ns each) while the
-solve works at quarter resolution over 1 050 light cells. If the light pass ever
-needs to shrink, that is the first place to look — not the blur, which is the
-obvious suspect and is less than half its cost.
+The three bakes, which are separate from the solve:
 
-**Whole-frame light total: 29.7 µs = 0.36% of an 8.333 ms frame.**
+| Bake | Cost | Target |
+|---|---|---|
+| `bake_shadow` | 9.4 µs | 162×92 |
+| `bake_colour` | 6.3 µs | 162×92 |
+| `bake_vignette` | 9.8 µs | 51×30 |
+
+**Whole light stack: ~169 µs worst case, 2.03% of an 8.33 ms frame.**
+
+Two numbers moved for known reasons and are worth naming rather than filing as
+noise:
+
+- **`skylight` is up 7.5%** (16.7 → 18.0 µs). That is the background wall plane's
+  third decay branch in `compute_skylight` — the flood now asks whether an air
+  cell has a wall behind it. Paid once per light cell, and it is what makes a
+  walled shaft read differently from open sky.
+- **`census` reads 3.7 µs and is not in the frame.** See below.
+
+### Which of these benchmarks describe the frame, and which describe an oracle
+
+Three benches in this file measure code the shipping game does not run. They are
+not stale and not wrong — every one of them guards something real — but adding
+them to a frame budget would overstate it by about a third, and that mistake has
+already been made once in this document's history.
+
+| Bench | In the frame? | Why |
+|---|---|---|
+| `light/scans/scan_emitters` — 10.7 µs | **No** | Runs only under `CENSUS_NEEDED`, which is `LIGHT_DOWNSCALE > 1`. The downscale is 1. The pass is kept, tested and correct because it is what any coarser downscale needs. |
+| `cells/update_shimmer` — 9.3 µs | **No** | `cellmap::update_shade_params` replaced it entirely: the shimmer is a `vec4` in a uniform and the wave is evaluated per fragment. The CPU version survives as `cells.rs`'s oracle and has one caller, a test. |
+| `cells/paint_cells` — 24.2 µs at 2560×1440 | **No** | `cells.wgsl` draws the frame. `paint_cells` is the verified CPU reference `shader_matches_cpu` diffs against, and the function `ts_cells_parity` freezes. |
+
+`light/pass/census` (3.7 µs) is the same story from the other side: the splat is
+measured, and with no census to splat it does nothing in the frame.
 
 ### Still against walking
 
@@ -291,11 +309,11 @@ Getting to a comparison that says this took three attempts; see §7.
 
 ### The cell rasteriser
 
-| | Run A | Run B | Per cell |
-|---|---|---|---|
-| `paint_cells`, headless 1000×500 (102×52) | 7.61 µs | 7.57 µs | 1.43 ns |
-| `paint_cells`, 2560×1440 (162×92) | 24.68 µs | 25.16 µs | 1.66 ns |
-| `update_shimmer` (palette rebuild) | 9.23 µs | 9.53 µs | view-independent |
+| | Cost | Per cell |
+|---|---|---|
+| `paint_cells`, headless 1000×500 (102×52) | 7.47 µs | 1.41 ns |
+| `paint_cells`, 2560×1440 (162×92) | 24.2 µs | 1.63 ns |
+| `update_shimmer` (palette rebuild) | 9.3 µs | view-independent |
 
 **`paint_cells` is a cost the shipping frame does not pay.** It is the CPU
 oracle that `tests/shader_matches_cpu.rs` diffs the WGSL pass against; `cellmap`
@@ -303,20 +321,29 @@ is what actually runs. The number bounds what the shading costs, and confirms
 the 2.9× viewport increase produces a 3.2× time increase — it scales with pixels,
 as a rasteriser should.
 
-`update_shimmer` at 9.23 µs is real per-frame cost and is genuinely independent
-of what is on screen, which is the point of doing animated emissives as a
-palette cycle rather than an overlay pass. It is also, at 0.11% of a frame,
-larger than the whole skylight flood.
+**`update_shimmer` is not a per-frame cost either, and this document used to say
+it was.** `cellmap::update_shade_params` replaced it entirely: the shimmer clock
+is one `vec4` in a uniform and the wave is evaluated per fragment, so the ~2 500
+packed palette entries are no longer rebuilt at all. The CPU version survives as
+`cells.rs`'s oracle and has exactly one caller, a test. The 9.3 µs is what the
+replacement SAVED, not what the frame pays.
 
 ### Particles
 
-| | Run A | Run B |
-|---|---|---|
-| `update`, full pool vs world (2 048 slots) | 13.67 µs | 13.65 µs |
+| | Cost |
+|---|---|
+| `update`, full pool vs world (2 048 slots) | 9.6 µs |
+| `emit` ×240, pool saturated | 779 ns |
+| `claim`, one burst refused on a full pool | 3.3 ns |
 
-6.7 ns per slot, and every one of the 2 048 slots is scanned whether or not it
-holds a live particle. **0.16% of a frame.** See §8 for the emit path, which is
-a different story.
+4.7 ns per slot, and every one of the 2 048 slots is scanned whether or not it
+holds a live particle. **0.12% of a frame.** See §8.1 for the emit path, which
+was a different story until it was fixed.
+
+Down from the 13.67 µs this table used to carry. That figure predates M10 and
+several rounds of work either side of it; nothing was done to `update` itself, so
+treat the difference as the two numbers having been taken on different days
+rather than as an improvement anybody earned.
 
 ### Sprites (startup, not per frame)
 
@@ -328,16 +355,26 @@ a different story.
 
 ### Whole-frame CPU total
 
+Only what the shipping frame actually runs — see the oracle table above for the
+three benches deliberately left out.
+
 | Pass | Cost |
 |---|---|
-| Light (scan + solve + bloom + three bakes) | 29.7 µs |
-| `update_shimmer` | 9.2 µs |
-| Particle update | 13.7 µs |
-| **Total** | **52.6 µs = 0.63% of an 8.333 ms frame** |
+| `LightGrid::solve` (worst case, over lava) | 143.6 µs |
+| The three light bakes | 25.5 µs |
+| Particle update (full 2 048-slot pool) | 9.6 µs |
+| **Total** | **178.7 µs = 2.14% of an 8.333 ms frame** |
+
+**The blur alone is 97.9 µs of that — 55% of the whole per-frame CPU render
+cost, and more than everything else in the table put together.** It is already
+the good algorithm: four sliding-window passes, separable, O(1) in the radius.
+Written the obvious way at this resolution it measured 171 µs. There is no CPU
+win left in it, which is why the remaining move is to the GPU — and why that is
+the one item in this document worth a milestone rather than an afternoon.
 
 The worst compound frame this suite can construct — a window shift, the CPU
 render work, and a saturated particle emit all landing on one step — is
-**1.19 ms, 14.2% of a frame.**
+**~0.68 ms, 8.2% of a frame**, dominated by the 494.6 µs shift.
 
 ---
 
@@ -489,17 +526,22 @@ Per cell it is already tight (0.74 ns — a table load and a compare). The cost 
 the *extent*, not the inner loop, so anything done here would have to reduce how
 much of the view is walked rather than how fast it is walked.
 
-### 8.4 `bake_vignette` is 30% of the light pass and changes slowly
+### 8.4 `bake_vignette` is 5.8% of the light stack and changes slowly
 
-**8.75 µs**, second only to `scan_emitters` and larger than the entire skylight
-flood, emissive splat and census splat combined (4.06 µs). It is a radial
-evaluation per sample over 51×30 samples, recomputed from scratch every frame.
+**9.8 µs** — a radial evaluation per sample over 51×30 samples, recomputed from
+scratch every frame. The framing has changed since this was first written: at
+`LIGHT_DOWNSCALE = 4` it was 30% of the light pass and the second largest cost in
+it. At downscale 1 the blur dwarfs everything, so this is 5.8% of the light stack
+and the largest of the three bakes.
 
 Its inputs are `(view, depth, day)`. `view` changes only on a window resize;
 `depth` and `day` both move continuously but *slowly* — `DAY_LENGTH_S` is 300
-seconds, so `day` advances by 1/36 000 per frame at 120 Hz. Whether that admits
-a cache is a question for the file's owner; the measurement is here so it can be
-asked with a number attached.
+seconds, so `day` advances by 1/36 000 per frame at 120 Hz.
+
+So it recomputes 1 530 samples every frame from inputs that have barely moved,
+and a cache keyed on an epsilon over depth and day would skip nearly all of them.
+Worth about 0.12% of a frame, which is small — but it is small, contained, and
+does not need a shader.
 
 ### 8.5 `place_bloom` mutating up to 120 material assets per frame — not measured
 
