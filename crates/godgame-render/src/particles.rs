@@ -915,6 +915,17 @@ impl ParticleSystem {
 
     /// A free slot from the ring cursor, or `None` if the pool is saturated.
     fn claim(&mut self) -> Option<usize> {
+        // Answered in O(1) before the scan, and this is not a micro-optimisation.
+        // A saturated pool has no dead slot, so without this the loop below walks
+        // all `MAX_PARTICLES` entries only to conclude what `live` already knew.
+        // Measured: a refused `burst` cost 1.73 us against 245 ns for an accepted
+        // one — 7.1x — and 240 emitters against a full pool cost 411 us, 4.9% of
+        // an 8.33 ms frame, to spawn nothing at all. That bill arrives exactly
+        // when the frame is busiest, because that is when the pool is full. See
+        // `docs/PERF.md`.
+        if self.live >= MAX_PARTICLES {
+            return None;
+        }
         for _ in 0..MAX_PARTICLES {
             let i = self.cursor;
             self.cursor = if self.cursor + 1 >= MAX_PARTICLES {

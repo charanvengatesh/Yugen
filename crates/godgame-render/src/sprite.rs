@@ -1413,14 +1413,20 @@ impl SpriteAtlas {
 /// Every slot is `Some` in practice; the `Option` exists so a sprite that failed to
 /// bake could in principle be reported without shifting every code after it. Today
 /// one that fails to bake panics — see [`SpritePlugin`].
-/// `Clone` so a consumer that cannot borrow the world can hold one — see
-/// [`crate::glue`], where the HUD's icon source is a `Box<dyn IconAtlas>` with no
-/// access to `Res`. The clone happens once, in `Startup`, and it duplicates the
-/// baked CPU pixels along with the handles. That is a few megabytes of waste for
-/// data already uploaded to the GPU; it is accepted because the alternative is
-/// threading an `Arc` through the plugin for a startup-only concern, and it is
-/// written down here so that if the atlas ever grows a real budget this is the
-/// first thing to reach for.
+///
+/// # Why this is `Clone`
+///
+/// So a consumer that cannot borrow the world can hold one — see [`crate::glue`],
+/// where the HUD's icon source is a `Box<dyn IconAtlas>` with no access to `Res`.
+/// The clone happens once, in `Startup`.
+///
+/// It costs **1744 bytes**, measured in `docs/PERF.md` rather than estimated.
+/// This comment previously claimed "a few megabytes", which was wrong by roughly
+/// a thousand times: it assumed the clone duplicated the baked CPU pixels, but by
+/// `Startup` those are in `Assets<Image>` and a [`SpriteAtlas`] holds two handles
+/// and six numbers. Threading an `Arc` through the plugin to save under 2 KB, once,
+/// would be the worse trade — but for the opposite reason to the one recorded here
+/// before.
 #[derive(Resource, Default, Clone)]
 pub struct SpriteAtlases {
     by_code: Vec<Option<SpriteAtlas>>,

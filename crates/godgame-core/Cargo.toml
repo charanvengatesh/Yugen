@@ -20,3 +20,17 @@ serde_json = "1"
 [[bench]]
 name = "worldgen"
 harness = false
+
+# The automata's hot loop. Criterion for the same reason, and for one this bench
+# needs more: a sim tick is sub-millisecond, the whole question is where it sits
+# against a 16.6 ms budget, and that wants a confidence interval rather than a
+# single stopwatch reading.
+[[bench]]
+name = "sim"
+harness = false
+
+# The streaming window shift, against the ordinary tick it has to hide behind.
+# Two benchmarks whose RATIO is the answer, so both have to come off one timer.
+[[bench]]
+name = "window"
+harness = false

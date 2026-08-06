@@ -15,6 +15,7 @@ bitflags.workspace = true
 # The cell-rasteriser parity suite reads a frozen JSON artefact of the
 # TypeScript original. Test-only, exactly as in `godgame-core`.
 [dev-dependencies]
+criterion.workspace = true
 serde_json = "1"
 
 # `tests/shader_matches_cpu.rs` drives the cell shader on a HEADLESS adapter and
@@ -34,3 +35,10 @@ features = [
     "naga-ir",
     "fragile-send-sync-non-atomic-wasm",
 ]
+
+# The per-frame CPU render work. Criterion for the same reason `godgame-core`
+# gives: the cell blit and the light solve are tens of microseconds against an
+# 8.3 ms frame, and libtest's timer cannot resolve either.
+[[bench]]
+name = "render"
+harness = false
