@@ -11,14 +11,21 @@
 //! |---|---|
 //! | [`world::WorldSimPlugin`] | the owned `Level` / `WindowManager` / `Automata` and the 120 Hz fixed schedule |
 //! | [`lowres::LowResPlugin`] | the offscreen buffer, the two cameras, the upscale blit |
-//! | [`cellmap::CellMapPlugin`] | the cell-id texture, the palette, and the quad that draws the window |
+//! | [`cellmap::CellMapPlugin`] | the cell-id texture, the shading tables, and the quad that draws the window |
 //!
 //! [`GodGameRenderPlugin`] is all three, which is what the binary wants.
 //!
-//! [`cells`] is the CPU cell rasteriser, ported byte-for-byte from the
-//! TypeScript and verified against it. It is not wired into the frame yet —
-//! [`cellmap`] draws a flat per-material colour in its place. See
-//! [`cellmap::upload_dirty_chunks`] for the seam the real shading replaces.
+//! # The cell rasteriser, twice
+//!
+//! [`cells`] is the CPU rasteriser, ported byte-for-byte from the TypeScript and
+//! verified against it by `tests/ts_cells_parity.rs`. [`cellmap`] is the same
+//! pass in WGSL, and it is the one the frame actually runs.
+//!
+//! The CPU one stays, and not as dead weight. It is the ORACLE:
+//! `tests/shader_matches_cpu.rs` renders the shader headlessly over a real
+//! worldgen window and diffs the framebuffer against it. It is also the readable
+//! statement of what the shading IS — `cells.rs` explains every constant the
+//! shader merely uses, and `cells.wgsl` points back at it by name throughout.
 
 use bevy::app::{PluginGroup, PluginGroupBuilder};
 

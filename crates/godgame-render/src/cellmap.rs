@@ -8,19 +8,37 @@
 //! a window shift moves the quad in world space and rewrites the texels, exactly
 //! as it moves the cells inside the grid.
 //!
-//! Cell id in, colour out. That is the seam:
+//! Cell id in, colour out. That is still the seam; what has changed is what sits
+//! on the far side of it. The shading is now [`crate::cells`]' — material
+//! texture, rim light, ambient occlusion and shimmer — evaluated in
+//! `cells.wgsl`, and the lookups it needs are four bindings:
 //!
-//!   - **the id texture** is what the pass reads per cell, and
-//!   - **[`CellPalette`]** is the per-material lookup it reads with.
+//!   - **the id texture**, one `R16Uint` texel per cell, filled by
+//!     [`upload_dirty_chunks`];
+//!   - **[`TEX_A`] and [`TEX_B`]**, the two coprime pattern tiles, as two
+//!     `R8Uint` textures of eight stacked slabs each. They keep their 61 and 67
+//!     periods and stay SEPARATE textures: that coprimality is the only reason a
+//!     flat sand field does not visibly tile, and padding either to a power of
+//!     two would throw it away;
+//!   - **the shade table**, `MAT_COUNT x 512` prepacked RGBA. Static for a
+//!     content build, so it is uploaded exactly once;
+//!   - **[`CellShadeParams`]**, the per-material scalars the shimmer needs, plus
+//!     the animation clock.
 //!
-//! [`upload_dirty_chunks`] fills the first; [`build_palette`] fills the second.
-//! Swapping in the real shading — [`crate::cells`], with its material texture,
-//! edge light, ambient occlusion and shimmer — replaces the body of
-//! `cellmap.wgsl` and widens what the lookup holds. It does not touch the
-//! upload, the quad, the material, or the pipeline. (`cells::paint_cells` is
-//! today a CPU pass writing a packed `u32` per cell; whichever way that lands —
-//! as an `Rgba8` texture written from the CPU or as WGSL reading these same
-//! tables — the id texture below is its input.)
+//! # The shimmer is a uniform now
+//!
+//! `CellShades::update_shimmer` rebuilds ~2 500 packed palette entries EVERY
+//! FRAME on the CPU. It does that not because anyone wanted to, but because the
+//! TypeScript had no cached repaint to invalidate, so a per-frame LUT rewrite was
+//! cheaper than finding the emissive cells a second time — its own header says
+//! so, at length.
+//!
+//! On the GPU that entire function collapses into [`update_shade_params`]: one
+//! float written into a uniform. The wave is then evaluated per fragment, and
+//! only for fragments of a material that actually declares shimmer. THIS IS THE
+//! SINGLE BIGGEST CPU SAVING AVAILABLE IN THE RENDERER — it deletes the whole
+//! per-frame table rebuild, and it is the one thing the CPU path could not have
+//! done however it was written.
 //!
 //! # Dirty-rect upload, and why the TypeScript could not do it
 //!
@@ -46,6 +64,7 @@
 //! transfer entirely. A true sub-rect `write_texture` needs a custom render
 //! asset and is a later step; the bookkeeping it would need is already here.
 
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat,
@@ -56,20 +75,24 @@ use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
 use godgame_core::config::{CELL_SIZE, CHUNK_CELLS, WINDOW_COLS, WINDOW_ROWS};
 use godgame_core::sim::materials::{MAT_B, MAT_COUNT, MAT_G, MAT_R};
 
+use crate::cells::{
+    CellShades, SHADE_MATERIAL_STRIDE, TEX_A, TEX_A_PERIOD, TEX_B, TEX_B_PERIOD, TEX_PATTERN_COUNT,
+    material_pattern, shimmer_params,
+};
 use crate::lowres::WORLD_LAYERS;
 use crate::world::SimWorld;
 
-/// Palette length, in materials.
+/// Per-material parameter slots.
 ///
 /// A fixed-size uniform array, so it is a compile-time constant on both sides:
-/// the WGSL says 64 as a literal and [`the palette test`](tests) fails if this
+/// the WGSL says 64 as a literal and [`the parameter test`](tests) fails if this
 /// stops matching. Padded past [`MAT_COUNT`] so adding a block to `content/` is
 /// a recompile, not a shader edit.
-pub const PALETTE_SLOTS: usize = 64;
+pub const MATERIAL_SLOTS: usize = 64;
 
 const _: () = assert!(
-    MAT_COUNT <= PALETTE_SLOTS,
-    "more materials than palette slots — widen PALETTE_SLOTS and cellmap.wgsl together"
+    MAT_COUNT <= MATERIAL_SLOTS,
+    "more materials than parameter slots — widen MATERIAL_SLOTS and cellmap.wgsl together"
 );
 
 /// Bytes per texel of the cell-id texture. `R16Uint` — [`CellId`] is a `u16`.
@@ -90,36 +113,56 @@ pub struct CellMap {
     pub material: Handle<CellMaterial>,
 }
 
-/// Per-material colour lookup, in LINEAR RGBA.
+/// Everything the shader needs that is not a table.
 ///
-/// `MAT_R`/`MAT_G`/`MAT_B` are authored sRGB bytes; the render target is sRGB
-/// and the hardware does the encode, so the values handed to the shader must be
-/// linear or every colour comes out washed out.
+/// `base` and `shim` are static for a content build and written once;
+/// [`update_shade_params`] touches only `clock` and `origin`.
 #[derive(Clone, Copy, Debug, ShaderType)]
-pub struct CellPalette {
-    /// Indexed by material code. Slot 0 (air) is transparent.
-    pub colors: [Vec4; PALETTE_SLOTS],
+pub struct CellShadeParams {
+    /// Per material: the authored colour in 0..255, and the pattern index its
+    /// `MAT_TEXTURE` resolves to in `w`.
+    pub base: [Vec4; MATERIAL_SLOTS],
+    /// Per material: `cells::ShimmerParams` as `(amp, phase, tex_amp, edge)`.
+    /// `amp` is zero for every material that does not animate, which is what the
+    /// shader branches on.
+    pub shim: [Vec4; MATERIAL_SLOTS],
+    /// `(seconds, unused, unused, unused)`.
+    ///
+    /// This vec4 IS `CellShades::update_shimmer`. See the module header.
+    pub clock: Vec4,
+    /// Absolute cell coordinate of texel (0, 0) — the pattern is keyed on the
+    /// world, not on the window, so it does not crawl as the camera moves.
+    pub origin: IVec2,
 }
 
-impl Default for CellPalette {
+impl Default for CellShadeParams {
     fn default() -> Self {
-        build_palette()
+        build_params()
     }
 }
 
-/// The placeholder cell shading.
+/// The cell pass.
 ///
-/// Two bindings, and they are the seam described in the module docs: the id
-/// texture and the lookup.
+/// Four textures and a uniform, and every one of them is a lookup
+/// [`crate::cells`] already does on the CPU.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct CellMaterial {
-    /// One material code per cell. `u_int`: sampled with `textureLoad`, never
-    /// filtered.
+    /// One material code per cell. `u_int`: read with `textureLoad`, never
+    /// filtered — one texel IS one cell, so there is nothing to interpolate.
     #[texture(0, sample_type = "u_int")]
     pub ids: Handle<Image>,
-    /// Colour per material code.
-    #[uniform(1)]
-    pub palette: CellPalette,
+    /// [`TEX_A`], eight 61x61 pattern slabs stacked in y.
+    #[texture(1, sample_type = "u_int")]
+    pub tex_a: Handle<Image>,
+    /// [`TEX_B`], eight 67x67 pattern slabs stacked in y.
+    #[texture(2, sample_type = "u_int")]
+    pub tex_b: Handle<Image>,
+    /// The prepacked shade table, `MAT_COUNT` rows of 512.
+    #[texture(3, sample_type = "float", filterable = false)]
+    pub shade: Handle<Image>,
+    /// Per-material scalars and the animation clock.
+    #[uniform(4)]
+    pub params: CellShadeParams,
 }
 
 impl Material2d for CellMaterial {
@@ -136,25 +179,33 @@ impl Material2d for CellMaterial {
     }
 }
 
-/// The cell-id texture, the palette, and the quad that draws them.
+/// The cell-id texture, the lookup tables, and the quad that draws them.
 pub struct CellMapPlugin;
 
 impl Plugin for CellMapPlugin {
     fn build(&self, app: &mut App) {
+        // The shading itself. `load_shader_library!` both embeds it and holds a
+        // handle, which is what makes the `#import` in `cellmap.wgsl` resolve —
+        // an embedded asset nothing has asked for is never loaded.
+        bevy::shader::load_shader_library!(app, "cells.wgsl");
         bevy::asset::embedded_asset!(app, "cellmap.wgsl");
 
         app.add_plugins(Material2dPlugin::<CellMaterial>::default())
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                (follow_window, upload_dirty_chunks)
+                (follow_window, update_shade_params, upload_dirty_chunks)
                     .run_if(resource_exists::<SimWorld>)
                     .run_if(resource_exists::<CellMap>),
             );
     }
 }
 
-/// Allocate the id texture and spawn the quad that samples it.
+/// Allocate the id texture and the lookup tables, and spawn the quad.
+///
+/// The three lookup textures are built here and never touched again: the pattern
+/// tiles and the shade table are pure functions of the content build. Only the
+/// id texture and the clock move.
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -164,7 +215,10 @@ fn setup(
     let ids = images.add(new_id_texture());
     let material = materials.add(CellMaterial {
         ids: ids.clone(),
-        palette: build_palette(),
+        tex_a: images.add(new_tile_texture(&TEX_A, TEX_A_PERIOD)),
+        tex_b: images.add(new_tile_texture(&TEX_B, TEX_B_PERIOD)),
+        shade: images.add(new_shade_texture(&CellShades::new())),
+        params: build_params(),
     });
 
     commands.spawn((
@@ -196,19 +250,109 @@ fn new_id_texture() -> Image {
         TextureDimension::D2,
         &[0u8; ID_BYTES],
         TextureFormat::R16Uint,
-        bevy::asset::RenderAssetUsages::RENDER_WORLD | bevy::asset::RenderAssetUsages::MAIN_WORLD,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
     )
 }
 
-/// The per-material colour lookup, sRGB bytes converted to linear.
-pub fn build_palette() -> CellPalette {
-    let mut colors = [Vec4::ZERO; PALETTE_SLOTS];
-    // Slot 0 is air: left fully transparent so the sky shows through.
-    for code in 1..MAT_COUNT.min(PALETTE_SLOTS) {
-        let linear = Color::srgb_u8(MAT_R[code], MAT_G[code], MAT_B[code]).to_linear();
-        colors[code] = Vec4::new(linear.red, linear.green, linear.blue, 1.0);
+/// One pattern tile set as a `p x (p * 8)` `R8Uint` texture.
+///
+/// The slabs stack in y, which needs no reshuffling: `cells` already lays the
+/// set out as `pattern * p * p + y * p + x`, and that IS row-major over a
+/// `p`-wide, `8p`-tall image.
+///
+/// NOT resized to a power of two. 61 and 67 being coprime is the entire reason
+/// the composite pattern repeats only every 4087 cells; rounding either up to 64
+/// would put a visible 64-cell lattice back on every flat field in the game.
+pub fn new_tile_texture(tile: &[u8], period: i32) -> Image {
+    let p = period as u32;
+    assert_eq!(
+        tile.len() as u32,
+        p * p * TEX_PATTERN_COUNT as u32,
+        "a tile set is {TEX_PATTERN_COUNT} slabs of {period}x{period}"
+    );
+    Image::new(
+        Extent3d {
+            width: p,
+            height: p * TEX_PATTERN_COUNT as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        tile.to_vec(),
+        TextureFormat::R8Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// The shade table as a `512 x MAT_COUNT` `Rgba8Unorm` texture.
+///
+/// One row per material, one texel per `(edge class, pattern level)` — the same
+/// `(id << 9) | (edge << 6) | pattern` index the blit uses, with the material
+/// split off into y.
+///
+/// `Rgba8Unorm` and NOT `Rgba8UnormSrgb`: these bytes are the finished pixel
+/// `paint_cells` packs, and the shader has to be able to hand them back
+/// unchanged for the parity harness to compare them. Where the pass needs linear
+/// output, `cellmap.wgsl` converts on the way out.
+pub fn new_shade_texture(shades: &CellShades) -> Image {
+    let table = shades.table();
+    assert_eq!(table.len(), MAT_COUNT * SHADE_MATERIAL_STRIDE);
+    let mut data = Vec::with_capacity(table.len() * 4);
+    for &word in table {
+        // Undo `cells::pack`, which stores the red channel in whichever byte
+        // this target calls lowest. `Rgba8Unorm` wants r, g, b, a in that order
+        // — the texel layout is a wire format, not this machine's memory layout.
+        let bytes = if cfg!(target_endian = "little") {
+            word.to_le_bytes()
+        } else {
+            word.to_be_bytes()
+        };
+        data.extend_from_slice(&bytes);
     }
-    CellPalette { colors }
+    Image::new(
+        Extent3d {
+            width: SHADE_MATERIAL_STRIDE as u32,
+            height: MAT_COUNT as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// The per-material scalars, at rest.
+///
+/// Everything here is a pure function of the content build, so this runs once.
+/// The colours are the AUTHORED sRGB bytes, unconverted: every clamp in
+/// `cells::build_material_shades` happens on those bytes, and converting to
+/// linear first would move where a highlight saturates.
+pub fn build_params() -> CellShadeParams {
+    let mut base = [Vec4::ZERO; MATERIAL_SLOTS];
+    let mut shim = [Vec4::ZERO; MATERIAL_SLOTS];
+    // Slot 0 is air: never read, because the shader returns transparent before
+    // it looks at either array.
+    for id in 1..MAT_COUNT.min(MATERIAL_SLOTS) {
+        base[id] = Vec4::new(
+            f32::from(MAT_R[id]),
+            f32::from(MAT_G[id]),
+            f32::from(MAT_B[id]),
+            material_pattern(id) as f32,
+        );
+        let s = shimmer_params(id);
+        shim[id] = Vec4::new(
+            s.amp as f32,
+            s.phase as f32,
+            s.tex_amp as f32,
+            s.edge as f32,
+        );
+    }
+    CellShadeParams {
+        base,
+        shim,
+        clock: Vec4::ZERO,
+        origin: IVec2::ZERO,
+    }
 }
 
 /// Put the quad where the streaming window currently is, in world px.
@@ -228,6 +372,33 @@ fn follow_window(world: Res<SimWorld>, mut quad: Single<&mut Transform, With<Cel
     // 0 — the texture needs no flip.
     quad.translation = Vec3::new(x + w * 0.5, -(y + h * 0.5), 0.0);
     quad.scale = Vec3::new(w, h, 1.0);
+}
+
+/// Advance the animation clock and follow the window's origin.
+///
+/// THIS FUNCTION REPLACES `CellShades::update_shimmer` ENTIRELY. That one
+/// rewrites nine materials' 512-entry slices — about 2 500 packed table entries,
+/// each a texture offset, three clamps and a pack — every single frame, and it
+/// does so whether there is one ember on screen or none at all. Here the same
+/// animation is two floats in a uniform, and the wave is evaluated only on the
+/// fragments that are actually lava.
+///
+/// The write goes through `Assets::get_mut`, which re-uploads the whole 2 KB
+/// uniform rather than just the vec4 that changed. That is the granularity Bevy
+/// offers for a `Material2d`, and 2 KB a frame is four orders of magnitude below
+/// what it replaces.
+fn update_shade_params(
+    time: Res<Time>,
+    world: Res<SimWorld>,
+    cellmap: Res<CellMap>,
+    mut materials: ResMut<Assets<CellMaterial>>,
+) {
+    let Some(mut material) = materials.get_mut(&cellmap.material) else {
+        return;
+    };
+    let grid = &world.level.grid;
+    material.params.clock.x = time.elapsed_secs();
+    material.params.origin = IVec2::new(grid.origin_cell_x(), grid.origin_cell_y());
 }
 
 /// Rewrite the texels of every chunk that changed, and only those.
@@ -293,14 +464,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_palette_covers_every_material_and_matches_the_shader() {
-        // `cellmap.wgsl` writes this length as a literal.
-        assert_eq!(PALETTE_SLOTS, 64, "cellmap.wgsl says 64");
-        let p = build_palette();
-        assert_eq!(p.colors[0].w, 0.0, "air must be transparent");
-        for code in 1..MAT_COUNT {
-            assert_eq!(p.colors[code].w, 1.0, "material {code} is not opaque");
+    fn the_parameters_cover_every_material_and_match_the_shader() {
+        // `cells.wgsl` writes this length as a literal.
+        assert_eq!(MATERIAL_SLOTS, 64, "cells.wgsl says 64");
+        let p = build_params();
+        assert_eq!(p.base[0], Vec4::ZERO, "air is never shaded");
+        for id in 1..MAT_COUNT {
+            assert_eq!(
+                p.base[id].w,
+                material_pattern(id) as f32,
+                "material {id} carries the wrong pattern index"
+            );
         }
+        // Nine materials declare a shimmer worth animating; the shader branches
+        // on `amp > 0`, so anything else must be exactly zero.
+        let animated = (1..MAT_COUNT).filter(|&id| p.shim[id].x > 0.0).count();
+        assert!(animated > 0, "no material animates — the branch is dead");
     }
 
     #[test]
@@ -314,5 +493,53 @@ mod tests {
             img.data.as_ref().map(Vec::len),
             Some(WINDOW_COLS as usize * WINDOW_ROWS as usize * ID_BYTES)
         );
+    }
+
+    /// The tiles must arrive at their own periods. A power-of-two resize here
+    /// would be invisible in a screenshot and would put the 64-cell lattice back
+    /// on every flat field.
+    #[test]
+    fn the_pattern_tiles_keep_their_coprime_periods() {
+        for (tile, p) in [(&**TEX_A, TEX_A_PERIOD), (&**TEX_B, TEX_B_PERIOD)] {
+            let img = new_tile_texture(tile, p);
+            assert_eq!(img.texture_descriptor.size.width, p as u32);
+            assert_eq!(
+                img.texture_descriptor.size.height,
+                p as u32 * TEX_PATTERN_COUNT as u32
+            );
+            assert_eq!(img.texture_descriptor.format, TextureFormat::R8Uint);
+        }
+        // Coprime, which is the property the whole scheme rests on.
+        let (mut a, mut b) = (TEX_A_PERIOD, TEX_B_PERIOD);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        assert_eq!(a, 1, "the tile periods stopped being coprime");
+    }
+
+    /// The shade texture must hand back exactly the bytes `pack` produced —
+    /// it is the whole static half of the shader.
+    #[test]
+    fn the_shade_texture_is_the_packed_table_verbatim() {
+        let shades = CellShades::new();
+        let img = new_shade_texture(&shades);
+        assert_eq!(
+            img.texture_descriptor.size.width,
+            SHADE_MATERIAL_STRIDE as u32
+        );
+        assert_eq!(img.texture_descriptor.size.height, MAT_COUNT as u32);
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+
+        let data = img.data.expect("the shade table is uploaded with its data");
+        for (i, &word) in shades.table().iter().enumerate() {
+            let px = &data[i * 4..i * 4 + 4];
+            let px = [px[0], px[1], px[2], px[3]];
+            let round = if cfg!(target_endian = "little") {
+                u32::from_le_bytes(px)
+            } else {
+                u32::from_be_bytes(px)
+            };
+            assert_eq!(round, word, "shade entry {i} did not survive the upload");
+        }
     }
 }

@@ -2922,6 +2922,7 @@ dependencies = [
  "godgame-core",
  "godgame-data",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]

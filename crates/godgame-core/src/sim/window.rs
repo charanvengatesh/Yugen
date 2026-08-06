@@ -194,7 +194,26 @@ impl WindowManager {
 
     // --- Whole-window paths (first fill, and jumps with no overlap) ------------
 
+    /// Fill every slot in the window.
+    ///
+    /// The generates run first, as one parallel batch, and the blit-in stays
+    /// serial. That split is deliberate: the generates are pure and independent
+    /// (see [`ChunkStore::prefetch`]), whereas `blit_in` writes into one `&mut
+    /// CellGrid` and `wake_chunk_slot` touches a halo that crosses slot
+    /// boundaries — so the copy is a `memcpy` per row against work that costs
+    /// orders of magnitude more per chunk.
+    ///
+    /// This is the load path and the teleport path. A one-chunk shift goes
+    /// through [`Self::load_incoming`] and is untouched.
     fn load_all(&mut self, grid: &mut CellGrid) {
+        let mut want = Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize);
+        for cj in 0..WINDOW_CHUNKS_Y {
+            for ci in 0..WINDOW_CHUNKS_X {
+                want.push((self.origin_chunk_x + ci, self.origin_chunk_y + cj));
+            }
+        }
+        self.store.prefetch(&want);
+
         for cj in 0..WINDOW_CHUNKS_Y {
             for ci in 0..WINDOW_CHUNKS_X {
                 self.load_slot(grid, ci, cj);

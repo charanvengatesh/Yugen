@@ -50,12 +50,21 @@
 //! This module deliberately does not touch Bevy. It is pure computation over
 //! `godgame-core` types, so the parity suite does not link a renderer.
 //!
-//! # Why CPU, when the target is a shader
+//! # Why CPU, when the frame is drawn by a shader
 //!
 //! [`paint_cells`] is a pure function — grid in, one `u32` per cell out — so it
 //! can be diffed against the original exactly the way the worldgen port was.
-//! A later milestone moves this to WGSL; having a verified CPU reference first
-//! turns "does the shader look right" into "does the shader match this table".
+//! The shader (`cells.wgsl`) now draws the frame, and this stays because having
+//! a verified CPU reference is what turned "does the shader look right" into
+//! "does the shader match this table". `tests/shader_matches_cpu.rs` renders the
+//! shipping WGSL headlessly over a real worldgen window and requires every cell
+//! of a non-animated material to be the exact byte this file packed.
+//!
+//! So this module is THE ORACLE, and it is also the readable statement of what
+//! the shading is: the shader restates the arithmetic and nothing else, and
+//! points back here by name for every reason. Do not delete it, and do not let
+//! it drift — the scalars the shader cannot import are re-exported at the bottom
+//! of this file and checked against the shader's own literals.
 
 use std::sync::LazyLock;
 
@@ -1149,6 +1158,106 @@ pub fn paint_cells(
     emit
 }
 
+// --- What the shader needs ---------------------------------------------------
+
+// EVERYTHING BELOW EXISTS SO `cellmap.wgsl` NEED NOT RESTATE A SINGLE NUMBER
+// FROM THIS FILE.
+//
+// The GPU pass in [`crate::cellmap`] is a translation of [`paint_cells`], and a
+// translation is only trustworthy if both halves read the same constants. The
+// tables (`TEX_A`, `TEX_B`, `CellShades::table`) upload verbatim; the scalars a
+// shader cannot import are re-exported here and asserted equal to the WGSL's own
+// literals by `tests/shader_matches_cpu.rs`, which parses the shader source for
+// them. A drift in either direction fails a test rather than quietly
+// re-colouring the world.
+
+/// Period of [`TEX_A`], in cells — 61.
+///
+/// Coprime with [`TEX_B_PERIOD`], which is the reason the composite pattern
+/// repeats only at lcm(61, 67) = 4087 cells. The two tiles must stay SEPARATE
+/// textures sampled at their own periods for that to hold; padding either to a
+/// power of two would reinstate exactly the visible tiling this file's header
+/// describes removing.
+pub const TEX_A_PERIOD: i32 = PA;
+
+/// Period of [`TEX_B`], in cells — 67. See [`TEX_A_PERIOD`].
+pub const TEX_B_PERIOD: i32 = PB;
+
+/// Patterns in each tile set — the slab count in [`TEX_A`] and [`TEX_B`].
+pub const TEX_PATTERN_COUNT: usize = TEX_COUNT;
+
+/// Edge classes per material in the shade table.
+pub const SHADE_EDGE_CLASSES: usize = EDGE_CODES;
+
+/// Pattern levels per edge class in the shade table — 64.
+pub const SHADE_PATTERN_LEVELS: usize = PAT_LEVELS;
+
+/// Entries per material in [`CellShades::table`] — 512.
+pub const SHADE_MATERIAL_STRIDE: usize = SHADE_STRIDE;
+
+/// `31.0` — the neutral, no-offset pattern sample.
+pub const SHADE_PAT_MID: f64 = PAT_MID;
+
+/// Standard deviation of a summed pattern sample, in its 0..62 range.
+pub const SHADE_PAT_SIGMA: f64 = PAT_SIGMA;
+
+/// Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness
+/// offset a class contributes. See `CellShades::build_material_shades`.
+pub const SHADE_EDGE_SCALE: f64 = 52.0;
+
+/// Brightness offset per edge class, as a fraction of the material's `MAT_EDGE`.
+pub const SHADE_EDGE_GAIN: [f64; EDGE_CODES] = EDGE_GAIN;
+
+/// Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`.
+pub const SHIMMER_SIN_SCALE: f64 = SIN_SCALE;
+
+/// Entries in the shimmer sine table.
+pub const SHIMMER_SIN_SIZE: usize = SIN_SIZE;
+
+/// Which of the eight tile patterns a material's `MAT_TEXTURE` resolves to.
+///
+/// The blit folds this into `TEX_OFF_A`/`TEX_OFF_B` as a byte offset; a
+/// shader wants the plain index, because its tiles are one texture per set with
+/// the eight slabs stacked in y.
+pub fn material_pattern(id: usize) -> usize {
+    tex_index(MAT_TEXTURE[id])
+}
+
+/// Everything [`CellShades::update_shimmer`] needs about one material, in the
+/// exact terms it uses them.
+///
+/// THIS STRUCT IS THE ENTIRE PER-FRAME CPU COST OF THE ANIMATION ON THE GPU.
+/// `update_shimmer` rewrites ~2 500 packed table entries every frame; the shader
+/// reads these four numbers out of a uniform that is written ONCE and evaluates
+/// the wave per fragment instead. See the note at the end of `update_shimmer`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ShimmerParams {
+    /// Peak lift in 0..255 colour units. Zero for a material that does not
+    /// animate — including one whose declared shimmer is below `SHIMMER_MIN`.
+    pub amp: f64,
+    /// Phase offset, so lava and crystal do not breathe in lockstep.
+    pub phase: f64,
+    /// `MAT_COLORVAR * TEX_GAIN` — the pattern's colour swing.
+    pub tex_amp: f64,
+    /// `MAT_EDGE / 255` — the rim/AO strength.
+    pub edge: f64,
+}
+
+/// [`ShimmerParams`] for one material.
+pub fn shimmer_params(id: usize) -> ShimmerParams {
+    let animated = MAT_SHIMMER[id] >= SHIMMER_MIN;
+    ShimmerParams {
+        amp: if animated {
+            f64::from(MAT_SHIMMER[id]) * (1.0 / 255.0) * 46.0
+        } else {
+            0.0
+        },
+        phase: SHIMMER_PHASE[id],
+        tex_amp: f64::from(MAT_COLORVAR[id]) * TEX_GAIN,
+        edge: f64::from(MAT_EDGE[id]) * (1.0 / 255.0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1156,6 +1265,35 @@ mod tests {
     #[test]
     fn tex_and_pat_agree_on_pattern_order() {
         assert_tex_order();
+    }
+
+    /// The re-exported scalars are the ones the blit actually uses, not copies
+    /// that could drift from them.
+    #[test]
+    fn the_shader_surface_re_exports_the_blits_own_numbers() {
+        assert_eq!(TEX_A_PERIOD, PA);
+        assert_eq!(TEX_B_PERIOD, PB);
+        assert_eq!(SHADE_MATERIAL_STRIDE, 1 << SHADE_SHIFT);
+        assert_eq!(SHADE_EDGE_CLASSES * SHADE_PATTERN_LEVELS, SHADE_STRIDE);
+        assert_eq!(SHADE_EDGE_GAIN, EDGE_GAIN);
+        // The tile sets are exactly `TEX_PATTERN_COUNT` slabs of `p * p`.
+        assert_eq!(TEX_A.len(), TEX_PATTERN_COUNT * (PA * PA) as usize);
+        assert_eq!(TEX_B.len(), TEX_PATTERN_COUNT * (PB * PB) as usize);
+    }
+
+    /// `shimmer_params` must agree with `update_shimmer` about which materials
+    /// animate — a mismatch would leave the shader animating a material the CPU
+    /// oracle holds still, or the reverse.
+    #[test]
+    fn shimmer_params_animate_exactly_the_materials_update_shimmer_rewrites() {
+        for id in 1..MAT_COUNT {
+            let animated = shimmer_params(id).amp > 0.0;
+            assert_eq!(
+                animated,
+                SHIMMER_IDS.contains(&id),
+                "material {id}: shimmer_params says animated={animated}"
+            );
+        }
     }
 
     #[test]

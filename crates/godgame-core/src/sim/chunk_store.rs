@@ -15,8 +15,19 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use rayon::prelude::*;
+
 use super::chunk::{Chunk, ChunkSnapshot};
 use super::worldgen::ChunkGen;
+
+/// How many chunks [`ChunkStore::prefetch`] wants to see before it reaches for a
+/// thread pool.
+///
+/// A `par_iter` costs a job split and a set of wakeups whether or not there is
+/// work behind it. The two callers are the whole-window fills — 88 chunks each —
+/// so anything below "more than a window shift's worth" is a batch that arrived
+/// mostly cached and is cheaper to finish on this thread.
+const PREFETCH_MIN_PARALLEL: usize = 8;
 
 /// Upper bound on retained diverged chunks. At CHUNK_CELLS² = 1024 cells × 6
 /// bytes (material 2 + flags 1 + aux 2 + temp 1) a snapshot is ~6 KB, so 2048
@@ -265,6 +276,73 @@ impl ChunkStore {
         self.cache.get(&key).expect("just inserted")
     }
 
+    /// Populate the cache for a whole batch of coordinates at once, generating
+    /// the ones that have to be generated ACROSS A RAYON POOL.
+    ///
+    /// [`Self::load_or_generate`] is a one-at-a-time call and stays that way: it
+    /// runs on the streaming path, where a window shift wants eight chunks and
+    /// the pool would cost more than it saved. This is the other shape — filling
+    /// a whole window at once, which happens on load and on a teleport-sized
+    /// jump — and there the 88 generates are the single most expensive thing the
+    /// engine does before the first frame.
+    ///
+    /// THE ONLY REASON THIS IS SAFE IS THAT WORLDGEN IS PURE. A chunk is a
+    /// function of `(chunk_x, chunk_y, seed)` and nothing else: there is no
+    /// static with interior mutability and no thread local anywhere in
+    /// `worldgen`, and the heightmap memo and cave lattice that would otherwise
+    /// have been module state are OWNED by [`ChunkGen`] for exactly this reason.
+    /// `worldgen_purity.rs` asserts it — check 8 generates the same set across a
+    /// pool and requires the result to be byte-identical to the serial one, and
+    /// `map_init` is what makes that a real test rather than a formality.
+    ///
+    /// So each worker gets its own `ChunkGen`, which is why `self.chunk_gen` is
+    /// untouched here. Two workers building the same chunk would produce the
+    /// same bytes; they simply never have to.
+    ///
+    /// Persistence reads stay on this thread. They are a `HashMap` hit that also
+    /// TOUCHES the LRU order, so they are inherently serial, and they are also
+    /// the cheap branch — a stored chunk costs a memcpy where a generated one
+    /// costs a heightmap, a cave field and three decorator passes.
+    pub fn prefetch(&mut self, coords: &[(i32, i32)]) {
+        let mut missing: Vec<(i32, i32)> = Vec::with_capacity(coords.len());
+        for &key in coords {
+            if self.cache.contains_key(&key) {
+                continue;
+            }
+            match self.persistence.read(key.0, key.1) {
+                Some(snap) => {
+                    self.cache.insert(key, Chunk::from_snapshot(&snap));
+                }
+                None => missing.push(key),
+            }
+        }
+
+        if missing.len() < PREFETCH_MIN_PARALLEL {
+            for (cx, cy) in missing {
+                self.load_or_generate(cx, cy);
+            }
+            return;
+        }
+
+        let seed = self.seed();
+        let generated: Vec<Chunk> = missing
+            .par_iter()
+            .map_init(
+                || ChunkGen::new(seed),
+                |chunk_gen, &(cx, cy)| {
+                    let mut chunk = Chunk::new(cx, cy);
+                    chunk.set_generated_material(&chunk_gen.generate(cx, cy));
+                    // flags / aux / temp start zeroed — a freshly generated
+                    // chunk has no sim state.
+                    chunk
+                },
+            )
+            .collect();
+        for chunk in generated {
+            self.cache.insert((chunk.chunk_x(), chunk.chunk_y()), chunk);
+        }
+    }
+
     /// Drop cached chunks farther than `radius` (Chebyshev) from a centre chunk.
     /// Diverged chunks are written through to persistence on the way out; pristine
     /// ones are simply forgotten.
@@ -357,6 +435,74 @@ mod tests {
         let want = generate_chunk(3, -2, SEED);
         assert_eq!(store.load_or_generate(3, -2).material, want);
         assert!(!store.get(3, -2).expect("cached").diverged);
+    }
+
+    /// A batch fetched across the pool must be indistinguishable from the same
+    /// chunks fetched one at a time — including the mixed case, where some are
+    /// already cached and some come back from persistence rather than from the
+    /// generator.
+    ///
+    /// `worldgen_purity.rs` already proves the generator itself is
+    /// order-independent and thread-safe. What this adds is the store's own
+    /// bookkeeping: that `prefetch` puts every chunk in the cache, keyed
+    /// correctly, and never lets a parallel generate overwrite a persisted edit.
+    #[test]
+    fn a_prefetched_batch_is_identical_to_fetching_one_at_a_time() {
+        let coords: Vec<(i32, i32)> = (-3..=3).flat_map(|x| (0..4).map(move |y| (x, y))).collect();
+        assert!(
+            coords.len() > PREFETCH_MIN_PARALLEL,
+            "the pool path is taken"
+        );
+
+        let mut serial = ChunkStore::new(SEED);
+        let mut batched = ChunkStore::new(SEED);
+        // A stored edit and an already-resident chunk, so the batch has all
+        // three source tiers in it.
+        for store in [&mut serial, &mut batched] {
+            store.put(Chunk::new(0, 0));
+            store.persistence.write(snap_at(1, 1, 4242));
+        }
+
+        for &(cx, cy) in &coords {
+            serial.load_or_generate(cx, cy);
+        }
+        batched.prefetch(&coords);
+
+        assert_eq!(batched.len(), serial.len());
+        for &(cx, cy) in &coords {
+            let want = serial.get(cx, cy).expect("serial cached every chunk");
+            let got = batched
+                .get(cx, cy)
+                .unwrap_or_else(|| panic!("prefetch missed chunk ({cx},{cy})"));
+            assert_eq!(
+                got.material, want.material,
+                "chunk ({cx},{cy}) differs between the batched and serial paths"
+            );
+            assert_eq!((got.chunk_x(), got.chunk_y()), (cx, cy), "wrong cache key");
+        }
+        assert_eq!(
+            batched.get(1, 1).expect("persisted").material[0],
+            4242,
+            "a parallel generate overwrote a persisted edit"
+        );
+    }
+
+    /// Below the threshold `prefetch` is the serial path, and must still be
+    /// correct — it is the same function, so a caller cannot end up with a
+    /// half-filled cache because its batch was small.
+    #[test]
+    fn a_small_prefetch_still_fills_the_cache() {
+        let coords: Vec<(i32, i32)> = (0..PREFETCH_MIN_PARALLEL as i32 - 1)
+            .map(|x| (x, 9))
+            .collect();
+        let mut store = ChunkStore::new(SEED);
+        store.prefetch(&coords);
+        for (cx, cy) in coords {
+            assert_eq!(
+                store.get(cx, cy).expect("cached").material,
+                generate_chunk(cx, cy, SEED)
+            );
+        }
     }
 
     #[test]

@@ -16,3 +16,21 @@ bitflags.workspace = true
 # TypeScript original. Test-only, exactly as in `godgame-core`.
 [dev-dependencies]
 serde_json = "1"
+
+# `tests/shader_matches_cpu.rs` drives the cell shader on a HEADLESS adapter and
+# reads the framebuffer back, so it needs wgpu directly rather than through
+# Bevy's app loop — there is no window in a test and there does not need to be.
+#
+# The feature list is exactly `bevy_render`'s, so this adds no compilation: it
+# resolves to the same `wgpu` build the engine already links.
+[dev-dependencies.wgpu]
+version = "29"
+default-features = false
+features = [
+    "wgsl",
+    "dx12",
+    "metal",
+    "vulkan",
+    "naga-ir",
+    "fragile-send-sync-non-atomic-wasm",
+]
