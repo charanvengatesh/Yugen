@@ -25,6 +25,7 @@ pub struct ChunkSnapshot {
     pub flags: Vec<CellFlags>,
     pub aux: Vec<u16>,
     pub temp: Vec<u8>,
+    pub back: Vec<CellId>,
 }
 
 /// A detached chunk of the world: one CHUNK_CELLS² tile of cell data, addressed
@@ -52,6 +53,15 @@ pub struct Chunk {
     /// field. Note this plane does NOT participate in the divergence test — see
     /// [`Chunk::absorb_row`].
     pub temp: Vec<u8>,
+    /// Background wall material per cell (0 = no wall).
+    ///
+    /// The plane behind the play plane: visible, diggable, and never solid. It
+    /// carries a material id and nothing else — no flags, no aux, no temp — for
+    /// the reason [`crate::sim::grid::CellGrid::back`] gives.
+    ///
+    /// Unlike [`Chunk::temp`], this DOES vote on divergence. See
+    /// [`Chunk::absorb_row`].
+    pub back: Vec<CellId>,
 
     /// True once this chunk's contents have been observed to differ from its
     /// pristine generated state (a player edit, or the sim actually moving a
@@ -62,6 +72,24 @@ pub struct Chunk {
     /// the window manager sets it from `extract_out`, and the store reads it to
     /// decide what to persist.
     pub diverged: bool,
+}
+
+/// The window planes one [`Chunk::absorb_row`] reads, borrowed together.
+///
+/// Five slices that are one idea — the live window, as the absorb sees it — and
+/// passing them loose put `absorb_row` at eight arguments, which is both past
+/// what clippy will allow and past what a reader can keep straight. Bundling
+/// them also means a plane added to [`CellGrid`](crate::sim::grid::CellGrid) is
+/// a field added HERE, in one place, rather than a sixth positional slice
+/// threaded through every call site by hand.
+///
+/// Borrowed rather than owned: the absorb reads the window and never keeps it.
+pub struct WindowRows<'a> {
+    pub material: &'a [CellId],
+    pub flags: &'a [CellFlags],
+    pub aux: &'a [u16],
+    pub temp: &'a [u8],
+    pub back: &'a [CellId],
 }
 
 impl Chunk {
@@ -77,6 +105,7 @@ impl Chunk {
             flags: vec![CellFlags::empty(); Chunk::SIZE],
             aux: vec![0; Chunk::SIZE],
             temp: vec![0; Chunk::SIZE],
+            back: vec![EMPTY; Chunk::SIZE],
             diverged: false,
         }
     }
@@ -103,6 +132,16 @@ impl Chunk {
         self.material.copy_from_slice(material);
     }
 
+    /// Overwrite the background wall plane with a freshly generated one.
+    ///
+    /// Separate from [`Chunk::set_generated_material`] rather than folded into
+    /// it, so that a generator which produces only the front plane — every caller
+    /// today — stays a caller that cannot accidentally leave the back plane
+    /// holding another chunk's walls.
+    pub fn set_generated_back(&mut self, back: &[CellId]) {
+        self.back.copy_from_slice(back);
+    }
+
     /// Copy one row of window cells into this chunk, reporting whether anything
     /// that matters to the world changed. This is the single place divergence is
     /// detected: the chunk still holds the cells as of the last blit *out of* the
@@ -110,6 +149,13 @@ impl Chunk {
     /// changed them. [`CellFlags::VOLATILE_MASK`] bits are masked out — they flip
     /// every tick on matter that is merely flowing past and say nothing about
     /// stored state.
+    ///
+    /// `back` DOES vote, and the contrast with `temp` below is the whole reason
+    /// this is worth stating. A wall is placed or dug by the player and by nothing
+    /// else — no automata pass touches the plane — so a pristine chunk's back
+    /// plane is bit-stable across a shift, and a difference can only mean a real
+    /// edit. A chunk that did not mark itself diverged would lose that edit the
+    /// moment it was evicted.
     ///
     /// `temp` is copied but deliberately does NOT vote on divergence, for two
     /// reasons:
@@ -147,26 +193,20 @@ impl Chunk {
     /// as free for feature code. Masking on the raw byte, as the TypeScript's
     /// `~FLAG_VOLATILE_MASK` did, keeps an unnamed feature bit voting on
     /// divergence instead of silently discarding it.
-    pub fn absorb_row(
-        &mut self,
-        ly: i32,
-        src_material: &[CellId],
-        src_flags: &[CellFlags],
-        src_aux: &[u16],
-        src_temp: &[u8],
-        src_offset: usize,
-    ) -> bool {
+    pub fn absorb_row(&mut self, ly: i32, src: &WindowRows<'_>, src_offset: usize) -> bool {
         let base = (ly * CHUNK_CELLS) as usize;
         let n = CHUNK_CELLS as usize;
         let mut changed = false;
         for i in 0..n {
             let s = src_offset + i;
             let d = base + i;
-            let m = src_material[s];
-            let f = src_flags[s];
-            let a = src_aux[s];
+            let m = src.material[s];
+            let f = src.flags[s];
+            let a = src.aux[s];
+            let bk = src.back[s];
             if self.material[d] != m
                 || self.aux[d] != a
+                || self.back[d] != bk
                 || ((self.flags[d] ^ f).bits() & !CellFlags::VOLATILE_MASK.bits()) != 0
             {
                 changed = true;
@@ -174,7 +214,8 @@ impl Chunk {
             self.material[d] = m;
             self.flags[d] = f;
             self.aux[d] = a;
-            self.temp[d] = src_temp[s];
+            self.temp[d] = src.temp[s];
+            self.back[d] = bk;
         }
         changed
     }
@@ -188,6 +229,7 @@ impl Chunk {
             flags: self.flags.clone(),
             aux: self.aux.clone(),
             temp: self.temp.clone(),
+            back: self.back.clone(),
         }
     }
 
@@ -200,6 +242,7 @@ impl Chunk {
         chunk.flags.copy_from_slice(&snap.flags);
         chunk.aux.copy_from_slice(&snap.aux);
         chunk.temp.copy_from_slice(&snap.temp);
+        chunk.back.copy_from_slice(&snap.back);
         chunk.diverged = true;
         chunk
     }
@@ -210,14 +253,36 @@ mod tests {
     use super::*;
 
     /// One row of window-shaped source planes, `CHUNK_CELLS` wide.
-    fn row_sources() -> (Vec<CellId>, Vec<CellFlags>, Vec<u16>, Vec<u8>) {
+    ///
+    /// Owned, because a test mutates them between absorbs; [`WindowRows`] borrows
+    /// them back for each call through [`rows`].
+    struct Sources {
+        material: Vec<CellId>,
+        flags: Vec<CellFlags>,
+        aux: Vec<u16>,
+        temp: Vec<u8>,
+        back: Vec<CellId>,
+    }
+
+    fn row_sources() -> Sources {
         let n = CHUNK_CELLS as usize;
-        (
-            vec![0; n],
-            vec![CellFlags::empty(); n],
-            vec![0; n],
-            vec![0; n],
-        )
+        Sources {
+            material: vec![0; n],
+            flags: vec![CellFlags::empty(); n],
+            aux: vec![0; n],
+            temp: vec![0; n],
+            back: vec![0; n],
+        }
+    }
+
+    fn rows(s: &Sources) -> WindowRows<'_> {
+        WindowRows {
+            material: &s.material,
+            flags: &s.flags,
+            aux: &s.aux,
+            temp: &s.temp,
+            back: &s.back,
+        }
     }
 
     #[test]
@@ -232,37 +297,37 @@ mod tests {
     #[test]
     fn absorbing_identical_cells_reports_no_change() {
         let mut c = Chunk::new(0, 0);
-        let (m, f, a, t) = row_sources();
-        assert!(!c.absorb_row(0, &m, &f, &a, &t, 0));
+        let s = row_sources();
+        assert!(!c.absorb_row(0, &rows(&s), 0));
     }
 
     #[test]
     fn material_and_aux_changes_vote() {
         let mut c = Chunk::new(0, 0);
-        let (mut m, f, mut a, t) = row_sources();
-        m[3] = 42;
-        assert!(c.absorb_row(0, &m, &f, &a, &t, 0));
+        let mut s = row_sources();
+        s.material[3] = 42;
+        assert!(c.absorb_row(0, &rows(&s), 0));
         // Absorbed, so the same row is now the baseline and does not re-report.
-        assert!(!c.absorb_row(0, &m, &f, &a, &t, 0));
-        a[9] = 5;
-        assert!(c.absorb_row(0, &m, &f, &a, &t, 0));
+        assert!(!c.absorb_row(0, &rows(&s), 0));
+        s.aux[9] = 5;
+        assert!(c.absorb_row(0, &rows(&s), 0));
     }
 
     #[test]
     fn volatile_flag_bits_do_not_vote_but_durable_ones_do() {
         let mut c = Chunk::new(0, 0);
-        let (m, mut f, a, t) = row_sources();
+        let mut s = row_sources();
 
-        f[0] = CellFlags::MOVED;
+        s.flags[0] = CellFlags::MOVED;
         assert!(
-            !c.absorb_row(0, &m, &f, &a, &t, 0),
+            !c.absorb_row(0, &rows(&s), 0),
             "MOVED is per-tick bookkeeping and must not mark a chunk diverged"
         );
         assert_eq!(c.flags[0], CellFlags::MOVED, "but it is still copied");
 
-        f[0] = CellFlags::BURNING;
+        s.flags[0] = CellFlags::BURNING;
         assert!(
-            c.absorb_row(0, &m, &f, &a, &t, 0),
+            c.absorb_row(0, &rows(&s), 0),
             "BURNING is durable world state and must mark a chunk diverged"
         );
     }
@@ -273,29 +338,74 @@ mod tests {
     #[test]
     fn temp_is_copied_but_never_votes() {
         let mut c = Chunk::new(0, 0);
-        let (m, f, a, mut t) = row_sources();
-        for (i, cell) in t.iter_mut().enumerate() {
+        let mut s = row_sources();
+        for (i, cell) in s.temp.iter_mut().enumerate() {
             *cell = (i as u8).wrapping_mul(7).wrapping_add(1);
         }
         assert!(
-            !c.absorb_row(0, &m, &f, &a, &t, 0),
+            !c.absorb_row(0, &rows(&s), 0),
             "a temperature-only difference must not count as divergence"
         );
-        assert_eq!(&c.temp[..t.len()], &t[..], "temp still rides along");
+        assert_eq!(
+            &c.temp[..s.temp.len()],
+            &s.temp[..],
+            "temp still rides along"
+        );
+    }
+
+    /// A wall placed or dug is a real edit and must mark the chunk diverged.
+    ///
+    /// The contrast with `temp` is the whole reason this is a separate test.
+    /// `temp` is copied and deliberately does not vote, because it is a
+    /// continuously-relaxing field that would be true of almost everything. The
+    /// back plane is the opposite: no automata pass touches it, so it is
+    /// bit-stable across a shift on a pristine chunk, and a difference can only
+    /// mean the player put it there.
+    ///
+    /// A chunk that copied the plane without voting would look completely correct
+    /// until the moment it was evicted, and then silently lose the wall.
+    #[test]
+    fn a_wall_edit_alone_marks_the_chunk_diverged() {
+        let mut c = Chunk::new(0, 0);
+        let mut s = row_sources();
+
+        assert!(!c.absorb_row(0, &rows(&s), 0), "baseline is clean");
+
+        s.back[6] = 77;
+        assert!(
+            c.absorb_row(0, &rows(&s), 0),
+            "a wall appeared and nothing else changed — if this does not vote, \
+             the edit is lost on eviction"
+        );
+        assert_eq!(c.back[6], 77, "and it is copied, not merely counted");
+
+        // Absorbed, so the same row is now the baseline and does not re-report.
+        assert!(!c.absorb_row(0, &rows(&s), 0));
+
+        // Digging one out is an edit too, in the other direction.
+        s.back[6] = 0;
+        assert!(
+            c.absorb_row(0, &rows(&s), 0),
+            "removing a wall is as much an edit as placing one"
+        );
     }
 
     #[test]
     fn absorb_reads_the_row_at_the_given_source_offset() {
         let n = CHUNK_CELLS as usize;
         // Two rows of source; row 1 is the interesting one.
-        let mut m = vec![0 as CellId; n * 2];
-        m[n + 4] = 9;
-        let f = vec![CellFlags::empty(); n * 2];
-        let a = vec![0u16; n * 2];
-        let t = vec![0u8; n * 2];
+        let mut material = vec![0 as CellId; n * 2];
+        material[n + 4] = 9;
+        let s = Sources {
+            material,
+            flags: vec![CellFlags::empty(); n * 2],
+            aux: vec![0u16; n * 2],
+            temp: vec![0u8; n * 2],
+            back: vec![0 as CellId; n * 2],
+        };
 
         let mut c = Chunk::new(0, 0);
-        assert!(c.absorb_row(1, &m, &f, &a, &t, n));
+        assert!(c.absorb_row(1, &rows(&s), n));
         assert_eq!(c.material[n + 4], 9, "landed in chunk row 1");
         assert!(c.material[..n].iter().all(|&v| v == 0), "row 0 untouched");
     }

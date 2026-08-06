@@ -361,7 +361,7 @@ only the exported surface is held to the rule.
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `PREFETCH_MIN_PARALLEL` (private) | `8` | How many chunks [`ChunkStore::prefetch`] wants to see before it reaches for a thread pool. | 30 |
-| `MAX_PERSISTED_CHUNKS` | `2048` | Upper bound on retained diverged chunks. | 41 |
+| `MAX_PERSISTED_CHUNKS` | `2048` | Upper bound on retained diverged chunks. | 51 |
 
 ### `crates/godgame-core/src/sim/decor/ores.rs`
 

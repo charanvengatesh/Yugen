@@ -161,7 +161,7 @@ pub struct CellGrid {
 
     /// Material id per cell (0 = empty).
     ///
-    /// The four planes are public because the renderer, the collision query and
+    /// The planes are public because the renderer, the collision query and
     /// the chunk blitter all address cells in bulk, exactly as they did through
     /// the TypeScript's `readonly` typed-array fields — the binding is fixed,
     /// the contents are not. The DIMENSIONS above are private with accessors,
@@ -179,6 +179,32 @@ pub struct CellGrid {
     /// in `automata`, which runs over awake chunks only so a settled world does
     /// no thermal work at all.
     pub temp: Vec<u8>,
+    /// Background wall material per cell (0 = no wall).
+    ///
+    /// The plane BEHIND the play plane: visible, diggable, lit darker, and
+    /// **never solid**. A carved tunnel with a wall behind it reads as a room
+    /// rather than as a black void, and "you have dug through to open sky"
+    /// becomes a state you can see — the predicate is literally `back == EMPTY`.
+    ///
+    /// # Why this carries a material and nothing else
+    ///
+    /// [`CellGrid::flags`], [`CellGrid::aux`] and [`CellGrid::temp`] exist to
+    /// drive the automata: `MOVED` is per-tick sweep bookkeeping, `aux` is a burn
+    /// timer / gas lifetime / growth generation, and `temp` is written only by the
+    /// heat pass. A wall does none of that. It is never swept, never swapped,
+    /// never ignited and never falls — it is scenery you can remove. All three
+    /// companion planes would be permanently zero for every cell forever, so the
+    /// back plane is one `CellId` and 2 bytes. If a wall ever needs to burn, that
+    /// is a later plane, not a reason to pay for three now.
+    ///
+    /// # It is reached by its own accessors, deliberately
+    ///
+    /// Nothing reads this through [`CellGrid::get_world`]. Collision, the
+    /// automata and every physics query go through that path and through
+    /// [`CellGrid::material`], so the back plane is unreachable from them unless
+    /// somebody types the word `back` — which is what makes "a wall is never
+    /// solid" a structural property rather than a rule to remember.
+    pub back: Vec<CellId>,
 
     /// Window origin: this grid is a WINDOW into an unbounded world, and its
     /// top-left cell maps to absolute cell (`origin_cell_x`, `origin_cell_y`).
@@ -252,6 +278,7 @@ impl CellGrid {
             flags: vec![CellFlags::empty(); n],
             aux: vec![0; n],
             temp: vec![0; n],
+            back: vec![EMPTY; n],
             origin_cell_x: 0,
             origin_cell_y: 0,
             shift_gen: 0,
@@ -364,6 +391,47 @@ impl CellGrid {
     pub fn set_world(&mut self, w: WorldCell, id: CellId) {
         let l = self.to_local(w);
         self.set(l.x, l.y, id);
+    }
+
+    // --- The background wall plane -------------------------------------------
+    //
+    // Separate names from `get_world` / `set_world`, on purpose and permanently.
+    // Collision, the automata and every physics query reach cells through those
+    // two and through `CellGrid::material`; none of them can see the back plane
+    // unless somebody types `back`. That is what makes "a wall is never solid" a
+    // property of the code's shape rather than a rule anyone has to remember.
+
+    /// Wall material at a LOCAL cell (0 if outside the window, or no wall).
+    #[inline]
+    pub fn get_back(&self, cx: i32, cy: i32) -> CellId {
+        if self.in_bounds(cx, cy) {
+            self.back[self.idx(cx, cy)]
+        } else {
+            EMPTY
+        }
+    }
+
+    /// Wall material at an absolute cell (0 if outside the window, or no wall).
+    #[inline]
+    pub fn get_back_world(&self, w: WorldCell) -> CellId {
+        let l = self.to_local(w);
+        self.get_back(l.x, l.y)
+    }
+
+    /// Set the wall at an absolute cell (no-op outside the window).
+    ///
+    /// Wakes the cell for RENDER but not for the sim: a wall is scenery, nothing
+    /// sweeps it, and waking a chunk of automata because the backdrop changed
+    /// would make redecorating cost a tick.
+    #[inline]
+    pub fn set_back_world(&mut self, w: WorldCell, id: CellId) {
+        let l = self.to_local(w);
+        if !self.in_bounds(l.x, l.y) {
+            return;
+        }
+        let i = self.idx(l.x, l.y);
+        self.back[i] = id;
+        self.mark_dirty(l.x, l.y);
     }
 
     // --- Cell coordinate helpers ---------------------------------------------
@@ -511,6 +579,26 @@ impl CellGrid {
                 self.box_next[k].union(bx0, by0, bx1, by1);
             }
         }
+    }
+
+    /// Flag the chunk holding this cell for REDRAW only, without waking the sim.
+    ///
+    /// [`CellGrid::wake_rect`] sets `dirty` and `awake_next` together, because
+    /// every write it was built for is matter moving — something that has to be
+    /// both repainted and re-simulated. The background wall plane is the one
+    /// write that is not: it is scenery, nothing sweeps it, and waking a chunk of
+    /// automata because the backdrop changed would make redecorating cost a tick
+    /// of simulation.
+    ///
+    /// No halo, for the same reason. The halo exists so a neighbour can REACT;
+    /// nothing reacts to a wall.
+    #[inline]
+    pub fn mark_dirty(&mut self, cx: i32, cy: i32) {
+        if !self.in_bounds(cx, cy) {
+            return;
+        }
+        let k = ((cy / CHUNK_CELLS) * self.chunk_cols + (cx / CHUNK_CELLS)) as usize;
+        self.dirty[k] = true;
     }
 
     /// Wake one whole chunk slot — what a freshly blitted-in chunk needs.

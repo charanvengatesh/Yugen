@@ -26,7 +26,7 @@
 //! with it, and `blit_in` is a row `copy_from_slice` rather than the TypeScript's
 //! deliberate scalar loop — see the note on that function.
 
-use super::chunk::Chunk;
+use super::chunk::{Chunk, WindowRows};
 use super::chunk_store::ChunkStore;
 use super::coords::floor_div;
 use super::grid::CellGrid;
@@ -424,6 +424,11 @@ fn shift_row(grid: &mut CellGrid, y: i32, dx: i32, dy: i32, x0: i32, len: i32) {
     grid.material.copy_within(src..end, dst);
     grid.flags.copy_within(src..end, dst);
     grid.aux.copy_within(src..end, dst);
+    // Walls travel with the cells they are behind, for the reason `temp` does
+    // below: a plane left at the old offset smears sideways by the shift on every
+    // recentre, and a backdrop is exactly the sort of thing nobody would notice
+    // sliding until it had slid a long way.
+    grid.back.copy_within(src..end, dst);
     // Heat travels with the cells it belongs to. Survivors are moved rather than
     // re-blitted, so if this were omitted the thermal field would stay at the
     // old offset and every shift would smear hotspots sideways.
@@ -457,6 +462,7 @@ fn blit_in(grid: &mut CellGrid, chunk: &Chunk, ci: i32, cj: i32) {
         grid.material[dst..dst + n].copy_from_slice(&chunk.material[src..src + n]);
         grid.flags[dst..dst + n].copy_from_slice(&chunk.flags[src..src + n]);
         grid.aux[dst..dst + n].copy_from_slice(&chunk.aux[src..src + n]);
+        grid.back[dst..dst + n].copy_from_slice(&chunk.back[src..src + n]);
         // Overwrites whatever heat the slot's previous occupant left behind. A
         // freshly generated chunk's plane is all-ambient, which is why nothing
         // needs to wipe the field on a shift.
@@ -477,10 +483,13 @@ fn extract_out(chunk: &mut Chunk, grid: &CellGrid, ci: i32, cj: i32) {
         let src_row = (base_ly + ly as usize) * cols + base_lx;
         if chunk.absorb_row(
             ly,
-            &grid.material,
-            &grid.flags,
-            &grid.aux,
-            &grid.temp,
+            &WindowRows {
+                material: &grid.material,
+                flags: &grid.flags,
+                aux: &grid.aux,
+                temp: &grid.temp,
+                back: &grid.back,
+            },
             src_row,
         ) {
             changed = true;
@@ -494,6 +503,7 @@ fn extract_out(chunk: &mut Chunk, grid: &CellGrid, ci: i32, cj: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::coords::WorldCell;
     use crate::sim::materials::CellId;
     use crate::sim::worldgen::ChunkGen;
 
@@ -614,6 +624,116 @@ mod tests {
                     &format!("leg ({lx},{ly}) step {step}"),
                 );
             }
+        }
+    }
+
+    /// Walls survive a walk away and back, exactly as matter does.
+    ///
+    /// # The trap this exists for
+    ///
+    /// A plane added to `CellGrid` has to be threaded through FOUR places or the
+    /// world quietly corrupts: `blit_in`, `extract_out`, `shift_row`, and
+    /// `Chunk`. Miss `shift_row` and the plane stays at the old offset while
+    /// everything else moves, so every recentre smears it sideways by the shift.
+    /// Miss `extract_out` or the divergence vote and the edit is simply gone the
+    /// moment the chunk is evicted.
+    ///
+    /// `a_long_walk_leaves_the_window_identical_to_a_fresh_generate` cannot catch
+    /// any of that: it compares `grid.material` against a fresh generate, and the
+    /// back plane is neither generated nor material. Nothing else looks at this
+    /// plane at all yet, which is exactly why it needs its own test now — an
+    /// invisible plane that is already broken is the worst thing to inherit.
+    ///
+    /// The walls are written by hand because worldgen does not produce them yet.
+    /// That is the point: this pins the STREAMING, and it will keep pinning it
+    /// when the generator starts filling the plane.
+    #[test]
+    fn the_back_plane_survives_a_walk_away_and_back() {
+        let mut grid = fresh_grid();
+        let mut wm = WindowManager::new(ChunkStore::new(SEED));
+        wm.init(&mut grid, 0, 0);
+
+        // A diagonal stripe of distinct wall ids across the middle of the window,
+        // so a smear along either axis lands the wrong id rather than merely the
+        // wrong count. Ids are arbitrary non-zero material codes; nothing reads
+        // them yet, and a wall is a `CellId` like any other.
+        let origin_x = grid.origin_cell_x();
+        let origin_y = grid.origin_cell_y();
+        let mut wrote: Vec<(WorldCell, CellId)> = Vec::new();
+        for i in 0..40i32 {
+            let w = WorldCell::new(origin_x + 20 + i, origin_y + 20 + i);
+            let id = (i + 1) as CellId;
+            grid.set_back_world(w, id);
+            wrote.push((w, id));
+        }
+        for &(w, id) in &wrote {
+            assert_eq!(grid.get_back_world(w), id, "the write did not land");
+        }
+
+        // Far enough that the stripe leaves the window entirely and has to come
+        // back from the store rather than from a survivor memmove.
+        let far = CHUNK_CELLS * (WINDOW_CHUNKS_X + WINDOW_CHUNKS_Y) * 2;
+        assert!(wm.recenter(&mut grid, far, far));
+        for &(w, _) in &wrote {
+            assert!(
+                !grid.is_loaded_world(w),
+                "the stripe was supposed to leave the window"
+            );
+        }
+
+        // And back to where it was written.
+        assert!(wm.recenter(&mut grid, 0, 0));
+        assert_eq!(
+            (grid.origin_cell_x(), grid.origin_cell_y()),
+            (origin_x, origin_y),
+            "the origin is a pure function of the player cell, so this is the \
+             window the stripe was written into"
+        );
+        for &(w, id) in &wrote {
+            assert_eq!(
+                grid.get_back_world(w),
+                id,
+                "a wall at {w:?} came back as the wrong id — the plane was \
+                 dropped, smeared or never persisted"
+            );
+        }
+    }
+
+    /// A short shift keeps the walls under the cells they belong to.
+    ///
+    /// The round trip above goes through the STORE. This one never leaves the
+    /// window, so it exercises `shift_row`'s memmove and nothing else — the one
+    /// path where a forgotten plane slides against the rest of the world instead
+    /// of vanishing outright, which is far harder to notice.
+    #[test]
+    fn a_short_shift_moves_the_walls_with_the_cells() {
+        let mut grid = fresh_grid();
+        let mut wm = WindowManager::new(ChunkStore::new(SEED));
+        wm.init(&mut grid, 0, 0);
+
+        let origin_x = grid.origin_cell_x();
+        let origin_y = grid.origin_cell_y();
+        let marks: Vec<(WorldCell, CellId)> = (0..12i32)
+            .map(|i| {
+                (
+                    WorldCell::new(origin_x + 100 + i * 3, origin_y + 100),
+                    (i + 1) as CellId,
+                )
+            })
+            .collect();
+        for &(w, id) in &marks {
+            grid.set_back_world(w, id);
+        }
+
+        // Two chunks along, which is the smallest shift `recenter` will make and
+        // the one a walking player produces constantly.
+        assert!(wm.recenter(&mut grid, CHUNK_CELLS * 2, 0));
+        for &(w, id) in &marks {
+            assert_eq!(
+                grid.get_back_world(w),
+                id,
+                "a wall moved relative to the world across a survivor memmove"
+            );
         }
     }
 

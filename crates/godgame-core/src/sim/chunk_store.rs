@@ -29,15 +29,25 @@ use super::worldgen::ChunkGen;
 /// mostly cached and is cheaper to finish on this thread.
 const PREFETCH_MIN_PARALLEL: usize = 8;
 
-/// Upper bound on retained diverged chunks. At CHUNK_CELLS² = 1024 cells × 6
-/// bytes (material 2 + flags 1 + aux 2 + temp 1) a snapshot is ~6 KB, so 2048
-/// chunks is ~12 MB — roughly a 45×45-chunk region of fully-edited world, far
-/// more than a player touches in a session. The temp plane rides along in the
-/// snapshot but does not itself mark a chunk diverged, so it changes the size of
-/// a snapshot without changing how many are retained. Past the cap the
-/// least-recently-used diverged
-/// chunk is dropped and that patch of world reverts to its generated state;
-/// losing the oldest edit is preferable to an unbounded heap.
+/// Upper bound on retained diverged chunks. At CHUNK_CELLS² = 1024 cells × 8
+/// bytes (material 2 + flags 1 + aux 2 + temp 1 + back 2) a snapshot is ~8 KB, so
+/// 2048 chunks is ~16 MB — roughly a 45×45-chunk region of fully-edited world,
+/// far more than a player touches in a session. Past the cap the
+/// least-recently-used diverged chunk is dropped and that patch of world reverts
+/// to its generated state; losing the oldest edit is preferable to an unbounded
+/// heap.
+///
+/// Two planes ride along in the snapshot without affecting how many are retained,
+/// and for opposite reasons. `temp` does not mark a chunk diverged at all — it is
+/// a continuously-relaxing field that would be true of almost everything. `back`
+/// DOES vote, because a wall is placed or dug by the player and by nothing else,
+/// so a difference in it can only mean a real edit; it makes chunks diverge that
+/// otherwise would not, which is the correct outcome and not a leak.
+///
+/// The cap stayed at 2048 when the back plane took the snapshot from 6 KB to
+/// 8 KB. It is a count of retained player EDITS, not a byte budget, and shrinking
+/// it to hold 12 MB would have started silently dropping edits earlier — paying
+/// for a plane the player can see with a plane the player can see.
 pub const MAX_PERSISTED_CHUNKS: usize = 2048;
 
 /// Where diverged chunks live once they fall out of the hot cache. Deliberately
