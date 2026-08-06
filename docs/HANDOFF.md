@@ -1,0 +1,430 @@
+# Handoff
+
+A port of a TypeScript/Canvas2D falling-sand sandbox game to Rust + Bevy +
+wgpu, milestones M0 through M10. This document is for the person taking it over.
+
+It is written to be useful rather than flattering. Where something is unverified,
+it says so; where a decision is likely wrong, it says that too. **Read §7 and §8
+before you read anything else** — the findings and the open items are the part
+you cannot reconstruct from the code.
+
+## Provenance, and where to be sceptical
+
+The port was written by an AI agent (Claude), largely by fanning work out to
+sub-agents, one file or module each. Practical consequences for a reviewer:
+
+- **Doc comments are dense and argue their decisions.** This is deliberate and is
+  the codebase's main asset. It is also the main risk: a confident comment can
+  outlive the thing it describes. Several did (§8.3). Trust the code over the
+  comment when they disagree, and fix the comment.
+- **Every non-obvious number has a stated reason.** If you find one that does
+  not, that is a defect worth treating as such.
+- **The test suite is large (943 passing) and was written alongside the code**,
+  so it encodes the same assumptions. Tests agreeing with the implementation is
+  weaker evidence here than usual. The frozen parity suites (§6) are the
+  exception and are the strongest evidence in the repo.
+
+## 1. What it is
+
+| | |
+|---|---|
+| Language / engine | Rust 2024, Bevy, wgpu |
+| Toolchain | pinned by `rust-toolchain.toml` |
+| Tests | **943 passing**, 0 failing |
+| `unsafe` | **zero** (the one grep hit is the literal string in `contentc`'s Rust-keyword list) |
+| `#[allow]` | 10, all pre-existing in `sim/worldgen`, `sim/decor`, `contentc`, generated data. `godgame-render` and `xtask` have none |
+| Source | ~84k lines across six crates |
+
+The original is at `../GodGame` (TypeScript). It is **read-only reference** and
+several test suites depend on frozen artefacts dumped from it.
+
+## 2. Layout, and the one boundary that matters
+
+```
+crates/contentc        content compiler: TOML -> generated Rust tables   (6.8k)
+crates/godgame-data    the generated tables. Never hand-edit.           (10.0k)
+crates/godgame-core    sim, entities, physics, items. NO BEVY.          (33.7k)
+crates/godgame-render  every Bevy-facing thing                          (31.0k)
+crates/godgame         the binary: window, CLI flags                    (0.4k)
+xtask                  the gate runner and the tuning index             (2.0k)
+```
+
+The dependency arrow is one-way and `godgame-core` **may not know what a
+`KeyCode` is**. That is the load-bearing constraint. What falls out of it:
+
+- the sim is testable headlessly and benchable without a GPU;
+- anything Bevy-shaped must be expressed as a seam (§4), which forces the
+  boundary to stay explicit rather than eroding;
+- `Player.draw`, `Projectiles.draw`, `WorldItems.draw` and the DOM `Input` class
+  were amputated on the way in, and what they READ is published as accessors.
+
+`docs/ARCHITECTURE.md` is the full version (445 lines) and is accurate as of M9.
+
+## 3. Milestones
+
+| | Delivered |
+|---|---|
+| **M0** | workspace scaffold |
+| **M1** | `contentc` — content compiler |
+| **M2** | config, noise, full worldgen + purity suite |
+| **M3** | `CellGrid`, chunk streaming, falling-sand automata |
+| **M4** | Bevy app, wgpu cell rasteriser, verified against a CPU oracle |
+| **M5** | player, collision, input, build tool |
+| **M6** | mobs, projectiles, items |
+| **M7** | lighting and atmosphere (daynight, sky, weather, ambience, light, particles, effects) |
+| **M8** | sprite atlas, authored bitmap font, HUD, scenes |
+| **M9** | architecture doc, `cargo xtask check`, tuning index, perf pass |
+| **M10** | quality pass — real bloom, pixel-grid sky, pixel-grid light, dead joins connected |
+
+Two milestones changed the game rather than porting it, and both are documented
+as deliberate divergences at the site:
+
+- **Particle collision** (`particles.rs`). The original's debris fell through
+  floors. Ours collides. This is the one place the port knowingly plays better
+  than its source; no parity suite covers particles.
+- **Creative is a truce** (`Player::untouchable`). The original's creative mode
+  is only an infinite palette. Ours also makes the body untouchable — creatures
+  neither aggro on it nor damage it, and hazards do not.
+
+Also worth knowing: **content moved from a bespoke DSL to TOML** during M2
+(commit `f9bead3`), compiled to Rust tables by `contentc`. `content/ids.lock.json`
+pins id→code so a reordered file cannot silently renumber the world.
+
+## 4. The seam pattern — the tree's main idiom
+
+The same problem recurs: A needs B, and neither should own the other. It is
+always solved the same way — a boxed closure or a small trait, installed at a
+composition root, never a direct import.
+
+| Seam | Where |
+|---|---|
+| projectile hit test | `mobs::install_hit_test` -> `MobSystem::hit_at` |
+| ammo source | `items::install_ammo_source` -> `Inventory::spend_by_id` |
+| item icons | `glue::IconAtlas for SpriteAtlases` |
+| scene -> HUD screen | `glue::follow_scene` |
+| creature target | `MobTarget` trait |
+| chunk persistence | `ChunkPersistence` trait |
+
+**Why closures and not resources**: Bevy cannot hand a second borrow down a call
+stack that goes system -> `Player::step` -> `ProjectileSystem::update`. The
+closure has to capture. This is also why `Creatures` and `Pack` are
+`Arc<Mutex<_>>` — see §9.1, where I argue that is the weakest design in the
+codebase.
+
+`crates/godgame-render/src/glue.rs` is the composition root and its header states
+the principle. When you add a cross-module dependency, put it there.
+
+## 5. Running and debugging
+
+### Run
+
+```
+cargo run --release                      # play it
+cargo run --release -- --free-camera     # no player; WASD flies the view
+cargo run --release -- --drive 1.5       # runs right by itself, jumps every 1.5s
+cargo run --release -- --screenshot out.png --warmup 400
+cargo run --release -- --edit dig 0 20 6 --screenshot out.png
+```
+
+**Build release before launching the binary directly.** `./target/release/godgame`
+does not rebuild. This cost real time during development: the binary sat frozen
+at an older milestone while every test passed, because the tests build their own.
+`cargo run` avoids it entirely.
+
+In game: `G` toggles creative, `1`–`0` and the wheel drive the hotbar (survival)
+or the palette (creative), `C` crafts, `F` consumes, Enter/Space leaves the menu.
+
+### Debug
+
+Three rigs, in increasing order of how much they tell you:
+
+```
+cargo xtask check                                          # all five gates
+cargo test -p godgame-render --test frame_capture -- --nocapture
+cargo test -p godgame-render --test lit_scene -- --nocapture
+cargo bench -p godgame-core -p godgame-render
+```
+
+**`frame_capture`** boots the whole plugin group headlessly with `WinitPlugin`
+disabled, captures the low-res buffer, writes `target/tmp/frame-capture/lowres.png`,
+and asserts the frame is not degenerate. No window, so **it works with the lid
+shut** — which matters, because a closed laptop produces a black window
+screenshot and that wasted an hour of debugging a bug that did not exist.
+
+**`lit_scene`** carves a lava-lit cave 900px underground and writes
+`target/tmp/lit-scene/cave.png`. It is **not a gate** — there is no numeric
+property of a cave worth failing a build over. It exists because the default
+spawn is a snowy surface in daylight where the entire lighting stack is invisible
+or clipped, and every lighting change otherwise has to hand-build a scene. This
+one was built and thrown away three times before it was kept.
+
+**`graphify`** — there is a knowledge graph at `graphify-out/`. `graphify query
+"<question>"` returns a scoped subgraph and is much cheaper than grepping. Run
+`graphify update .` after structural changes.
+
+### When something looks wrong on screen
+
+Bisect by plugin. `GodGameRenderPlugin` in `lib.rs` is a `PluginGroup`; comment
+one out and re-capture. That is how the smooth-glow complaint was traced to the
+light grid rather than the bloom (§7.3).
+
+## 6. The gates, and what each test kind catches
+
+`cargo xtask check` runs five gates, cheapest first, fail-fast, with the child's
+own output streamed. A failure names the reproduce command. Later gates are
+reported `not run`, never as passing.
+
+```
+fmt      cargo fmt --all --check
+tuning   docs/TUNING.md is current, config documented, no name shadows
+content  generated tables are not stale
+clippy   --workspace --all-targets -- -D warnings   (zero findings)
+test     cargo test --workspace
+```
+
+`xtask` deliberately depends on **no workspace crate**: a gate runner that cannot
+start when the sim crate is broken is useless exactly when you need it.
+
+Test kinds, and what only each one can see:
+
+| Suite | Catches |
+|---|---|
+| `ts_parity` (data) | 79 tables, 2629 slots, id->code mappings |
+| `ts_noise_parity` | every noise entry point |
+| `ts_worldgen_parity` | 357 chunks, cell for cell |
+| `ts_player_parity` | **ordering** bugs — 22 scripted cases, 4048 fixed steps. Coyote time read one phase late, `wall_dir` cleared after the collide. Invisible except in a long replay |
+| `ts_cells_parity` | the CPU rasteriser, pixel for pixel |
+| `worldgen_purity` | a chunk is a pure function of `(chunk_x, chunk_y, seed)` |
+| `shader_matches_cpu` | the WGSL agrees with the CPU oracle |
+| `mob_regression` | 8 creatures x 25 fields, exact equality |
+| `frame_capture` | the composite produces a varied, correctly-oriented image |
+
+**The five frozen TypeScript fixtures must never be weakened to make a change
+pass.** If one fails, the port is wrong.
+
+## 7. Findings
+
+### 7.1 The bug class that matters here: pipes built, joins missed
+
+Three separate defects with the same shape. Each degraded to *plausible* output,
+which is why nothing caught them.
+
+- **`MobSystem::events()` returns a fixed backing buffer**, and only the first
+  `event_count` entries are valid — its doc says so. The host drained the whole
+  buffer, so ~14 phantom `MobHurt` events arrived per frame at (0,0), each adding
+  0.08 trauma against a decay of 4/s. **The screen shake was pinned at maximum
+  from the first frame.** 896 tests and a purpose-built image gate were green:
+  a shaking camera still renders a varied, correctly-lit frame. `collect_loot`
+  had the identical bug and was surviving on luck.
+- **`BiomeAmbient` was declared, read by the light solve, and written by
+  nothing.** Every biome lit identically for two milestones.
+- **`WeatherWeights` used an un-dithered stand-in**, so weather popped at biome
+  boundaries instead of blending.
+
+**Lesson for the reviewer**: when you add a resource that something else is
+expected to fill, that failure mode is silent. A test that boots the real plugin
+and demands the resource *move* is the one that catches it.
+
+### 7.2 The capture gate is blind to motion
+
+`frame_capture` proves a frame *is drawn*. It says nothing about whether the
+frame is *stable over time*. Shake, flicker, and camera drift all pass it
+cleanly — proven, not theorised, by 7.1. There is now an idle-trauma test, but a
+general frame-to-frame comparison does not exist and is the single highest-value
+test to add.
+
+### 7.3 A complaint about "the bloom" was not the bloom
+
+Reported: the underground glow was off-putting and too smooth. With
+`BLOOM_INTENSITY = 0.0` the haze was **unchanged**. The cause was the coloured
+light grid at `LIGHT_DOWNSCALE = 4` — a 20px texel, four times coarser than the
+5px art, upscaled smoothly by design. Fixed in M10 by putting light on the cell
+grid. The null result is recorded in `BLOOM_INTENSITY`'s doc so nobody reaches
+for the same wrong knob.
+
+### 7.4 Numbers that were wrong until measured
+
+- The old bloom was **not a bloom**: up to 120 additive sprites, each 128px
+  across in a 640x400 buffer. Nothing bounded what it could add to a pixel; the
+  120 cap bounded sprite *count*. Over a lava lake it added +13.03 mean luminance
+  and lifted 28.1% of pixels by >=32/255. The replacement adds +0.79 and 0.1%,
+  which is *at* the shimmer's own frame-to-frame noise floor.
+- `ParticleSystem::claim` scanned all 2048 slots to discover a full pool had no
+  room: 240 emitters cost **411 µs (4.9% of a frame) spawning nothing**, paid
+  exactly when the frame is busiest. `self.live` already knew. Now 801 ns.
+- A doc comment claimed the `SpriteAtlases` clone wasted "a few megabytes".
+  Measured: **1744 bytes**. Wrong by ~1000x. The conclusion happened to be
+  right; the stated reason was invented.
+
+### 7.5 Benchmarks lie by default
+
+Three of the perf-pass benchmarks were wrong before they were right, and the
+autopsies are kept in `docs/PERF.md` §7: a sim bench reading **13x too fast**
+because criterion ran 843k ticks and the painted scene fell asleep; a window
+bench measuring 1536 cells underground while its doc claimed the surface; a
+particle "update" that was measuring emission. Each now carries an assertion
+that would catch it again.
+
+Also: **thermal drift across a session (11%) exceeds run-to-run variance
+(3–5%)**. Two numbers in `docs/PERF.md` are only comparable if they came from the
+same run.
+
+## 8. Open items
+
+### 8.1 Known-missing behaviour
+
+- **The burrower's breach tell (`drawTell`) is not drawn.** Buried creatures
+  simply vanish. `Mob::tell_t` and `TELL_TIME` are published and unused.
+- **`particles.rs` glow draws as plain sprites at a higher z**, not on
+  `AdditiveMaterial`, which now has proven consumers in `mobs.rs` and `sky.rs`.
+  One-file change.
+- **Mob art pads are all zero in current content**, and every mob authors its own
+  `air` pose — so the art-rect padding and the pose fallback are correct but
+  currently invisible. Tests assert the present state so the day either changes
+  is loud.
+
+### 8.2 Never visually verified by anyone
+
+- **The ridges** — fully occluded by terrain in every captured frame. Needs a
+  hilltop.
+- **Twilight** — captures are mid-morning. The horizon glow is the steepest ramp
+  in `sky.rs` and the main justification for its dithering, and no one has seen
+  it.
+- **Bloom while the camera scrolls.** The rect is cell-snapped specifically to
+  stop the glow crawling and there is a test for the snap, but nobody watched it
+  move.
+- **`ui::paint` has never run on a real GPU in a test.** Its pure layer is
+  exhaustively tested; the pooling, `ChildOf` parenting and atlas sampling are
+  argued from code, not observed.
+
+### 8.3 Documentation rot — check before trusting
+
+Comments describing seams that have since been closed have been a recurring
+problem. Known stale as of this writing:
+
+- `player_art.rs` — several `SEAM (sprite)` notes. **`ContentPoses` is a
+  stand-in that `player.rs` now bypasses** (it resolves poses via `seq_state` +
+  `BakedSprite::state_id`). Dead-ish code; decide whether to delete it or route
+  through it.
+- `ui.rs` — `SEAM (sprite.rs)` and `SEAM (scenes.rs)` notes. Both closed in
+  `glue.rs`.
+- `mobs.rs` — `SEAM (M7)` on `Daylight`. Closed; `daynight.rs` writes it.
+- `glue.rs` — `SEAM (respawn)`. Closed by `start_a_run`.
+
+`caves.rs`'s two `SEAM FOR THE FEATURE PASS` notes are **genuine** and intended.
+
+### 8.4 Tuning knobs a human should look at
+
+| Knob | File | Why |
+|---|---|---|
+| `SKY_DITHER` | `sky.rs` | The halo needs it; the sun's core edge may be cleaner without. Try `0.0` |
+| `LIGHT_SOFTNESS` | `light.rs` | 0.5 is a midpoint guess between "reads as masonry" and "reads as wash" |
+| `COLOUR_GAIN` | `light.rs` | Strength dial. Its right value moved when the resolution changed and it has not been retuned since |
+| `BIOME_AMBIENT_ALPHA` | `light.rs` | The wash composites additively in linear where the original was an sRGB fill, so it lifts dark pixels harder |
+| `START_CREATIVE` | `interact.rs` | Currently `false` (survival), matching the original |
+
+## 9. Rust-specific work worth doing
+
+Ordered by my estimate of value. These are leads, not verdicts — none has been
+prototyped.
+
+### 9.1 The `Arc<Mutex<_>>` seams are the weakest design in the tree
+
+`Creatures`, `Pack` and `SharedPool` are all `Arc<Mutex<_>>` because a
+`Box<dyn FnMut + 'static>` installed on the player has to capture them, and Bevy
+cannot pass a second borrow down that call stack.
+
+The locks are **uncontended by construction** — one schedule, systems run
+sequentially — so this is not a throughput problem. It is an *expressiveness*
+problem: runtime locking is standing in for something Rust could enforce
+statically, the lock ordering is a documented invariant rather than a checked
+one, and there is a genuine deadlock hazard that is currently prevented by a
+comment and one test.
+
+Worth exploring: an explicit event queue between the player step and the creature
+step, or Bevy's exclusive systems, or restructuring so `ProjectileSystem::update`
+takes the hit test as a `&mut dyn FnMut` parameter rather than storing it. That
+last one is blocked today only because `Player::step` drives the pool internally.
+
+### 9.2 The window shift is the biggest single cost and is serial
+
+**721.9 µs, 8.7% of one frame** — the most expensive event in the game, and it is
+not amortised: save the trailing edge, memmove, generate and blit the leading
+edge, all inside one tick.
+
+**`ChunkStore::prefetch` already has a rayon `par_iter` path — and the shift
+never reaches it.** `WindowManager::load_incoming` walks the incoming edge and
+calls `load_slot(grid, ci, cj)` **one chunk at a time**, so generation happens
+serially, chunk by chunk, on the main thread. `prefetch` is only called from
+`load_all` (the full reload at startup).
+
+This looks like the cheapest real win in the codebase:
+
+1. Collect the incoming coords in `load_incoming` first, hand them to
+   `prefetch` in one call, then blit from the now-warm cache. A 2-chunk shift of
+   an 11x8 window is ~16 chunks, comfortably over `PREFETCH_MIN_PARALLEL` (8),
+   so it would take the parallel path immediately.
+2. `prefetch` is already documented as producing byte-identical results to the
+   serial path (each worker gets its own `ChunkGen`), and there is a test
+   asserting exactly that — so this should be behaviour-preserving by
+   construction.
+
+Beyond that it is a *latency* problem rather than throughput, so the stronger
+fix is to prefetch the leading edge **before** the dead zone is crossed, off the
+critical path entirely. `WindowManager::recenter` has a one-chunk dead zone that
+gives you the lookahead for free.
+
+**Unverified**: I have not prototyped either. The 80/20 split between `recenter`
+and the follow-on sim tick is measured (`docs/PERF.md` §4); the claim that
+batching recovers most of the 578 µs `recenter` cost is inference from the code
+path, not a measurement.
+
+### 9.3 The light blur is 98.7 µs of CPU that wants to be on the GPU
+
+After M10 the light solve is 136.9 µs, of which the blur is 98.7 µs — already
+reduced from 171 µs by rewriting it as four sliding-window passes (a triangle
+kernel is a box convolved with a box, so it is O(1) in the radius). It is a
+separable blur over a texture the GPU already has. Moving it is the obvious next
+win and would take the whole light stack back under 1% of frame.
+
+### 9.4 Dynamic dispatch on hot paths
+
+`ShotHitTest`, `AmmoSource`, `Projectiles` and `MobTarget` are all `dyn`. The hit
+test in particular is called per live shot per fixed step, at 120 Hz. Probably
+not measurable today (`MAX_SHOTS` is 24), but if projectile counts grow,
+monomorphising the pool over its hit test is the direction.
+
+### 9.5 Smaller
+
+- `bake_vignette` is ~8.4 µs recomputed every frame from inputs that move very
+  slowly. Cache it against depth and view size.
+- `docs/PERF.md`'s light section is marked superseded but the *other* sections
+  predate M10's changes; a fresh full run would be worth it.
+- The whole tree is `f32` for parity with the original's `f64`-in-name-only
+  arithmetic. Documented per site where precision was actually lost
+  (`sprite.rs`'s `1/0.62` case, `hash_phase`'s mantissa overflow). Do not
+  "upgrade" these to `f64` without reading those notes.
+
+## 10. Process notes
+
+Things that worked, for whoever continues:
+
+- **Fan-out on disjoint files is safe; fan-out on one rendered image is not.**
+  Three agents told to capture before/after all wrote the same PNG path and read
+  each other's frames. File ownership held perfectly; the *visual* attribution in
+  their reports did not.
+- **`cargo fmt -p <crate>` formats the whole crate**, so concurrent agents write
+  to each other's files even when scoped correctly.
+- **A gate never seen to fail is unproven.** The `xtask check` runner was
+  validated by deliberately breaking a test; the frame-capture gate by forcing
+  the pixels black and confirming all three image assertions fail with
+  actionable messages.
+- **Tuning-index staleness caught real drift twice** during this session alone,
+  including a genuine bug: `light.rs` declared a module-local `UNDERWORLD_DEPTH`
+  (0.62, a normalised fraction) shadowing `config::worldgen::UNDERWORLD_DEPTH`
+  (470, a cell count). One glob import away from silently substituting one for
+  the other.
+
+The single most useful habit: **look at the picture.** The gate stayed green
+through the shake bug, a stale binary, and the light haze. All three were found
+by a human opening the game.
