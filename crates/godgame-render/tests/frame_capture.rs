@@ -60,39 +60,20 @@
 //! a machine that never rendered a frame is worse than a red one, because a
 //! green tick is precisely the claim this file exists to make.
 
-use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
-use bevy::app::{PluginGroup, RunFixedMainLoop, RunFixedMainLoopSystems};
-use bevy::image::Image;
-use bevy::log::tracing::Event;
-use bevy::log::tracing_subscriber::Layer;
-use bevy::log::tracing_subscriber::layer::Context;
-use bevy::log::tracing_subscriber::registry::Registry;
-use bevy::log::{BoxedLayer, Level, LogPlugin};
+use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystems};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
-use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
-use bevy::tasks::block_on;
-use bevy::window::{WindowPlugin, WindowResolution};
 
-use godgame_render::GodGameRenderPlugin;
 use godgame_render::effects::Screenshake;
 use godgame_render::input::PlayerIntent;
-use godgame_render::lowres::LowResTarget;
 use godgame_render::player::PlayerBody;
 use godgame_render::player_art::PlayerFigure;
 use godgame_render::scenes::Scene;
 
-/// The window the frame is composed for, in physical px.
-///
-/// The binary's own default, restated because it is private to `main.rs`. It
-/// matters here for one reason: `View::for_screen` floors at zoom 2, so 1280x800
-/// gives a 640x400 logical buffer — the size a human sees when they run the
-/// game, and a size this test asserts it actually got rather than assumes.
-const WINDOW_PX: (u32, u32) = (1280, 800);
+mod common;
+use common::{Frame, artefact_path, error_count, error_sources, gpu_is_available, headless_game};
 
 /// Frames to render before capturing.
 ///
@@ -113,14 +94,6 @@ const WINDOW_PX: (u32, u32) = (1280, 800);
 /// is still mid-morning when the shutter opens, which is what
 /// [`the_sky_is_brighter_than_the_underground_at_the_morning_default`] assumes.
 const WARMUP_FRAMES: u32 = 90;
-
-/// Frames to keep pumping while waiting for the readback.
-///
-/// The capture is asynchronous — the render app queues a texture-to-buffer copy
-/// and an `AsyncComputeTaskPool` task maps it — so the image arrives some frames
-/// after the `Screenshot` entity is spawned. This is a generous ceiling on that,
-/// not an expected cost; exceeding it is a failure, not a skip.
-const CAPTURE_DEADLINE_FRAMES: u32 = 120;
 
 /// Fraction of the frame the single most common colour may occupy.
 ///
@@ -167,115 +140,30 @@ const BAND_FRACTION: u32 = 8;
 /// way up. An inverted or missing skylight flood collapses it to zero or below.
 const MIN_SKY_ADVANTAGE: f64 = 20.0;
 
-// --- Counting what the engine complains about --------------------------------
+// --- Capturing the frame this file asserts about ----------------------------
 
-/// ERROR lines the engine logged while the frame was being drawn.
+/// A captured frame plus the errors the engine logged while drawing IT.
 ///
-/// A static because `LogPlugin::custom_layer` is a plain `fn` pointer — it
-/// cannot close over anything — and because the subscriber outlives the `App`.
-static ERROR_LINES: AtomicU64 = AtomicU64::new(0);
-
-/// The same count, split by the module that emitted it, so a failure names the
-/// culprit instead of just counting it.
-static ERROR_SOURCES: Mutex<BTreeMap<&'static str, u64>> = Mutex::new(BTreeMap::new());
-
-/// Tallies every ERROR the tracing subscriber sees.
+/// The error tally in [`common`] is process-wide, and any other test that boots
+/// an app contributes to it — which is exactly what happened the moment a second
+/// one did. So the count carried here is a DELTA taken around this capture; a
+/// count that is not scoped to the capture it is reported against is not a
+/// measurement of that capture.
 ///
-/// It sits UNDER the `EnvFilter` layer `LogPlugin` installs, so it counts
-/// exactly the lines that were printed — not the ones the filter suppressed.
-struct CountErrorLines;
+/// It derefs to the [`Frame`], so every assertion below reads as though the two
+/// were one thing — which is how they are used.
+struct Capture {
+    frame: Frame,
+    errors: u64,
+}
 
-impl Layer<Registry> for CountErrorLines {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, Registry>) {
-        if *event.metadata().level() == Level::ERROR {
-            ERROR_LINES.fetch_add(1, Ordering::Relaxed);
-            *ERROR_SOURCES
-                .lock()
-                .expect("the error tally is never held across a panic")
-                .entry(event.metadata().target())
-                .or_default() += 1;
-        }
+impl std::ops::Deref for Capture {
+    type Target = Frame;
+
+    fn deref(&self) -> &Frame {
+        &self.frame
     }
 }
-
-// --- Bringing the game up headlessly -----------------------------------------
-
-/// Where the captured image is parked between the observer and the test.
-#[derive(Resource, Default)]
-struct CapturedFrame(Option<Image>);
-
-/// The observer half of the capture: keep the image the engine handed us.
-fn keep_the_captured_frame(captured: On<ScreenshotCaptured>, mut slot: ResMut<CapturedFrame>) {
-    slot.0 = Some(captured.image.clone());
-}
-
-/// Whether this machine has a GPU wgpu will hand out an adapter for.
-///
-/// Asked BEFORE the app is built, because `RenderPlugin` panics when it cannot
-/// find one and a panic is not a skip. This is the same request
-/// `shader_matches_cpu.rs` makes, with no surface attached, so the two files
-/// agree about what "has a GPU" means.
-fn gpu_is_available() -> bool {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    }))
-    .is_ok()
-}
-
-/// The shipping plugin group, with the window system removed and nothing else.
-///
-/// `WinitPlugin` is the ONE plugin disabled. Everything else — assets, the task
-/// pools, the render app, the sprite and text pipelines, and all fourteen of the
-/// game's own plugins — is exactly what `main.rs` adds, so this test fails when
-/// the game fails rather than when a hand-picked subset of it does.
-///
-/// The primary `Window` entity still exists; it is just data with no surface
-/// behind it. It has to, because `lowres::setup` sizes the buffer from it, and
-/// because sizing the buffer from the real window is the behaviour under test.
-fn headless_game() -> App {
-    // `LogPlugin` installs a PROCESS-WIDE tracing subscriber, and a second
-    // install fails and logs an ERROR about it. With one app per process that
-    // never came up; the moment a second test booted its own app, whichever
-    // booted last logged that error and
-    // `drawing_a_frame_logs_no_engine_errors` blamed the engine for it.
-    //
-    // So the plugin goes in exactly once. The subscriber it installs is global
-    // anyway, so the counting layer keeps working for every app in the process.
-    let first = !LOG_INSTALLED.swap(true, Ordering::Relaxed);
-    let log = LogPlugin {
-        custom_layer: |_| -> Option<BoxedLayer> { Some(Box::new(CountErrorLines)) },
-        ..default()
-    };
-
-    let mut app = App::new();
-    let plugins = DefaultPlugins
-        .set(ImagePlugin::default_nearest())
-        .set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "GodGame frame capture".into(),
-                resolution: WindowResolution::new(WINDOW_PX.0, WINDOW_PX.1),
-                ..default()
-            }),
-            ..default()
-        })
-        .disable::<bevy::winit::WinitPlugin>();
-
-    if first {
-        app.add_plugins(plugins.set(log));
-    } else {
-        app.add_plugins(plugins.disable::<LogPlugin>());
-    }
-
-    app.add_plugins(GodGameRenderPlugin)
-        .init_resource::<CapturedFrame>();
-    app
-}
-
-/// Whether `LogPlugin` has already claimed this process's tracing subscriber.
-static LOG_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Boot the game, draw [`WARMUP_FRAMES`] frames, and read the low-res buffer
 /// back.
@@ -283,13 +171,13 @@ static LOG_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// `finish` and `cleanup` are called by hand because this drives the app with
 /// `update` instead of `run`; without them the render app never initialises its
 /// device and the first `update` panics.
-fn capture_one_frame() -> Option<Frame> {
+fn capture_one_frame() -> Option<Capture> {
     if !gpu_is_available() {
         return None;
     }
 
-    let before_errors = ERROR_LINES.load(Ordering::Relaxed);
-    let mut app = headless_game();
+    let before_errors = error_count();
+    let mut app = headless_game("GodGame frame capture");
     app.finish();
     app.cleanup();
 
@@ -305,9 +193,10 @@ fn capture_one_frame() -> Option<Frame> {
     // legitimate tuning (see `png_path`'s notes on why this is not a golden
     // image), but they only mean anything if the frame is the one that matters.
     //
-    // Set directly rather than by synthesising a key press: `confirm_advances_the_scene`
-    // is the game's business and is tested where it lives, and a capture that
-    // depended on it would fail for two unrelated reasons.
+    // Set directly rather than by synthesising a key press:
+    // `confirm_advances_the_scene` is the game's business and is tested where it
+    // lives, and a capture that depended on it would fail for two unrelated
+    // reasons.
     app.world_mut()
         .resource_mut::<NextState<Scene>>()
         .set(Scene::Playing);
@@ -322,220 +211,23 @@ fn capture_one_frame() -> Option<Frame> {
         "the capture must be of gameplay, not of the menu over it"
     );
 
-    let target = app
-        .world()
-        .get_resource::<LowResTarget>()
-        .expect("LowResPlugin inserts LowResTarget in Startup")
-        .clone();
     let png = png_path();
-    if let Some(dir) = png.parent() {
-        std::fs::create_dir_all(dir).expect("the artefact directory is creatable");
-    }
-    app.world_mut()
-        .spawn(Screenshot::image(target.canvas.clone()))
-        .observe(save_to_disk(png.clone()))
-        .observe(keep_the_captured_frame);
-
-    let mut waited = 0;
-    let image = loop {
-        app.update();
-        if let Some(image) = app.world_mut().resource_mut::<CapturedFrame>().0.take() {
-            break image;
-        }
-        waited += 1;
-        assert!(
-            waited < CAPTURE_DEADLINE_FRAMES,
-            "the low-res buffer never came back: {CAPTURE_DEADLINE_FRAMES} frames after the \
-             Screenshot entity was spawned, no ScreenshotCaptured had been triggered"
-        );
-    };
-
-    // `save_to_disk` reports its own failures to the log and returns nothing, so
-    // this is the only place that can notice. Every failure message below ends
-    // with this path; a message pointing at a file that is not there would send
-    // the reader looking for a picture nobody wrote.
-    assert!(
-        png.exists(),
-        "the frame was captured but no PNG reached {} — save_to_disk logged the reason",
-        png.display()
-    );
-
-    // The buffer's size is a pure function of the window, so a mismatch here
-    // means the capture read something OTHER than the game's canvas — which
-    // would make every assertion below a statement about the wrong image.
-    assert_eq!(
-        (image.width(), image.height()),
-        (target.view.w as u32, target.view.h as u32),
-        "the captured image is not the low-res buffer: LowResTarget says {}x{} at zoom {}",
-        target.view.w,
-        target.view.h,
-        target.view.zoom
-    );
-    Some(Frame::from_image(
-        &image,
-        png,
-        ERROR_LINES.load(Ordering::Relaxed) - before_errors,
-    ))
+    let image = common::capture_low_res(&mut app, &png);
+    Some(Capture {
+        frame: Frame::from_image(&image, png),
+        errors: error_count() - before_errors,
+    })
 }
 
 /// Where the artefact lands: `<workspace>/target/tmp/frame-capture/lowres.png`.
 ///
-/// `CARGO_TARGET_TMPDIR` is the one absolute path Cargo hands an integration
-/// test, it is inside `target/`, and `target/` is the first line of
-/// `.gitignore`. The file is overwritten every run on purpose — the interesting
-/// frame is always the one from the failure you are looking at.
+/// The file is overwritten every run on purpose — the interesting frame is
+/// always the one from the failure you are looking at. This is not a golden
+/// image and nothing compares against a stored copy of it; a strict pixel
+/// comparison would fail on every legitimate tuning change and would be deleted
+/// within a month.
 fn png_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("frame-capture")
-        .join("lowres.png")
-}
-
-// --- The frame ---------------------------------------------------------------
-
-/// One captured frame, unpacked into straight RGBA8 and measured.
-///
-/// The histogram is built once, here, because all three image assertions want it
-/// and booting the game three times to ask three questions would triple a run
-/// that is already the slowest test in the crate.
-struct Frame {
-    width: u32,
-    height: u32,
-    /// Row-major RGBA8, top row first, four bytes per pixel.
-    rgba: Vec<u8>,
-    /// Per-pixel luminance, in the same order.
-    luma: Vec<f64>,
-    /// How many pixels each distinct RGBA colour claims.
-    colours: HashMap<[u8; 4], u32>,
-    /// Where the PNG of this frame was written.
-    png: PathBuf,
-    /// ERROR lines the engine logged while drawing THIS capture.
-    ///
-    /// A delta rather than the running total, because the tally is a process-wide
-    /// static and any other test that boots an app contributes to it — which is
-    /// exactly what happened the moment a second one did. A count that is not
-    /// scoped to the capture it is reported against is not a measurement of that
-    /// capture.
-    errors: u64,
-}
-
-impl Frame {
-    /// Unpack a captured image, normalising the channel order.
-    ///
-    /// The low-res canvas is `Bgra8UnormSrgb` — the format `lowres::new_canvas`
-    /// asks for — and the screenshot readback hands the texture's own format
-    /// straight back. `Rgba8UnormSrgb` is accepted too so that changing the
-    /// canvas format does not silently invert this file's idea of red and blue;
-    /// anything else fails loudly rather than being measured as noise.
-    fn from_image(image: &Image, png: PathBuf, errors: u64) -> Frame {
-        let format = image.texture_descriptor.format;
-        let swap = match format {
-            TextureFormat::Bgra8UnormSrgb | TextureFormat::Bgra8Unorm => true,
-            TextureFormat::Rgba8UnormSrgb | TextureFormat::Rgba8Unorm => false,
-            other => panic!(
-                "the low-res buffer came back as {other:?}; this test only knows how to read \
-                 8-bit BGRA and RGBA, and guessing the channel order would make every \
-                 assertion below meaningless"
-            ),
-        };
-        let data = image
-            .data
-            .as_ref()
-            .expect("a captured screenshot always carries its bytes");
-        let width = image.width();
-        let height = image.height();
-        let pixels = (width * height) as usize;
-        assert_eq!(
-            data.len(),
-            pixels * 4,
-            "the readback is not tightly packed: {} bytes for {width}x{height}",
-            data.len()
-        );
-
-        let mut rgba = Vec::with_capacity(pixels * 4);
-        let mut luma = Vec::with_capacity(pixels);
-        let mut colours: HashMap<[u8; 4], u32> = HashMap::new();
-        for chunk in data.chunks_exact(4) {
-            let px = if swap {
-                [chunk[2], chunk[1], chunk[0], chunk[3]]
-            } else {
-                [chunk[0], chunk[1], chunk[2], chunk[3]]
-            };
-            rgba.extend_from_slice(&px);
-            luma.push(luminance(px));
-            *colours.entry(px).or_default() += 1;
-        }
-
-        Frame {
-            width,
-            height,
-            rgba,
-            luma,
-            colours,
-            png,
-            errors,
-        }
-    }
-
-    /// The most common colour and how much of the frame it covers.
-    fn dominant(&self) -> ([u8; 4], f64) {
-        let (&colour, &count) = self
-            .colours
-            .iter()
-            .max_by_key(|&(_, &n)| n)
-            .expect("a frame has at least one pixel");
-        (
-            colour,
-            f64::from(count) / f64::from(self.width * self.height),
-        )
-    }
-
-    /// Mean luminance over a horizontal band, given as a row range.
-    fn band_luma(&self, first_row: u32, rows: u32) -> f64 {
-        let start = (first_row * self.width) as usize;
-        let end = start + (rows * self.width) as usize;
-        let band = &self.luma[start..end];
-        band.iter().sum::<f64>() / band.len() as f64
-    }
-
-    /// Mean and standard deviation of luminance over the whole frame.
-    fn luma_spread(&self) -> (f64, f64) {
-        let n = self.luma.len() as f64;
-        let mean = self.luma.iter().sum::<f64>() / n;
-        let variance = self
-            .luma
-            .iter()
-            .map(|l| (l - mean) * (l - mean))
-            .sum::<f64>()
-            / n;
-        (mean, variance.sqrt())
-    }
-
-    /// The colour at a pixel, for a failure message that wants an example.
-    fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        let at = ((y * self.width + x) * 4) as usize;
-        [
-            self.rgba[at],
-            self.rgba[at + 1],
-            self.rgba[at + 2],
-            self.rgba[at + 3],
-        ]
-    }
-
-    /// The line every failure ends with: go and look at the picture.
-    fn artefact(&self) -> String {
-        format!("the captured frame is at {}", self.png.display())
-    }
-}
-
-/// Perceptual luminance of an sRGB pixel, in the same 0-255 units as the bytes.
-///
-/// Deliberately the cheap Rec. 601 weighting on the ENCODED bytes rather than a
-/// linearised luminance. Every comparison here is between two regions of the
-/// same frame through the same transfer function, so linearising would move both
-/// sides and change no outcome — and the numbers a failure prints stay in the
-/// units of the pixels you would read off the PNG.
-fn luminance(px: [u8; 4]) -> f64 {
-    0.299 * f64::from(px[0]) + 0.587 * f64::from(px[1]) + 0.114 * f64::from(px[2])
+    artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "lowres.png")
 }
 
 /// The one captured frame, shared by every test in this file.
@@ -543,10 +235,10 @@ fn luminance(px: [u8; 4]) -> f64 {
 /// Booting the whole engine is seconds of work and the tests in a file run in
 /// parallel, so the app is brought up exactly once and each test asks a
 /// different question of the same image. `None` means there is no GPU here.
-static FRAME: LazyLock<Option<Frame>> = LazyLock::new(capture_one_frame);
+static FRAME: LazyLock<Option<Capture>> = LazyLock::new(capture_one_frame);
 
 /// The frame, or `None` and a printed note. See the module docs on skipping.
-fn frame_or_skip(what: &str) -> Option<&'static Frame> {
+fn frame_or_skip(what: &str) -> Option<&'static Capture> {
     match FRAME.as_ref() {
         Some(frame) => Some(frame),
         None => {
@@ -696,9 +388,7 @@ fn drawing_a_frame_logs_no_engine_errors() {
     };
 
     let total = frame.errors;
-    let by_source: Vec<String> = ERROR_SOURCES
-        .lock()
-        .expect("the error tally is never held across a panic")
+    let by_source: Vec<String> = error_sources()
         .iter()
         .map(|(target, n)| format!("{target}: {n}"))
         .collect();
@@ -736,7 +426,7 @@ fn a_running_body_reaches_a_non_zero_lean() {
         return;
     }
 
-    let mut app = headless_game();
+    let mut app = headless_game("GodGame frame capture");
     app.finish();
     app.cleanup();
     app.world_mut()
@@ -812,7 +502,7 @@ fn an_undisturbed_world_never_shakes_the_camera() {
         return;
     }
 
-    let mut app = headless_game();
+    let mut app = headless_game("GodGame frame capture");
     app.finish();
     app.cleanup();
     app.world_mut()

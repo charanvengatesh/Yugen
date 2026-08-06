@@ -38,20 +38,19 @@
 
 use std::path::PathBuf;
 
-use bevy::app::PluginGroup;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
-use bevy::tasks::block_on;
-use bevy::window::{WindowPlugin, WindowResolution};
 
 use godgame_core::config::cell_at;
 use godgame_core::sim::coords::WorldCell;
 use godgame_core::sim::materials::{EMPTY, code_of};
-use godgame_render::GodGameRenderPlugin;
 use godgame_render::input::FocusDriver;
 use godgame_render::lowres::LowResTarget;
 use godgame_render::scenes::Scene;
 use godgame_render::world::{SimWorld, WorldFocus};
+
+mod common;
+use common::{gpu_is_available, headless_game};
 
 /// How far below the spawn the room is carved, in world px.
 ///
@@ -85,20 +84,11 @@ fn a_lit_cave_is_captured_for_a_human_to_look_at() {
         return;
     }
 
-    let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(ImagePlugin::default_nearest())
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    resolution: WindowResolution::new(1280, 800),
-                    ..default()
-                }),
-                ..default()
-            })
-            .disable::<bevy::winit::WinitPlugin>(),
-    )
-    .add_plugins(GodGameRenderPlugin);
+    // The shared boot, which is also what `frame_capture` uses. This file used to
+    // carry its own copy — one that did NOT guard `LogPlugin`, and so contributed
+    // to the process-wide subscriber collision `frame_capture` had already been
+    // bitten by. Two copies of a boot is how they drift.
+    let mut app = headless_game("GodGame lit scene");
     app.finish();
     app.cleanup();
     app.world_mut()
@@ -161,9 +151,25 @@ fn a_lit_cave_is_captured_for_a_human_to_look_at() {
     println!("lit cave written to {}", out.display());
 }
 
-/// Carve an air pocket at the focus and pour lava along its floor.
+/// Carve an air pocket at the focus, floor it, and pour lava along the floor.
+///
+/// # The floor is laid deliberately, and it used to be luck
+///
+/// Nothing here used to seal the bottom of the room: the carve stopped at
+/// `ROOM_HALF_H` and whatever worldgen had put on the row below became the
+/// floor. 900 px down that is as likely to be a cave void as rock, and when it
+/// was a void the lava DRAINED — so whether this rig captured a lit pool or an
+/// empty hole depended on how many sim steps ran before the shutter, which
+/// depended on how fast the machine was.
+///
+/// It never fired because the settle was short in wall-clock terms on the machine
+/// it was written on. Pinning the frame delta (see `common::FRAME_DT`) made the
+/// step count fixed and rather larger, and the lava was gone by the time
+/// `sample_scene` looked. A rig whose subject drains away on a slow machine is
+/// not a rig, so the floor is now stated rather than hoped for.
 fn carve_and_light(app: &mut App, focus_x: f32, focus_y: f32) {
     let lava = code_of("lava");
+    let stone = code_of("stone");
     let (cx, cy) = (cell_at(focus_x), cell_at(focus_y));
     let mut world = app.world_mut().resource_mut::<SimWorld>();
 
@@ -174,6 +180,14 @@ fn carve_and_light(app: &mut App, focus_x: f32, focus_y: f32) {
                 .grid
                 .set_world(WorldCell::new(cx + dx, cy + dy), EMPTY);
         }
+    }
+    // One row of rock under the room, wider than it, so the pool cannot escape
+    // sideways along the seam either.
+    for dx in (-ROOM_HALF_W - 1)..=(ROOM_HALF_W) {
+        world
+            .level
+            .grid
+            .set_world(WorldCell::new(cx + dx, cy + ROOM_HALF_H), stone);
     }
     for dy in (ROOM_HALF_H - LAVA_ROWS)..ROOM_HALF_H {
         for dx in -ROOM_HALF_W..ROOM_HALF_W {
@@ -203,19 +217,4 @@ fn out_path() -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lit-scene");
     std::fs::create_dir_all(&dir).expect("target/ is writable");
     dir.join("cave.png")
-}
-
-/// Whether this machine has a GPU wgpu will talk to.
-///
-/// Asked BEFORE the app is built, because `RenderPlugin` panics rather than
-/// returning an error when there is no adapter. Same discipline as
-/// `shader_matches_cpu.rs`: no adapter means SKIP loudly, never pass quietly.
-fn gpu_is_available() -> bool {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    }))
-    .is_ok()
 }
