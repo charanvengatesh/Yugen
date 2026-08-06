@@ -2921,6 +2921,7 @@ dependencies = [
  "bitflags 2.13.1",
  "godgame-core",
  "godgame-data",
+ "serde_json",
 ]
 
 [[package]]

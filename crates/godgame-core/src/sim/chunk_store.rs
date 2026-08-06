@@ -43,7 +43,13 @@ pub const MAX_PERSISTED_CHUNKS: usize = 2048;
 /// one.** The TypeScript said the same thing (its `flush` had zero callers) and
 /// the boundary is kept clean for the same reason: so adding one later is a new
 /// implementation of these three methods and no change anywhere else.
-pub trait ChunkPersistence {
+/// `Send + Sync` is a bound on the TRAIT, not a detail of one backend. The whole
+/// world — grid, window manager, store — is owned by the host application's
+/// scheduler, which may move it between threads and has to be able to prove it.
+/// Stating it here rather than at each `Box<dyn ...>` site means a future disk
+/// backend cannot quietly make the world unmovable. It costs the in-memory
+/// backend nothing: it is already both.
+pub trait ChunkPersistence: Send + Sync {
     /// The stored snapshot for a chunk coordinate, if any. Touches it.
     fn read(&mut self, chunk_x: i32, chunk_y: i32) -> Option<ChunkSnapshot>;
     /// Store a snapshot, replacing any previous one for the same coordinate.

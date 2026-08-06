@@ -11,3 +11,8 @@ godgame-core.workspace = true
 godgame-data.workspace = true
 bevy.workspace = true
 bitflags.workspace = true
+
+# The cell-rasteriser parity suite reads a frozen JSON artefact of the
+# TypeScript original. Test-only, exactly as in `godgame-core`.
+[dev-dependencies]
+serde_json = "1"
