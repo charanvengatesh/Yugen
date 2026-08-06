@@ -220,7 +220,51 @@ impl ChunkGen {
     ///
     /// Signature is fixed: (chunk_x, chunk_y) in, materials out, no neighbour
     /// reads, no hidden state.
+    ///
+    /// This is the function `ts_worldgen_parity` hashes 357 chunks of, so it is
+    /// deliberately a thin wrapper: everything happens in [`ChunkGen::generate_into`]
+    /// and this passes `None`, which is the code path that existed before the back
+    /// plane and emits exactly the same arithmetic.
     pub fn generate(&mut self, chunk_x: i32, chunk_y: i32) -> Vec<CellId> {
+        self.generate_into(chunk_x, chunk_y, None)
+    }
+
+    /// One chunk's front plane and its background walls, together.
+    ///
+    /// The two are generated in ONE pass because the wall is a function of the
+    /// same column profile, ground line and cave parameters the front plane
+    /// already computed — running a second pass would double the cost of the most
+    /// expensive thing the engine does and would risk the two disagreeing.
+    pub fn generate_with_back(&mut self, chunk_x: i32, chunk_y: i32) -> (Vec<CellId>, Vec<CellId>) {
+        let mut back = vec![AIR; (CHUNK_CELLS * CHUNK_CELLS) as usize];
+        let out = self.generate_into(chunk_x, chunk_y, Some(&mut back));
+        (out, back)
+    }
+
+    /// The generator proper. `back`, when present, is filled with the background
+    /// wall plane — see [`ChunkGen::generate_with_back`].
+    ///
+    /// # Why the back plane is an `Option` and not a second return value
+    ///
+    /// So that `None` is provably the old code path. Every write to the wall
+    /// plane below sits inside an `if let Some(back)`, so with `None` the emitted
+    /// arithmetic for the front plane is exactly what it was before this
+    /// parameter existed — which is the only way to be sure a 357-chunk frozen
+    /// hash is untouched by construction rather than by inspection.
+    ///
+    /// The overwhelming majority of calls are `None`: `generate` is what the
+    /// worldgen purity suite, the parity suite, the benches and the dump binary
+    /// all use, and none of them has anything to do with walls.
+    fn generate_into(
+        &mut self,
+        chunk_x: i32,
+        chunk_y: i32,
+        back: Option<&mut [CellId]>,
+    ) -> Vec<CellId> {
+        // Commit A of this phase threads the parameter and writes nothing, so the
+        // no-op can be gated on its own. The writes arrive next.
+        let _ = back;
+
         let base_x = chunk_x * CHUNK_CELLS;
         let base_y = chunk_y * CHUNK_CELLS;
         let mut out = vec![AIR; (CHUNK_CELLS * CHUNK_CELLS) as usize];

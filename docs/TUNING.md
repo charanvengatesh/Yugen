@@ -550,9 +550,9 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SPAWN_SEARCH` (private) | `512` | How far either side of the requested column [`spawn_point`] will look. | 373 |
-| `SPAWN_CLEARANCE` (private) | `4` | How far above sea level the ground has to be to count as dry land. | 375 |
-| `SPAWN_COL` | `8` | The column the TypeScript defaulted to. | 377 |
+| `SPAWN_SEARCH` (private) | `512` | How far either side of the requested column [`spawn_point`] will look. | 417 |
+| `SPAWN_CLEARANCE` (private) | `4` | How far above sea level the ground has to be to count as dry land. | 419 |
+| `SPAWN_COL` | `8` | The column the TypeScript defaulted to. | 421 |
 
 ### `crates/godgame-core/src/sim/worldgen/features.rs`
 
