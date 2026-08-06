@@ -451,13 +451,27 @@ throughput one. The stronger fix is to prefetch the leading edge BEFORE the dead
 zone is crossed, off the critical path entirely. `recenter`'s one-chunk dead zone
 is exactly that lookahead and it is free. Not prototyped.
 
-### 9.3 The light blur is 98.7 µs of CPU that wants to be on the GPU
+### 9.3 The light blur is 97.9 µs of CPU that wants to be on the GPU
 
-After M10 the light solve is 136.9 µs, of which the blur is 98.7 µs — already
-reduced from 171 µs by rewriting it as four sliding-window passes (a triangle
-kernel is a box convolved with a box, so it is O(1) in the radius). It is a
-separable blur over a texture the GPU already has. Moving it is the obvious next
-win and would take the whole light stack back under 1% of frame.
+Re-measured: the solve is 143.6 µs and the blur is **97.9 µs of it** — 55% of the
+whole per-frame CPU render cost, and more than everything else put together.
+
+The CPU side is finished, and that was checked rather than assumed — the
+algorithm is already O(1) in the radius, `box_cols` already avoids the column
+stride, and at ~400 ps per element update the loop is at about one cycle per
+element. `docs/PERF.md` §8.6 has the working.
+
+**Two things about the move that the original note here understated.** It is not
+just the blur: `bake_shadow` and `bake_colour` consume the blurred fields, so they
+have to follow it to the GPU — 113.6 µs total, in exchange for a larger per-frame
+upload (four `f32` fields rather than two `Rgba8Unorm`) and two to four extra
+passes. And there is **no oracle**: `shader_matches_cpu` covers `cells.wgsl` only,
+so `blur_one` would have to become the reference a new harness diffs the shader
+against.
+
+Still the largest item left. Still worth doing. But it is a milestone, not an
+afternoon, and it buys 1.17% of a frame — so it should be started deliberately
+rather than squeezed in.
 
 ### 9.4 Dynamic dispatch on hot paths
 

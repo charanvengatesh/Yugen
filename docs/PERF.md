@@ -572,6 +572,54 @@ and a cache keyed on an epsilon over depth and day would skip nearly all of them
 Worth about 0.12% of a frame, which is small — but it is small, contained, and
 does not need a shader.
 
+### 8.6 The blur is 55% of the CPU render cost and the CPU is finished — NOT STARTED
+
+**97.9 µs.** More than everything else the frame does on the CPU put together,
+and 1.17% of an 8.33 ms frame.
+
+**There is no CPU win left, and that was checked rather than assumed.** Three
+things were looked at before concluding it:
+
+- *The algorithm.* Already four sliding-window passes — a triangle kernel is a
+  box convolved with a box — so it is O(1) in the radius. Written the obvious way
+  at this resolution it measured 171 µs.
+- *Memory layout.* `box_cols` is the pass that ought to be cache-hostile, and it
+  is not: it walks row-major with a per-column running accumulator rather than
+  striding down columns. The obvious "interleave the channels to amortise the
+  column miss" idea has nothing to amortise.
+- *The arithmetic.* Four grids × four passes × 15 416 light cells is ~247 000
+  element updates in 97.9 µs — about 400 ps each, or roughly one cycle. For a
+  loop doing a multiply, a clamp, an add and a subtract, that is already at or
+  near what scalar code can do.
+
+Skipping the colour blur when it would not show does not help either: the three
+colour grids are blurred only when `colour_dirty`, and a scene with no emitters
+already has it false.
+
+**So it has to go to the GPU, and the move is bigger than "blur in a shader".**
+`bake_shadow` and `bake_colour` both consume the BLURRED fields — they are
+per-texel transforms of them — so if the blur output stays on the GPU, those two
+have to follow it. That is 97.9 + 9.4 + 6.3 = **113.6 µs of CPU removed**, in
+exchange for:
+
+- uploading four `f32` fields per frame instead of two `Rgba8Unorm` ones — 164×94
+  each, so roughly 61 KB → 123 KB packed as `Rgba16Float`, or 246 KB unpacked;
+- two to four extra render passes with a ping-pong target;
+- a composite that samples the blurred texture instead of a baked byte texture.
+
+On unified memory the transfer is cheap. On a discrete GPU it is less obviously a
+win, and this port has only ever been measured on one machine.
+
+**And there is no oracle.** `shader_matches_cpu.rs` diffs `cells.wgsl` against
+`cells.rs`; nothing does that for the light stack. `blur_one` would have to become
+the reference the shader is diffed against — which is the same trade `cells.rs`
+makes and the reason that file was kept — and that harness does not exist yet.
+
+Recorded rather than started. It is the largest single item left in this
+document, and it is also the only one that is a milestone rather than an
+afternoon: a new shader pass, a ping-pong target, three CPU passes deleted, and a
+verification harness built from nothing, for 1.17% of a frame.
+
 ### 8.5 `place_bloom` mutating up to 120 material assets per frame — not measured
 
 `crates/godgame-render/src/light.rs`, `place_bloom` (around line 1982) calls
