@@ -295,11 +295,29 @@ same run.
 
 ### 8.1 Known-missing behaviour
 
-- **The burrower's breach tell (`drawTell`) is not drawn.** Buried creatures
-  simply vanish. `Mob::tell_t` and `TELL_TIME` are published and unused.
-- **`particles.rs` glow draws as plain sprites at a higher z**, not on
-  `AdditiveMaterial`, which now has proven consumers in `mobs.rs` and `sky.rs`.
-  One-file change.
+- ~~**The burrower's breach tell (`drawTell`) is not drawn.**~~ **DONE.**
+  `mobs::place_breach_tells` draws it on a source-over vertex-coloured mesh at
+  `TELL_Z = 0.44`, just under the creatures. Three tests pin it, and one is worth
+  knowing about: the row is the width of `MobDef::w_px`, the collision box —
+  **not** `art_w_px`. Every mob in current content authors zero art padding, so
+  the two are equal today and the wrong one would look right in every frame
+  anyone has ever captured.
+  **Not visually verified** — see §8.2. `MobSystem::place` is private, so staging
+  a burrower mid-tell would mean widening core's API for a test.
+- ~~**`particles.rs` glow draws as plain sprites at a higher z**~~ **DONE.**
+  Luminous particles leave the sprite pool entirely for one `AdditiveMaterial`
+  mesh at `PARTICLE_GLOW_Z = 0.79` — above the light composite (which ends at
+  0.76), below the creature glow at 0.80, which is the order `Game.ts` ran its
+  overlay callback in.
+  **This fixed a live z-fight nobody had named.** The old `GLOW_Z` was `0.7`,
+  which is *exactly* `light::SHADOW_Z` of `0.70`. Two quads at one depth sort
+  arbitrarily, so whether a spark landed in front of the darkness multiply or
+  behind it — invisible, the precise failure the glow pass exists to prevent —
+  was undefined. Both orderings are now `const _: () = assert!(...)`, so they
+  fail at compile rather than at test.
+  Verified by eye: a 60-spark burst emitted into the lit cave reads as light
+  over the composite. Note `lit_scene` has **no particles of its own** (probed:
+  `live=0, glow=0`), so it cannot regress this on its own.
 - **Mob art pads are all zero in current content**, and every mob authors its own
   `air` pose — so the art-rect padding and the pose fallback are correct but
   currently invisible. Tests assert the present state so the day either changes
@@ -318,6 +336,11 @@ same run.
 - **`ui::paint` has never run on a real GPU in a test.** Its pure layer is
   exhaustively tested; the pooling, `ChildOf` parenting and atlas sampling are
   argued from code, not observed.
+- **The burrower's breach tell.** Drawn now, and its geometry is pinned by three
+  tests, but nobody has watched one erupt. Staging it needs a burrower placed on
+  demand and `MobSystem::place` is private; the honest options are to make that
+  `pub(crate)`-plus-a-test-hook or to wait for a natural spawn with a long
+  `--drive` run.
 
 ### 8.3 Documentation rot — check before trusting
 

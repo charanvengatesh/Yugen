@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 557 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 561 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -830,34 +830,38 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 136 |
-| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 139 |
-| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 148 |
-| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 151 |
-| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 160 |
-| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 162 |
-| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 164 |
-| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 171 |
-| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 297 |
+| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 137 |
+| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 140 |
+| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 149 |
+| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 152 |
+| `TELL_Z` (private) | `0.44` | Where a burrower's breach tell sits: just UNDER the creatures. | 161 |
+| `TELL_ALPHA_BASE` (private) | `0.35` | The tell's alpha at the moment it appears, before the countdown has run. | 169 |
+| `TELL_ALPHA_SWELL` (private) | `0.5` | How much alpha the tell gains over its countdown. | 171 |
+| `TELL_CHURN_RATE` (private) | `26.0` | Radians per second of the churn that lifts alternate cells of the tell. | 179 |
+| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 188 |
+| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 190 |
+| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 192 |
+| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 199 |
+| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 325 |
 
 ### `crates/godgame-render/src/particles.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_PARTICLES` | `2048` | Slots in the pool, and therefore sprite entities the plugin spawns. | 130 |
-| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 138 |
-| `GLOW_Z` (private) | `0.7` | Where self-luminous particles sit: over the ordinary ones. | 144 |
-| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 159 |
-| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 166 |
-| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 172 |
-| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 181 |
-| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 188 |
-| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 318 |
-| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 322 |
-| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 325 |
-| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 338 |
-| `FADE_IN` | `2` | Ease alpha in as well as out. | 340 |
-| `COLLIDE` | `4` | Test against the cell grid on every step. | 342 |
+| `MAX_PARTICLES` | `2048` | Slots in the pool, and therefore sprite entities the plugin spawns. | 133 |
+| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 141 |
+| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 162 |
+| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 197 |
+| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 204 |
+| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 210 |
+| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 219 |
+| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 226 |
+| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 356 |
+| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 360 |
+| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 363 |
+| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 376 |
+| `FADE_IN` | `2` | Ease alpha in as well as out. | 378 |
+| `COLLIDE` | `4` | Test against the cell grid on every step. | 380 |
 
 ### `crates/godgame-render/src/player.rs`
 

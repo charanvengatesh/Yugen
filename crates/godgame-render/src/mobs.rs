@@ -106,10 +106,11 @@ use bevy::render::render_resource::{
 use bevy::shader::{Shader, ShaderRef};
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
-use godgame_core::config::{STEP_DT, View};
+use godgame_core::config::{CELL_SIZE, STEP_DT, View};
 use godgame_core::entities::mobs::defs::{POSE_FALLBACK_AIR_IS_MOVE, POSE_RATE_SCALE_IDLE};
 use godgame_core::entities::mobs::{
-    MAX_MOBS, MobClock, MobDef, MobEvent, MobPose, MobSystem, VARIANT_COUNT as MOB_VARIANT_COUNT,
+    MAX_MOBS, MobClock, MobDef, MobEvent, MobPose, MobSystem, TELL_TIME,
+    VARIANT_COUNT as MOB_VARIANT_COUNT,
 };
 use godgame_core::entities::projectiles::{MAX_SHOTS as MAX_ARROWS, style_glow, style_rgb};
 use godgame_data::mobs::{
@@ -149,6 +150,33 @@ const MOB_GLOW_Z: f32 = 0.80;
 
 /// A glowing shot's additive pass, immediately over the creatures'.
 const SHOT_GLOW_Z: f32 = 0.81;
+
+/// Where a burrower's breach tell sits: just UNDER the creatures.
+///
+/// The tell marks the ground a creature is about to come through, so anything
+/// standing on that ground should occlude it. It draws in place of the (still
+/// buried, still invisible) sprite, so in practice it never overlaps the
+/// creature it belongs to — but a second creature walking over the spot must
+/// cover it, and that is what the ordering buys.
+const TELL_Z: f32 = 0.44;
+
+/// The tell's alpha at the moment it appears, before the countdown has run.
+///
+/// `alpha = TELL_ALPHA_BASE + TELL_ALPHA_SWELL * t`, straight from the original,
+/// where `t` runs 0 -> 1 as the countdown empties. It starts faint enough to read
+/// as a disturbance rather than as a marker and finishes nearly solid, so the
+/// warning gets more urgent exactly as the creature gets closer.
+const TELL_ALPHA_BASE: f32 = 0.35;
+/// How much alpha the tell gains over its countdown. See [`TELL_ALPHA_BASE`].
+const TELL_ALPHA_SWELL: f32 = 0.5;
+
+/// Radians per second of the churn that lifts alternate cells of the tell.
+///
+/// Driven by the creature's OWN clock, so two burrowers surfacing side by side
+/// churn out of step. Fast enough that the row boils rather than sliding as one
+/// block, which is the whole difference between "the ground is breaking" and "a
+/// rectangle is moving".
+const TELL_CHURN_RATE: f32 = 26.0;
 
 /// The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`.
 ///
@@ -588,6 +616,10 @@ pub struct ShotSprite {
 #[derive(Component, Clone, Copy)]
 pub struct ShotGlow;
 
+/// The one mesh every burrower's breach tell is drawn into.
+#[derive(Component)]
+pub struct BreachTell;
+
 /// Which of the two shot pools a [`ShotSprite`] mirrors.
 ///
 /// They are drawn by one system because they are the same rectangle, and kept
@@ -666,7 +698,13 @@ impl Plugin for MobsPlugin {
                     // sort it out at runtime; stated honestly, the write is
                     // ordered first and the four reads genuinely run at once.
                     follow_view,
-                    (place_mobs, place_mob_glow, place_shots, place_shot_glow),
+                    (
+                        place_mobs,
+                        place_mob_glow,
+                        place_breach_tells,
+                        place_shots,
+                        place_shot_glow,
+                    ),
                 )
                     .chain(),
             );
@@ -688,6 +726,7 @@ fn spawn_pool(
     mut meshes: ResMut<Assets<Mesh>>,
     mut glow: ResMut<Assets<MobGlowMaterial>>,
     mut additive: ResMut<Assets<AdditiveMaterial>>,
+    mut blend: ResMut<Assets<ColorMaterial>>,
 ) {
     let mob_shots = creatures.shots().len();
     let quad = meshes.add(Rectangle::default());
@@ -735,6 +774,24 @@ fn spawn_pool(
             ));
         }
     }
+
+    // Source-over, NOT additive: the tell is opaque ground being shoved up, and
+    // the original drew it with `globalAlpha` and a `fillStyle`. Additive would
+    // make it glow, which would read as the creature rather than as the dirt.
+    // `ColorMaterial` multiplies by the vertex colour, so the per-cell alpha still
+    // comes from the buffer.
+    commands.spawn((
+        Mesh2d(meshes.add(dynamic_mesh())),
+        MeshMaterial2d(blend.add(ColorMaterial {
+            color: Color::WHITE,
+            alpha_mode: AlphaMode2d::Blend,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, 0.0, TELL_Z),
+        BreachTell,
+        NoFrustumCulling,
+        WORLD_LAYERS,
+    ));
 
     commands.spawn((
         Mesh2d(meshes.add(dynamic_mesh())),
@@ -948,6 +1005,121 @@ fn place_shots(
         // is the centre that rounds here and not the top-left.
         transform.translation.x = x.round();
         transform.translation.y = -y.round();
+    }
+}
+
+/// Draw the breach tell for every burrower about to surface.
+///
+/// # What this is, and why buried creatures were invisible without it
+///
+/// A burrower spends most of its approach underground, where [`place_mobs`]
+/// hides it — drawing something the player cannot hit would be the more
+/// misleading of the two options. But it then erupts underneath you with no
+/// warning at all, which is not a difficulty choice anyone made. The original
+/// always drew this and the port simply never got to it: `Mob::tell_t` and
+/// [`TELL_TIME`] have been published, simulated and unused since M6.
+///
+/// `MobSystem.drawTell`, and the shape is the whole point: a row of ground the
+/// width of the BODY, jittering one cell above where the creature is about to
+/// come out. It says WHERE and roughly WHEN without showing the creature early.
+///
+/// # Three details that are load-bearing
+///
+/// **The body width, not the art width.** The tell marks the ground the creature
+/// will break through, and that is the footprint of the thing, not the span of
+/// whatever it has drawn above its shoulders. `MobDef::w_px` is the collision
+/// box; `art_w_px` would be wrong and would look right most of the time, because
+/// every mob in current content has zero art padding.
+///
+/// **Cell-quantised, deliberately.** Every cell of the row is `CELL_SIZE` square
+/// and lands on a whole-pixel boundary. A smooth marker over a chunky world reads
+/// as UI — as something the game is telling you — rather than as dirt moving.
+///
+/// **The lift is per cell and comes off the creature's own clock**, so the row
+/// churns instead of sliding as one block, and two burrowers surfacing side by
+/// side are out of step with each other.
+fn place_breach_tells(
+    creatures: Res<Creatures>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    quad: Query<&Mesh2d, With<BreachTell>>,
+    mut buf: Local<VertexBuf>,
+) {
+    let Ok(quad) = quad.single() else {
+        return;
+    };
+    let Some(mut mesh) = meshes.get_mut(&quad.0) else {
+        return;
+    };
+
+    buf.clear();
+    for m in creatures.mobs() {
+        // Only a BURIED creature tells. One that has already broken the surface
+        // is drawn as itself, and a tell under it would be a second announcement
+        // of something the player can now see.
+        if !m.active || !m.buried || m.tell_t <= 0.0 {
+            continue;
+        }
+        push_breach_tell(
+            &mut buf,
+            m.body.x,
+            m.body.y,
+            m.def,
+            m.tell_t,
+            m.clock.state_t,
+        );
+    }
+    buf.write(&mut mesh);
+}
+
+/// One creature's tell, as a row of cell-sized quads. See [`place_breach_tells`].
+fn push_breach_tell(
+    buf: &mut VertexBuf,
+    body_x: f32,
+    body_y: f32,
+    def: &MobDef,
+    tell_t: f32,
+    state_t: f32,
+) {
+    // 0 when the countdown starts, 1 as it runs out — so the tell swells and
+    // rises as the creature arrives rather than fading away from it.
+    let t = 1.0 - (tell_t / TELL_TIME).clamp(0.0, 1.0);
+    let alpha = TELL_ALPHA_BASE + TELL_ALPHA_SWELL * t;
+    let colour = linear(
+        [
+            f32::from(def.blood[0]),
+            f32::from(def.blood[1]),
+            f32::from(def.blood[2]),
+        ],
+        alpha,
+    );
+
+    let cell = CELL_SIZE as f32;
+    // One cell ABOVE the body's top edge: the ground about to break, not the
+    // creature under it.
+    let top = body_y.round() - cell;
+    let left = body_x.round();
+
+    let mut c = 0.0;
+    while c < def.w_px {
+        // A square wave, not a sine: the cell is either lifted a whole cell or
+        // not at all. Half-lifted cells would put the row back on a sub-cell
+        // grid, which is the quantisation this is deliberately keeping.
+        let raised = (state_t * TELL_CHURN_RATE + c).sin() > 0.0;
+        // Truncated, matching the original's `| 0`. `t` is non-negative here, so
+        // this floors.
+        let lift = if raised { (t * cell).trunc() } else { 0.0 };
+        let y = top - lift;
+        // The one convention flip: +y is up in Bevy and down in the sim.
+        buf.quad(
+            [
+                Vec2::new(left + c, -y),
+                Vec2::new(left + c + cell, -y),
+                Vec2::new(left + c + cell, -(y + cell)),
+                Vec2::new(left + c, -(y + cell)),
+            ],
+            [colour; 4],
+        );
+        c += cell;
     }
 }
 
@@ -1308,17 +1480,18 @@ mod tests {
     fn only_a_luminous_shot_reaches_the_additive_pass() {
         let mut buf = VertexBuf::default();
         push_shot_glow(&mut buf, 10.0, 20.0, 2.0, [255, 0, 0], 0.0);
-        let mut empty = Mesh::from(Rectangle::default());
-        buf.write(&mut empty);
         // `write` stands a degenerate triangle in for an empty buffer, so three
         // vertices is what "nothing was pushed" looks like on the other side.
-        assert_eq!(empty.count_vertices(), 3);
+        assert_eq!(vertices_written(&mut buf), 3);
 
         let mut buf = VertexBuf::default();
         push_shot_glow(&mut buf, 10.0, 20.0, 2.0, [255, 0, 0], 0.4);
-        let mut one = Mesh::from(Rectangle::default());
-        buf.write(&mut one);
-        assert_eq!(one.count_vertices(), 4, "one quad");
+        // Read off the POSITION attribute, not `count_vertices()`. This assertion
+        // used to take the latter, which is the mesh's SMALLEST attribute — and
+        // the `Rectangle` these are built on brings a four-element `NORMAL` that
+        // `write` never touches. So it read 4 here whether one quad had been
+        // pushed or a hundred, and could not have caught the case it names.
+        assert_eq!(vertices_written(&mut buf), 4, "one quad");
     }
 
     /// The player's arrows are wired into the glow pass and glow nothing yet.
@@ -1341,6 +1514,123 @@ mod tests {
         let mut mesh = Mesh::from(Rectangle::default());
         buf.write(&mut mesh);
         assert_eq!(mesh.count_vertices(), 3, "the degenerate stand-in");
+    }
+
+    /// Vertices a [`VertexBuf`] actually wrote, read off the position attribute.
+    ///
+    /// NOT `Mesh::count_vertices()`, which returns the SMALLEST attribute length
+    /// on the mesh. These tests build on `Mesh::from(Rectangle::default())`, which
+    /// arrives carrying a four-element `ATTRIBUTE_NORMAL` that `VertexBuf::write`
+    /// never replaces — so `count_vertices()` saturates at 4 the moment the buffer
+    /// holds one quad, and reports 4 for one quad and for a hundred alike.
+    fn vertices_written(buf: &mut VertexBuf) -> usize {
+        let mut mesh = Mesh::from(Rectangle::default());
+        buf.write(&mut mesh);
+        match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) => p.len(),
+            _ => panic!("a written mesh always carries float3 positions"),
+        }
+    }
+
+    // -- The breach tell ----------------------------------------------------
+
+    /// A burrower's tell is as wide as its BODY, not as wide as its art.
+    ///
+    /// This is the one detail of `drawTell` that would look correct in every
+    /// frame anyone captured today and still be wrong: every mob in current
+    /// content authors zero art padding, so `w_px` and `art_w_px` are equal for
+    /// all of them. The day a creature grows horns, a tell drawn from the art
+    /// rect would mark ground the creature is not going to come through.
+    ///
+    /// So the test builds a def whose art is deliberately wider than its body and
+    /// counts the quads. `MOB_DEFS[0]` supplies every other field, because what is
+    /// under test is which WIDTH is read and nothing else.
+    #[test]
+    fn the_tell_is_the_width_of_the_body_and_not_of_the_art() {
+        let mut def = MOB_DEFS[0];
+        let cell = CELL_SIZE as f32;
+        def.w_px = cell * 3.0;
+        def.art_w_px = cell * 7.0;
+
+        let mut buf = VertexBuf::default();
+        // Halfway through the countdown, so nothing is degenerate.
+        push_breach_tell(&mut buf, 0.0, 0.0, &def, TELL_TIME * 0.5, 0.0);
+        assert_eq!(
+            vertices_written(&mut buf),
+            3 * 4,
+            "three body cells wide, four vertices each — an art-width tell would \
+             be seven"
+        );
+    }
+
+    /// The tell swells as the countdown empties, and never goes out of range.
+    ///
+    /// The alpha is the whole of the "roughly WHEN": it has to be faint at the
+    /// start and nearly solid at the end, or the warning carries no urgency. It
+    /// also has to stay inside 0..1, because `linear` feeds it straight to a
+    /// vertex colour.
+    #[test]
+    fn the_tell_swells_as_the_creature_arrives() {
+        let alpha_at = |tell_t: f32| {
+            let t = 1.0 - (tell_t / TELL_TIME).clamp(0.0, 1.0);
+            TELL_ALPHA_BASE + TELL_ALPHA_SWELL * t
+        };
+
+        let fresh = alpha_at(TELL_TIME);
+        let landing = alpha_at(0.0);
+        assert!((fresh - TELL_ALPHA_BASE).abs() < 1e-6, "starts at the base");
+        assert!(
+            (landing - (TELL_ALPHA_BASE + TELL_ALPHA_SWELL)).abs() < 1e-6,
+            "ends fully swollen"
+        );
+        assert!(landing > fresh, "the tell gets louder, not quieter");
+
+        // Clamped on both sides: a countdown longer than TELL_TIME (a mob reset
+        // mid-tell) must not push the alpha under the base or over 1.
+        for t in [-1.0, 0.0, TELL_TIME * 0.5, TELL_TIME, TELL_TIME * 4.0] {
+            let a = alpha_at(t);
+            assert!((0.0..=1.0).contains(&a), "alpha {a} out of range at {t}");
+        }
+    }
+
+    /// The row sits one cell ABOVE the body, and every cell lands on the grid.
+    ///
+    /// Both halves are the difference between "the ground is breaking" and "a
+    /// rectangle is sliding": the tell marks the ground the creature is under,
+    /// and it is quantised so it reads as dirt rather than as UI.
+    #[test]
+    fn the_tell_sits_a_cell_above_the_body_on_whole_pixels() {
+        let mut def = MOB_DEFS[0];
+        let cell = CELL_SIZE as f32;
+        def.w_px = cell * 2.0;
+
+        // A deliberately fractional body position: the original rounds before it
+        // draws, and a tell on half-pixels shimmers under the nearest-neighbour
+        // upscale.
+        let mut buf = VertexBuf::default();
+        push_breach_tell(&mut buf, 10.4, 64.7, &def, TELL_TIME, 0.0);
+        let mut mesh = Mesh::from(Rectangle::default());
+        buf.write(&mut mesh);
+
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("the tell mesh carries positions");
+        };
+        for p in pos {
+            assert_eq!(p[0], p[0].round(), "x {} is not a whole pixel", p[0]);
+            assert_eq!(p[1], p[1].round(), "y {} is not a whole pixel", p[1]);
+        }
+
+        // At a full countdown nothing is lifted yet, so the top edge is exactly
+        // one cell above the rounded body top. Bevy's +y is up, the sim's is
+        // down, so the highest world row is the largest local y.
+        let top = pos.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert_eq!(
+            top,
+            -(64.7f32.round() - cell),
+            "the tell is not one cell above the body"
+        );
     }
 
     // -- The seam -----------------------------------------------------------

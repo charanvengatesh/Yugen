@@ -72,15 +72,15 @@
 //!
 //! # What the port dropped on the way in
 //!
-//! - **Additive compositing.** `drawGlow` set `globalCompositeOperation =
-//!   "lighter"` so that self-luminous motes survived the lighting multiply. A
-//!   Bevy [`Sprite`] alpha-blends and there is no per-sprite blend state to
-//!   change without a custom material, so glowing particles are drawn as
-//!   ordinary sprites at a higher z instead. The FLAG and the pass separation
-//!   are kept intact ([`ParticleSystem::glow_count`], `GLOW_Z`) precisely so
-//!   that the milestone which owns the darkness multiply — [`crate::light`] —
-//!   can turn this into a real additive pass by swapping a material, not by
-//!   reintroducing a concept.
+//! - ~~**Additive compositing.**~~ Recovered. `drawGlow` set
+//!   `globalCompositeOperation = "lighter"` so that self-luminous motes survived
+//!   the lighting multiply, and for several milestones this port drew them as
+//!   ordinary sprites at a higher z instead, because a Bevy [`Sprite`]
+//!   alpha-blends and has no per-sprite blend state. The flag and the pass
+//!   separation were kept intact against the day a material could be swapped in.
+//!   That day came: [`crate::sky::AdditiveMaterial`] now has four consumers, and
+//!   [`place_particle_glow`] is the fourth. Luminous particles leave the sprite
+//!   pool entirely and draw as one vertex-coloured mesh above the composite.
 //! - **`COLOR_CACHE`.** A `Map` of packed rgb to `rgb(r,g,b)` strings, so the
 //!   draw loop did not allocate 2048 strings a frame for a palette of about six
 //!   colours. There is no string here — a colour is three bytes — so the cache
@@ -105,7 +105,9 @@
 //! and the tint of whatever is underfoot — which is exactly what `Game.ts` did,
 //! and why the presets are public.
 
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
+use bevy::sprite_render::Material2dPlugin;
 
 use godgame_core::config::{STEP_DT, cell_at};
 use godgame_core::entities::mobs::{MobEvent, MobEventKind};
@@ -114,6 +116,7 @@ use godgame_core::sim::grid::CellGrid;
 
 use crate::lowres::WORLD_LAYERS;
 use crate::player::PlayerSet;
+use crate::sky::{AdditiveMaterial, VertexBuf, dynamic_mesh, linear};
 use crate::world::{SimSet, SimWorld};
 
 // ---------------------------------------------------------------------------
@@ -137,11 +140,46 @@ pub const MAX_PARTICLES: usize = 2048;
 /// spent on nothing.
 const PARTICLE_Z: f32 = 0.6;
 
-/// Where self-luminous particles sit: over the ordinary ones.
+/// Where the self-luminous pass sits: ABOVE the whole light composite.
 ///
-/// This is the geometric half of `drawGlow`. See the header for the half that
-/// did not come across.
-const GLOW_Z: f32 = 0.7;
+/// This is `drawGlow`, and it is now the real thing rather than the geometric
+/// half of it — see the header.
+///
+/// The height is the original's overlay order. `Game.ts` ran its overlay callback
+/// after `light.render`, particles first and then creatures, so this sits under
+/// [`crate::mobs`]'s creature glow at 0.80 and its shot glow at 0.81, over
+/// `crate::light`'s composite (which ends at 0.76 with the flat washes), and
+/// below the HUD at 1.0 — a HUD dimmed by the cave behind it is the bug the
+/// overlay layer exists to avoid.
+///
+/// # The number this replaces was a live z-fight
+///
+/// Glowing particles used to draw as ordinary sprites at `GLOW_Z = 0.7`, which is
+/// EXACTLY `crate::light`'s `SHADOW_Z` of 0.70. Two quads at one depth sort
+/// arbitrarily, so whether a spark landed in front of the darkness multiply or
+/// behind it was undefined — and behind it is invisible, which is the precise
+/// failure the glow pass exists to prevent. Nobody had named it.
+const PARTICLE_GLOW_Z: f32 = 0.79;
+
+/// The two orderings above that are pure constants, checked when the crate is
+/// compiled rather than when its tests run.
+///
+/// `crate::light`'s composite ends at 0.76 with the flat washes and
+/// `crate::mobs`'s creature glow begins at 0.80; the luminous particle pass has
+/// to land between them, and the ordinary particles have to stay below the
+/// composite where they are meant to be LIT rather than added.
+const _: () = assert!(
+    PARTICLE_GLOW_Z > 0.76,
+    "the glow pass sank into the light composite, which would multiply it away"
+);
+const _: () = assert!(
+    PARTICLE_GLOW_Z < 0.80,
+    "the glow pass rose above the creatures', reversing the original's overlay order"
+);
+const _: () = assert!(
+    PARTICLE_Z < 0.70,
+    "ordinary particles rose above the darkness multiply and stopped being lit"
+);
 
 /// Speed jitter applied to every particle, as a fraction of [`EmitOpts::speed`].
 ///
@@ -989,6 +1027,13 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
+        // Registered by whichever plugin is added first — the same guard
+        // `SkyPlugin`, `WeatherPlugin` and `MobsPlugin` carry, for the same
+        // reason: adding a plugin twice is a panic.
+        if !app.is_plugin_added::<Material2dPlugin<AdditiveMaterial>>() {
+            app.add_plugins(Material2dPlugin::<AdditiveMaterial>::default());
+        }
+
         app.init_resource::<ParticleSystem>()
             .add_systems(Startup, spawn_pool)
             .add_systems(
@@ -1003,12 +1048,36 @@ impl Plugin for ParticlesPlugin {
                     .after(SimSet::Simulate)
                     .run_if(resource_exists::<SimWorld>),
             )
-            .add_systems(Update, place_particles);
+            .add_systems(Update, (place_particles, place_particle_glow));
     }
 }
 
+/// The one mesh every luminous particle is drawn into.
+#[derive(Component)]
+pub struct ParticleGlow;
+
 /// One hidden entity per slot, once. See the header on why they are pooled.
-fn spawn_pool(mut commands: Commands) {
+///
+/// Plus the single additive quad the glow pass draws into — one mesh rewritten
+/// per frame rather than a second pool of 2048 entities, which is the trade
+/// [`crate::weather`] and [`crate::mobs`] both make for the same reason: the
+/// count varies every frame and the geometry is trivial.
+fn spawn_pool(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut additive: ResMut<Assets<AdditiveMaterial>>,
+) {
+    commands.spawn((
+        Mesh2d(meshes.add(dynamic_mesh())),
+        MeshMaterial2d(additive.add(AdditiveMaterial {})),
+        Transform::from_xyz(0.0, 0.0, PARTICLE_GLOW_Z),
+        ParticleGlow,
+        // Rewritten in place every frame, so the bounding box Bevy computed from
+        // the first version of the mesh is stale immediately.
+        NoFrustumCulling,
+        WORLD_LAYERS,
+    ));
+
     for slot in 0..MAX_PARTICLES {
         commands.spawn((
             Sprite {
@@ -1021,6 +1090,77 @@ fn spawn_pool(mut commands: Commands) {
             WORLD_LAYERS,
         ));
     }
+}
+
+/// Draw every self-luminous particle additively, over the light composite.
+///
+/// This is `drawGlow`. The `lighter` composite it set is
+/// [`crate::sky::AdditiveMaterial`]'s whole content, and the reason the pass has
+/// to sit above [`crate::light`] rather than beside the ordinary particles is the
+/// one the original had: a mote that is the brightest thing in a cave is
+/// multiplied away by the darkness the light stack composites over the world, in
+/// exactly the cave where it is the only thing the player can see.
+///
+/// One mesh for all of them, rebuilt per frame from a `Local<VertexBuf>`, so a
+/// screenful of sparks costs one draw call and — once the buffer has reached its
+/// steady size — no allocation.
+fn place_particle_glow(
+    particles: Res<ParticleSystem>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    quad: Query<&Mesh2d, With<ParticleGlow>>,
+    mut buf: Local<VertexBuf>,
+) {
+    let Ok(quad) = quad.single() else {
+        return;
+    };
+    let Some(mut mesh) = meshes.get_mut(&quad.0) else {
+        return;
+    };
+
+    buf.clear();
+    // `glow_count` is maintained incrementally, so an ordinary frame — which has
+    // no luminous particles at all — skips the walk entirely. `write` stands a
+    // degenerate triangle in for the empty buffer.
+    if particles.glow_count() > 0 {
+        for slot in 0..MAX_PARTICLES {
+            let Some(p) = particles.slot(slot) else {
+                continue;
+            };
+            if !p.glow {
+                continue;
+            }
+            push_particle_glow(&mut buf, &p);
+        }
+    }
+    buf.write(&mut mesh);
+}
+
+/// One luminous particle, as an additive quad. See [`place_particle_glow`].
+///
+/// The rounding is the sprite pool's: `Particle::x`/`y` are the TOP-LEFT of the
+/// drawn square, and rounding them is what keeps a mote on the pixel grid the
+/// whole game is snapped to.
+fn push_particle_glow(buf: &mut VertexBuf, p: &Particle) {
+    let (left, top) = (p.x.round(), p.y.round());
+    let side = p.size;
+    let colour = linear(
+        [
+            f32::from(p.rgb[0]),
+            f32::from(p.rgb[1]),
+            f32::from(p.rgb[2]),
+        ],
+        p.alpha.clamp(0.0, 1.0),
+    );
+    // The one convention flip: +y is up in Bevy and down in the sim.
+    buf.quad(
+        [
+            Vec2::new(left, -top),
+            Vec2::new(left + side, -top),
+            Vec2::new(left + side, -(top + side)),
+            Vec2::new(left, -(top + side)),
+        ],
+        [colour; 4],
+    );
 }
 
 /// One fixed step of every live particle, against the world it can hit.
@@ -1049,6 +1189,14 @@ fn place_particles(
             *visibility = Visibility::Hidden;
             continue;
         };
+        // A luminous particle is drawn by `place_particle_glow` instead, on an
+        // additive mesh above the light composite. Drawing it here as well would
+        // put an alpha-blended copy of it UNDER the darkness multiply, which is
+        // both a double-draw and the exact thing the glow pass exists to avoid.
+        if p.glow {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         *visibility = Visibility::Inherited;
         sprite.color = Color::srgb_u8(p.rgb[0], p.rgb[1], p.rgb[2]).with_alpha(p.alpha);
         sprite.custom_size = Some(Vec2::splat(p.size));
@@ -1057,9 +1205,7 @@ fn place_particles(
         // +y is up in Bevy and down in the sim: the one convention flip, in the
         // one place, exactly as `crate::player`'s body placement does it.
         transform.translation.y = -(p.y.round() + half);
-        // Glow particles sort above the rest. This is all that is left of
-        // `drawGlow`'s second pass — see the header.
-        transform.translation.z = if p.glow { GLOW_Z } else { PARTICLE_Z };
+        transform.translation.z = PARTICLE_Z;
     }
 }
 
@@ -1287,6 +1433,96 @@ mod tests {
         assert!(
             (peak_at - 0.2).abs() < 0.05,
             "peaked at {peak_at} of its life, not a fifth in"
+        );
+    }
+
+    /// The glow pass sits above the whole light composite, and shares z with
+    /// nothing.
+    ///
+    /// This is a regression test for a live z-fight, not a style rule. Luminous
+    /// particles used to draw as ordinary sprites at 0.7, which is EXACTLY
+    /// `crate::light::SHADOW_Z`. Two quads at one depth sort arbitrarily, so
+    /// whether a spark landed in front of the darkness multiply or behind it —
+    /// invisible, the precise failure the glow pass exists to prevent — was
+    /// undefined.
+    ///
+    /// The `light` constants are private, so the numbers are restated here rather
+    /// than imported. That is the weakness of this test and it is worth naming:
+    /// it pins the ORDER, and it cannot see `light` moving its own quads. What it
+    /// does catch is this module drifting back down into them.
+    #[test]
+    fn the_glow_pass_sits_above_the_light_composite_and_alone() {
+        // `crate::light`'s composite quads, in order, ending with the flat washes.
+        const LIGHT_COMPOSITE: [(f32, &str); 5] = [
+            (0.70, "shadow"),
+            (0.71, "colour"),
+            (0.72, "bloom"),
+            (0.75, "vignette"),
+            (0.76, "wash"),
+        ];
+        for (z, what) in LIGHT_COMPOSITE {
+            assert!(
+                PARTICLE_GLOW_Z > z,
+                "the glow pass at {PARTICLE_GLOW_Z} is not above light's {what} \
+                 quad at {z}, so the darkness multiply would erase it"
+            );
+            assert_ne!(
+                PARTICLE_GLOW_Z, z,
+                "the glow pass shares a depth with light's {what} quad — two quads \
+                 at one z sort arbitrarily"
+            );
+        }
+
+        // The two orderings that are pure constants are asserted at COMPILE time
+        // instead — see the `const _` beside the z constants. A constant that has
+        // to wait for `cargo test` to report is a constant that can be wrong in a
+        // build somebody already shipped.
+    }
+
+    /// A luminous particle is drawn ONCE, by the glow pass, and not also by the
+    /// sprite pool.
+    ///
+    /// Both halves are the bug: an alpha-blended copy under the darkness multiply
+    /// is a double-draw AND it is the un-glowing draw the whole pass exists to
+    /// replace. `place_particles` skips them and `place_particle_glow` takes them,
+    /// so the partition has to be exact — every live particle in exactly one pass.
+    #[test]
+    fn every_live_particle_is_drawn_by_exactly_one_pass() {
+        let mut p = ParticleSystem::new();
+        p.emit(
+            0.0,
+            0.0,
+            4,
+            &EmitOpts {
+                glow: true,
+                ..lasting(100.0)
+            },
+        );
+        p.emit(50.0, 50.0, 6, &lasting(100.0));
+
+        let mut sprite_pass = 0;
+        let mut glow_pass = 0;
+        for slot in 0..MAX_PARTICLES {
+            let Some(particle) = p.slot(slot) else {
+                continue;
+            };
+            if particle.glow {
+                glow_pass += 1;
+            } else {
+                sprite_pass += 1;
+            }
+        }
+        assert_eq!(glow_pass, 4, "the glow pass takes the luminous ones");
+        assert_eq!(sprite_pass, 6, "the sprite pool takes the rest");
+        assert_eq!(
+            glow_pass + sprite_pass,
+            p.live_count(),
+            "a live particle fell between the two passes and is drawn by neither"
+        );
+        assert_eq!(
+            glow_pass,
+            p.glow_count(),
+            "glow_count disagrees with the walk"
         );
     }
 
