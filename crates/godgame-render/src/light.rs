@@ -513,12 +513,24 @@ const BLOOM_SIGMA_CELLS: f32 = 1.5;
 /// it replaced, whose 120 sprites at 0.55 core alpha could add 66 to a channel
 /// and routinely added enough to clip.
 ///
-/// It is low, and it does not need to be high: an additive 0.3 in LINEAR light
-/// over dark rock is about +0.58 in sRGB, which is a plainly visible halo, while
-/// the same 0.3 over daylit ground is lost in a value that was already near 1.
-/// A bloom that shows up exactly where it should and nowhere else is what the
-/// non-linearity buys, and it is the reason this is tuned in linear rather than
-/// against the 0..255 bytes the original was written in.
+/// It is low, and it does not need to be high, because the non-linearity does
+/// the work: an additive amount in LINEAR light is worth far more over dark rock
+/// than over daylit ground, where it lands in a value already near 1. A bloom
+/// that shows up exactly where it should and nowhere else is what that buys, and
+/// it is why this is tuned in linear rather than against the 0..255 bytes the
+/// original was written in.
+///
+/// Judge this underground, never at the surface. The daylit case is exactly the
+/// one where the value is invisible, so tuning against it will always say the
+/// number is too small.
+///
+/// It was briefly halved to 0.15 in response to a report that the glow underground
+/// was too strong and too smooth. That was the wrong knob, and the measurement is
+/// worth recording so nobody reaches for it again: with this set to **0.0** the
+/// reported haze is unchanged. What produces it is the COLOUR grid — one texel
+/// per `LIGHT_DOWNSCALE` cells, upscaled smoothly — not this pass. See
+/// [`COLOUR_GAIN`] for the strength dial and `LIGHT_DOWNSCALE` for the
+/// resolution.
 const BLOOM_INTENSITY: f32 = 0.3;
 
 /// Where the bloom's gather pass sits in camera order.
@@ -2056,16 +2068,26 @@ fn new_light_texture(w: i32, h: i32) -> Image {
 /// texture**, and `TEXTURE_BINDING`, which is what lets the composite quad read
 /// it back. `COPY_DST` because [`Image::resize`] writes through it.
 ///
-/// The sampler is LINEAR and that is the deliberate answer to the one thing a
-/// bloom can do wrong in a pixel-art game. One texel is 5 world px, so nearest
-/// would stamp a hard 5px lattice of its own over the frame — a second grid,
-/// misaligned with the art's. Linear here does NOT soften the art: the composite
-/// resolves into the 640x400 buffer, and the buffer is still blitted to the
-/// window with the game's one nearest sampler, so every pixel edge in the image
-/// is exactly as hard as it was. What interpolates is the amount of GLOW across
-/// a low-res pixel, which is the one quantity in the frame that should be
-/// smooth. This is the same trade [`new_light_texture`] already makes for the
-/// light grid at four times the texel size.
+/// The sampler is NEAREST, and the argument for it is the whole reason this
+/// texture is sized in cells.
+///
+/// It was linear first, on the reasoning that glow is the one quantity in a
+/// frame that ought to be smooth. That reasoning was sound and the result was
+/// wrong: a smoothly-interpolated haze over ore that is drawn in hard 5px blocks
+/// reads as a photographic effect pasted onto pixel art, which is exactly the
+/// complaint [`crate::sky`] answered by quantising the sun to the same grid.
+///
+/// One texel here is `CELL_SIZE` world px — the SAME lattice the cells are drawn
+/// on, not a second one. Nearest therefore does not stamp a competing grid; it
+/// snaps the glow to the grid the art already uses, so a lit block glows as a
+/// block. That is what makes this different from [`new_light_texture`], which
+/// must stay linear: its texels are 20 px, four times the art's, and nearest
+/// there really would lay a foreign lattice over the frame.
+///
+/// The composite still resolves into the 640x400 buffer and the buffer is still
+/// blitted with the game's one nearest sampler, so nothing about the edges of
+/// the art changes either way. What changed is whether the GLOW has edges, and
+/// in a game made of squares it should.
 fn new_bloom_target(w: i32, h: i32) -> Image {
     let size = Extent3d {
         width: w.max(1) as u32,
@@ -2085,7 +2107,7 @@ fn new_bloom_target(w: i32, h: i32) -> Image {
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
-        sampler: ImageSampler::linear(),
+        sampler: ImageSampler::nearest(),
         ..default()
     };
     image.resize(size);

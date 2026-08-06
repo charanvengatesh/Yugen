@@ -788,24 +788,24 @@ only the exported surface is held to the rule.
 | `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 489 |
 | `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 498 |
 | `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 505 |
-| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 522 |
-| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 531 |
-| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 540 |
-| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 543 |
-| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 545 |
-| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 547 |
-| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 549 |
-| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 551 |
-| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 553 |
-| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 555 |
-| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 580 |
-| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 582 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.6` | Strength of a biome's ambient cast. | 590 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 1694 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 1696 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 1708 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 1723 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 1725 |
+| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 534 |
+| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 543 |
+| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 552 |
+| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 555 |
+| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 557 |
+| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 559 |
+| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 561 |
+| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 563 |
+| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 565 |
+| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 567 |
+| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 592 |
+| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 594 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.6` | Strength of a biome's ambient cast. | 602 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 1706 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 1708 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 1720 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 1735 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 1737 |
 
 ### `crates/godgame-render/src/lowres.rs`
 
