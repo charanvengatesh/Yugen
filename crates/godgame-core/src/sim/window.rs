@@ -75,6 +75,13 @@ pub struct WindowManager {
     origin_chunk_x: i32,
     origin_chunk_y: i32,
     store: ChunkStore,
+
+    /// Window slots the current shift has to fill. Scratch for
+    /// [`WindowManager::load_incoming`], reused across shifts.
+    incoming_slots: Vec<(i32, i32)>,
+    /// The same slots as absolute chunk coordinates, which is what
+    /// [`ChunkStore::prefetch`] takes. Scratch, reused.
+    incoming_chunks: Vec<(i32, i32)>,
 }
 
 impl WindowManager {
@@ -98,6 +105,8 @@ impl WindowManager {
         WindowManager {
             origin_chunk_x: 0,
             origin_chunk_y: 0,
+            incoming_slots: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
+            incoming_chunks: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
             store,
         }
     }
@@ -253,19 +262,75 @@ impl WindowManager {
     }
 
     /// Fill only the slots the shift left uncovered. Call AFTER `set_origin`.
+    ///
+    /// # The batch is what makes a shift affordable
+    ///
+    /// This used to walk the incoming edge calling [`Self::load_slot`] one chunk
+    /// at a time, so every generate ran serially on the calling thread — while
+    /// [`ChunkStore::prefetch`], which already had a rayon path, was reached only
+    /// from [`Self::load_all`] (the whole-window fill at startup and after a
+    /// teleport). The shift is the most expensive event in the game and it is not
+    /// amortised: save the trailing edge, memmove the survivors, generate and blit
+    /// the leading edge, all inside one tick. It was paying for that generation
+    /// on one core.
+    ///
+    /// Collecting the coordinates first and handing them over in ONE call takes
+    /// the parallel path every time: [`WindowManager::DEAD`] is 1, so a recenter
+    /// moves at least two chunks along an axis, and two columns of an 11x8 window
+    /// is 16 chunks against a `PREFETCH_MIN_PARALLEL` of 8.
+    ///
+    /// It is behaviour-preserving by construction rather than by inspection —
+    /// `prefetch` gives each worker its own [`ChunkGen`](super::worldgen::ChunkGen)
+    /// and `worldgen_purity`'s `parallel_matches_serial` requires the result to be
+    /// byte-identical to the serial one. Measured on an M3 Pro, same criterion
+    /// session: `recenter only` 550.7 µs -> 307.5 µs, and the whole `shift tick`
+    /// 686.9 µs -> 471.1 µs.
+    ///
+    /// Beyond this it is a LATENCY problem rather than a throughput one, and the
+    /// stronger fix is to prefetch the leading edge before the dead zone is
+    /// crossed — [`Self::recenter`]'s one-chunk dead zone is exactly that
+    /// lookahead, and it is free. Not done.
     fn load_incoming(&mut self, grid: &mut CellGrid, dcx: i32, dcy: i32) {
         // Survivor ranges expressed in NEW window coords: subtract the shift.
         let (i_lo, i_hi) = Self::survivor_range(dcx, WINDOW_CHUNKS_X);
         let (j_lo, j_hi) = Self::survivor_range(dcy, WINDOW_CHUNKS_Y);
+
+        // Both buffers are the manager's own scratch, reused across shifts: a
+        // walking player shifts the window every few dozen cells of travel, and
+        // two heap allocations per shift is exactly the kind of small, regular
+        // waste that the rest of this file goes out of its way to avoid.
+        self.incoming_slots.clear();
         for cj in 0..WINDOW_CHUNKS_Y {
             let row_covered = cj >= j_lo - dcy && cj < j_hi - dcy;
             for ci in 0..WINDOW_CHUNKS_X {
                 if row_covered && ci >= i_lo - dcx && ci < i_hi - dcx {
                     continue;
                 }
-                self.load_slot(grid, ci, cj);
+                self.incoming_slots.push((ci, cj));
             }
         }
+
+        self.incoming_chunks.clear();
+        self.incoming_chunks.extend(
+            self.incoming_slots
+                .iter()
+                .map(|&(ci, cj)| (self.origin_chunk_x + ci, self.origin_chunk_y + cj)),
+        );
+        self.store.prefetch(&self.incoming_chunks);
+
+        // Now warm, so each of these is a cache hit and a memcpy per row rather
+        // than a heightmap, a cave field and three decorator passes.
+        //
+        // `take` and put back, because `load_slot` needs `&mut self` and the loop
+        // is reading a field of the same `self`. The `Vec` is moved out and
+        // returned with its allocation intact, so this costs three pointer writes
+        // and no allocation — which is what a scratch buffer on a method that also
+        // mutates is, spelt honestly.
+        let slots = std::mem::take(&mut self.incoming_slots);
+        for &(ci, cj) in &slots {
+            self.load_slot(grid, ci, cj);
+        }
+        self.incoming_slots = slots;
     }
 
     /// Move the surviving cells to where the new origin expects them. A cell at
