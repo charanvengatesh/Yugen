@@ -176,7 +176,7 @@ heat.igniteAt = 84
 [mushroomCap]
 name = "Mushroom Cap"
 state = "solid"
-color = [126, 78, 156]
+color = [143, 66, 180]
 colorVar = 26
 texture = "fibrous"
 shimmer = 110

@@ -5,7 +5,7 @@
 [fire]
 name = "Fire"
 state = "gas"
-color = [255, 150, 40]
+color = [255, 176, 84]
 colorVar = 40
 shimmer = 255
 emissive = 1.0
@@ -21,7 +21,7 @@ heat.cool = 0
 [ember]
 name = "Ember"
 state = "gas"
-color = [255, 122, 42]
+color = [252, 140, 62]
 colorVar = 40
 shimmer = 200
 emissive = 0.9

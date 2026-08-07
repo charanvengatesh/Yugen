@@ -35,7 +35,7 @@
 [torch]
 name = "Torch"
 state = "solid"
-color = [232, 162, 74]
+color = [255, 186, 96]
 colorVar = 20
 texture = "fibrous"
 # The flicker is `shimmer` (animated) rather than `emissive` (constant): a torch
@@ -56,7 +56,7 @@ heat.conduct = 16
 [lantern]
 name = "Lantern"
 state = "solid"
-color = [238, 198, 108]
+color = [255, 214, 132]
 colorVar = 12
 # Glass over a flame, so `glassy` (hard, crisp) rather than the torch's fibrous
 # grain, and a high `edge` — the metal frame is the thing that catches the light.
@@ -74,7 +74,7 @@ heat.conduct = 30
 [campfire]
 name = "Campfire"
 state = "solid"
-color = [236, 130, 48]
+color = [250, 152, 62]
 colorVar = 26
 texture = "molten"
 shimmer = 235

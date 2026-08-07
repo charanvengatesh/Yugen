@@ -186,7 +186,7 @@ heat.meltInto = "water"
 [crystal]
 name = "Crystal"
 state = "solid"
-color = [152, 112, 232]
+color = [160, 119, 232]
 colorVar = 18
 texture = "crystalline"
 shimmer = 150

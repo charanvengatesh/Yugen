@@ -60,9 +60,9 @@ Because `colorVar` and `shimmer` add equally to R, G and B and then clamp at 255
 a base colour with R near 255 clips red first on positive excursions: it
 desaturates toward yellow-white as it brightens and deepens toward red as it
 darkens. That is a free hue ramp out of one flat colour, and it is exactly how
-hot matter behaves. Every E1 emitter below is authored to exploit it — base R in
-250..255 with a high `colorVar` — so a lava pool spans crust to core within a
-single material.
+hot matter behaves. Every E1 FLAME below is authored to exploit it — base R in
+250..255. Note that lava is NOT, in the end: see I1 for why the one emitter that
+is also bulk had to be left alone.
 
 ---
 
@@ -119,7 +119,8 @@ overlap and a block becomes ambiguous. Every block sits in exactly one band.
 | B3 | bright bulk — snow, ice, glass, vapour | 115..142 | <= 26 | >= 90 | >= 12 |
 | B4 | signal and fluid accent | 70..132 | 40..62 | >= 55 | >= 12 |
 | B5 | ore / vein | 24..142 | — | host edge + 24 +/- 8 | >= 22 |
-| E1 | primary emissive — flame, molten | 155..220 | >= 45 | >= 0 | >= 12 |
+| E1 | primary emissive — flame | 155..220 | >= 45 | >= 0 | >= 12 |
+| E1* | `lava` alone — emitter AND bulk, see I1 | ~131 | >= 45 | >= 0 | >= 12 |
 | E2 | minor emissive — cold glow | 85..140 | >= 40 | >= 80 | >= 18 |
 
 Gases are exempt from the `edge` floors: they are not solid, so they never
@@ -130,8 +131,24 @@ occupy a rim or occlusion class and `edge` does nothing for them.
 These are the point of the document. I1 and I5 are the two that fix the game.
 
 - **I1 — the emitters must have somewhere to go.**
-  `min(luma over E1) - max(luma over B0..B5) >= 12`.
-  Today that number is **-108.7** (`snow` 239.9 against `lava` 131.2). Under this palette it is **+19.1**.
+  `min(luma over E1 EXCEPT lava) - max(luma over B0..B5) >= 12`.
+
+  **`lava` is exempt, and finding out why cost a blown-out frame.** It is the
+  only material that is an emitter AND bulk, so I1 and the area rule in section 7
+  — over 20% of a frame must stay dark and low-chroma — point in opposite
+  directions on it and nothing else. I1 was written as if every emitter were a
+  torch. Measured on the lava-sea frame, raising lava's base from luma 131 to the
+  ladder's 159 does not read as brighter lava, it reads as a yellow-white wash:
+  distinct colours fall monotonically 25 642 -> 23 962 -> 20 425 as the base
+  climbs, and the dominant share doubles.
+
+  The resolution is the one that costs nothing: **lava did not need to change at
+  all.** The world around it got 27% darker, so it gained all the relative
+  headroom the invariant was asking for without moving. Contrast is a ratio, and
+  I1 was measuring an absolute.
+
+  Before the repaint the number was **-108.7** (`snow` 239.9 against `ember`
+  131.2). It is now **+19.1** (`snow` 139.1 against `ember` 158.2).
 - **I2 — accents must out-colour the environment.**
   `max(chroma over B0..B3) < min(chroma over B4, E1, E2)`.
 - **I3 — every block `colorVar >= 12`.** This is what proves the frame's
@@ -231,7 +248,7 @@ Sanctioned off-hue variants, which take no ramp index:
 
 **`hot`** — every one clip-ramps (base R >= 250). Chroma FALLS as luma rises,
 which is physically right and is I8.
-`lava #fa8e38` L159 · `ember #fc8c3e` L158 · `campfire #fa983e` L166 ·
+`lava #eb6e23` L131 (unchanged, see I1) · `ember #fc8c3e` L158 · `campfire #fa983e` L166 ·
 `fire #ffb054` L186 · `torch #ffba60` L194 · `lantern #ffd684` L217
 
 **`glow`** — cold or weak emitters, and precious ore.
