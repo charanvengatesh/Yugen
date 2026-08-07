@@ -36,13 +36,13 @@
 name = "Torch"
 state = "solid"
 color = [232, 162, 74]
-colorVar = 18
+colorVar = 20
 texture = "fibrous"
 # The flicker is `shimmer` (animated) rather than `emissive` (constant): a torch
 # that glowed steadily reads as a painted-on light, and shimmer costs the
 # renderer nothing extra on a cell it is already drawing.
 shimmer = 190
-edge = 60
+edge = 70
 collides = false
 emissive = 0.7
 lightEmit = 10
@@ -57,12 +57,12 @@ heat.conduct = 16
 name = "Lantern"
 state = "solid"
 color = [238, 198, 108]
-colorVar = 10
+colorVar = 12
 # Glass over a flame, so `glassy` (hard, crisp) rather than the torch's fibrous
 # grain, and a high `edge` — the metal frame is the thing that catches the light.
 texture = "glassy"
 shimmer = 110
-edge = 150
+edge = 160
 collides = false
 emissive = 0.85
 lightEmit = 13
@@ -78,7 +78,7 @@ color = [236, 130, 48]
 colorVar = 26
 texture = "molten"
 shimmer = 235
-edge = 30
+edge = 56
 collides = false
 emissive = 1.0
 lightEmit = 15
@@ -105,7 +105,7 @@ colorVar = 14
 # `layered` for the rungs: the same look sandstone and strata use, which at one
 # cell per pixel is what a repeating horizontal element reads as.
 texture = "layered"
-edge = 70
+edge = 130
 collides = false
 climb = true
 hardness = 0.3
@@ -124,9 +124,9 @@ heat.igniteAt = 45
 name = "Rope"
 state = "solid"
 color = [190, 168, 120]
-colorVar = 12
+colorVar = 14
 texture = "fibrous"
-edge = 25
+edge = 120
 collides = false
 climb = true
 density = 0.4
@@ -149,7 +149,7 @@ state = "solid"
 color = [172, 130, 78]
 colorVar = 16
 texture = "layered"
-edge = 95
+edge = 135
 # `collides false` + `oneWay true`: the one-way pass adds a floor when the
 # player is descending onto it and adds nothing at all otherwise, so a stack of
 # these is a staircase upward and a series of landings downward. If this were
@@ -175,7 +175,7 @@ state = "solid"
 color = [142, 98, 54]
 colorVar = 12
 texture = "layered"
-edge = 140
+edge = 150
 # No `collides` line: the solid default is right here. A chest you can walk
 # through is scenery, and the bump is half of how you find one in the dark.
 container = true
@@ -213,7 +213,7 @@ state = "solid"
 color = [154, 112, 62]
 colorVar = 14
 texture = "layered"
-edge = 130
+edge = 145
 hardness = 1.0
 blastResist = 1.5
 tags = ["diggable", "buildable"]
@@ -225,9 +225,9 @@ state = "solid"
 # Stone rather than the warm grey of `basalt`: a furnace is masonry, and it has
 # to read as built rather than as a boulder somebody left indoors.
 color = [122, 118, 116]
-colorVar = 10
+colorVar = 14
 texture = "layered"
-edge = 150
+edge = 175
 hardness = 1.6
 blastResist = 3.0
 tags = ["rock", "diggable", "buildable"]
@@ -241,9 +241,9 @@ heat.conduct = 60
 name = "Anvil"
 state = "solid"
 color = [86, 88, 94]
-colorVar = 8
+colorVar = 12
 texture = "layered"
-edge = 170
+edge = 195
 # The hardest of the three, and the one the Pearl is assembled on — see
 # content/items/relics.toml. Taking one up should feel like moving an anvil.
 hardness = 2.2
