@@ -135,8 +135,14 @@ pub struct DebugOverlay(pub bool);
 
 /// Panel inset from the top-left, clear of `ui::hud`'s health bar.
 const X: i32 = 8;
-/// Top of the first line. The health bar plate ends around 34.
-const Y: i32 = 46;
+/// Baseline of the first line.
+///
+/// The plate is drawn 10px above this, so 52 puts its top edge at 42 — clear of
+/// `ui::hud`'s health plate, which runs from `MARGIN - 4` = 12 to
+/// `MARGIN - 4 + BAR_H + 8` = 40. The first value here was 46, which overlapped
+/// it by four pixels; that was found by looking at a capture, not by arithmetic,
+/// which is the argument for taking the capture.
+const Y: i32 = 52;
 /// Line pitch. [`ROW`] is 11px, so this is a comfortable single space.
 const LINE: i32 = 13;
 /// Column the values start in, so the labels do not have to be padded.

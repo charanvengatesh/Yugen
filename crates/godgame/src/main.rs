@@ -34,6 +34,7 @@ use godgame_render::input::PlayerIntent;
 use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
+use godgame_render::scenes::Scene;
 use godgame_render::world::{SimWorld, WorldFocus};
 
 /// Frames to render before `--screenshot` captures, by default.
@@ -113,6 +114,8 @@ struct Args {
     free_camera: bool,
     /// Start with the F3 panel up. A `--screenshot` run has no keyboard.
     debug_overlay: bool,
+    /// Leave the title card immediately instead of waiting for a confirm key.
+    play: bool,
     /// Run right by itself, jumping every this many seconds.
     drive: Option<f32>,
     /// Frames to render before `--screenshot` captures.
@@ -144,6 +147,24 @@ fn main() -> AppExit {
     // that reads it.
     if args.free_camera {
         app.insert_resource(NoPlayer);
+    }
+
+    // Leave the menu on the first frame.
+    //
+    // Without this every automated capture is a photograph of the TITLE CARD.
+    // The world does render behind it — the menu is a dimming plate and a label
+    // over a live scene — so the result looks enough like the game to be
+    // accepted at a glance, and it took two screenshots this session before
+    // anybody noticed the words "Press Enter or Space to start" across the
+    // middle of them. `Scene::Menu` is the default and only a confirm KEY
+    // advances it, which a headless run does not have.
+    //
+    // Implied by `--drive`, because a flag whose whole job is to move the body
+    // is meaningless while the body has not been spawned.
+    if args.play || args.drive.is_some() {
+        app.add_systems(Startup, |mut next: ResMut<NextState<Scene>>| {
+            next.set(Scene::Playing);
+        });
     }
 
     if let Some(jump_every) = args.drive {
@@ -205,6 +226,7 @@ fn parse_args() -> Args {
         edit: None,
         free_camera: false,
         debug_overlay: false,
+        play: false,
         drive: None,
         warmup: SCREENSHOT_WARMUP_FRAMES,
     };
@@ -212,6 +234,7 @@ fn parse_args() -> Args {
         match flag.as_str() {
             "--free-camera" => args.free_camera = true,
             "--debug-overlay" => args.debug_overlay = true,
+            "--play" => args.play = true,
             "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
             "--drive" => {
                 let secs = argv.next().unwrap_or_else(|| usage());
@@ -268,7 +291,10 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--drive SECS]"
+        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
+    );
+    eprintln!(
+        "  --play           start the run at once; without it a capture photographs the menu"
     );
     eprintln!("  --debug-overlay  start with the F3 panel up (it has no keyboard in a capture)");
     eprintln!("  --edit         one brush stroke at load; CX/CY are cells from the view centre");

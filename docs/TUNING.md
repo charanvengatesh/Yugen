@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 570 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 572 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -310,6 +310,13 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `EPS` (private) | `1e-4` | Slack used to keep a box that ends exactly on a cell boundary out of the next cell along. | 43 |
 | `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 51 |
+
+### `crates/godgame-core/src/script.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 74 |
+| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 81 |
 
 ### `crates/godgame-core/src/sim/automata.rs`
 
@@ -725,9 +732,9 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 67 |
 | `X` (private) | `8` | Panel inset from the top-left, clear of `ui::hud`'s health bar. | 137 |
-| `Y` (private) | `46` | Top of the first line. | 139 |
-| `LINE` (private) | `13` | Line pitch. | 141 |
-| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 143 |
+| `Y` (private) | `52` | Baseline of the first line. | 145 |
+| `LINE` (private) | `13` | Line pitch. | 147 |
+| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 149 |
 
 ### `crates/godgame-render/src/effects.rs`
 
@@ -992,5 +999,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 51 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 52 |
 
