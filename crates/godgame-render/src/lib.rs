@@ -52,6 +52,7 @@ use bevy::app::{PluginGroup, PluginGroupBuilder};
 pub mod ambience;
 pub mod cellmap;
 pub mod cells;
+pub mod craftscreen;
 pub mod daynight;
 pub mod debug;
 pub mod dump;
@@ -103,6 +104,7 @@ impl PluginGroup for GodGameRenderPlugin {
             // atlases without an ordering edge.
             .add(sprite::SpritePlugin)
             .add(scenes::ScenesPlugin)
+            .add(craftscreen::CraftScreenPlugin)
             .add(worldselect::WorldSelectPlugin)
             // Composites over everything the world passes drew.
             .add(light::LightPlugin)

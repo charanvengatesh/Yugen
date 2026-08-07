@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 233 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 588 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 592 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -733,6 +733,15 @@ only the exported surface is held to the rule.
 | `SHADE_EDGE_SCALE` | `52.0` | Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness offset a class contributes. | 1230 |
 | `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1236 |
 | `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1239 |
+
+### `crates/godgame-render/src/craftscreen.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `VISIBLE_ROWS` (private) | `10` | Rows the panel is SIZED for. | 65 |
+| `CARD_MARGIN` (private) | `40` | Clearance kept between the panel and the edge of the buffer. | 73 |
+| `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 191 |
+| `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 497 |
 
 ### `crates/godgame-render/src/daynight.rs`
 

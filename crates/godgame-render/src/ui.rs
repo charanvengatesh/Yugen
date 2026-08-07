@@ -1961,6 +1961,8 @@ struct HudSources<'w> {
     icons: Res<'w, Icons>,
     /// The world list, for the screen that shows it.
     picker: Res<'w, crate::worldselect::WorldPicker>,
+    /// The crafting card, drawn over the world rather than instead of it.
+    crafting: Res<'w, crate::craftscreen::CraftingView>,
     /// Whether the F3 panel is up.
     debug_shown: Res<'w, crate::debug::DebugOverlay>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
@@ -2088,6 +2090,11 @@ fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiF
             ));
             if let Some((text, alpha)) = sources.toast.showing() {
                 prims.extend(toast(text, alpha, view));
+            }
+            // Over the HUD, because it is a card the player opened and the
+            // hotbar underneath it is not what they are looking at.
+            if sources.crafting.open {
+                prims.extend(crate::craftscreen::screen(&sources.crafting, view));
             }
         }
     }

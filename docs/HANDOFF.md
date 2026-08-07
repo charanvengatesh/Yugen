@@ -148,7 +148,8 @@ at an older milestone while every test passed, because the tests build their own
 `cargo run` avoids it entirely.
 
 In game: `G` toggles creative, `1`–`0` and the wheel drive the hotbar (survival)
-or the palette (creative), `C` crafts, `F` consumes, Enter/Space leaves the menu,
+or the palette (creative), **`C` opens the crafting screen** (Enter makes the
+selected row, `C` or Esc closes), `F` consumes, Enter/Space leaves the menu,
 **`F3` shows the debug panel.**
 
 ### The F3 panel — read this before adding a `println!`

@@ -402,6 +402,16 @@ struct Survival<'w> {
     /// [`crate::interact_reach`]. Read-only, and `Option` because a host may run
     /// the HUD without a world.
     world: Option<Res<'w, SimWorld>>,
+    /// The crafting card, for whether it is up.
+    ///
+    /// Read here rather than the card disabling this system, because the same
+    /// system also drives the hotbar and the brush: a card that took the whole
+    /// of `tool_keys` out would freeze the wheel and the number keys as a side
+    /// effect nobody asked for. Only the two keys the card owns stand aside.
+    ///
+    /// `Option` because a host may run input without the crafting plugin — the
+    /// capture rigs do — and a missing card means no card is open.
+    card: Option<Res<'w, crate::craftscreen::CraftingView>>,
 }
 
 /// The keyboard/wheel half of `Game.handleBuildInput`: mode, selection, size.
@@ -482,7 +492,11 @@ fn tool_keys(
         // already a no-op inside `cycle`.
         inv.cycle(steps.signum());
 
-        if k.any_pressed(KEYS.craft) {
+        // `C` opens `crate::craftscreen` now rather than crafting blind, and
+        // that module owns the key. `try_craft` below is still the whole of what
+        // a craft IS and is still tested; the card calls `craft` directly and
+        // this path is what a host without the screen plugin gets.
+        if k.any_pressed(KEYS.craft) && !player.card.as_ref().is_some_and(|c| c.open) {
             // What is in reach RIGHT NOW, computed at the keypress rather than
             // cached: a player walks away from a bench, and a cached set would
             // let them keep crafting from it until something else invalidated
@@ -498,6 +512,7 @@ fn tool_keys(
             try_craft(inv, &mut player.cursor.0, &mut player.toast, reach);
         }
         if k.any_pressed(KEYS.use_item)
+            && !player.card.as_ref().is_some_and(|c| c.open)
             && let Some(body) = &mut player.body
         {
             try_use(inv, body, &mut player.toast);

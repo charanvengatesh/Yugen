@@ -39,6 +39,7 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
+use godgame_core::input::KEYS;
 use godgame_core::sim::coords::WorldCell;
 use godgame_core::sim::edits::EditMode;
 use godgame_core::sim::materials::{CellId, code_of};
@@ -84,13 +85,24 @@ struct Scenario {
     /// The brush has its own tests. This one is about stations, so it writes
     /// the cell and moves on.
     place_block: Option<(&'static str, i32, i32)>,
-    /// Presses of the craft key, once the scene is arranged.
+    /// Put the crafting card's cursor on the row that makes this item, once the
+    /// card is open.
+    ///
+    /// Standing in for the player scrolling to it. The cursor's own movement and
+    /// scrolling have unit tests in `craftscreen`; what this test is about is
+    /// the station rule and the key path, and forty `down` taps would be forty
+    /// chances to test the wrong thing.
+    select: Option<&'static str>,
+    /// Keys to tap once the scene is arranged, in order, one per binding.
     ///
     /// Through `ButtonInput<KeyCode>` rather than by calling `try_craft`, for
     /// the reason `--script` presses the real button: a test that reached past
-    /// the binding could pass while the binding, the mode branch and the toast
-    /// were all broken.
-    craft_presses: u32,
+    /// the binding could pass while the binding, the mode branch and the card
+    /// that now owns the key were all broken. Crafting is two keys now — `C`
+    /// opens the card, confirm makes the selected row — and a test that knew
+    /// only about the first would have gone green on the day the second
+    /// stopped working.
+    taps: Vec<&'static [&'static str]>,
 }
 
 /// What a run leaves behind: the two cell planes around the sample centre, and
@@ -206,7 +218,7 @@ fn run(scenario: &Scenario) -> Option<Observed> {
     // and no edge ever arrives. The binary's `--script` driver presses in this
     // same slot for the same reason; anywhere earlier is a keypress the game
     // cannot see.
-    if scenario.craft_presses > 0 {
+    if !scenario.taps.is_empty() {
         app.add_systems(
             RunFixedMainLoop,
             press_craft
@@ -221,7 +233,7 @@ fn run(scenario: &Scenario) -> Option<Observed> {
                 // block below was written — so the craft happened in a world
                 // with no workbench in it and the test measured the wrong
                 // frame. Twice.
-                .run_if(resource_exists::<PressCraft>),
+                .run_if(resource_exists::<Tapping>),
         );
     }
     for _ in 0..ARRANGE_FRAMES {
@@ -253,10 +265,22 @@ fn run(scenario: &Scenario) -> Option<Observed> {
 
     // Everything the scenario asked for is now in the world, so the key may
     // fire.
-    if scenario.craft_presses > 0 {
-        app.insert_resource(PressCraft(scenario.craft_presses));
+    if let Some(id) = scenario.select {
+        app.insert_resource(SelectRow(id));
+        app.add_systems(
+            Update,
+            select_row
+                .run_if(resource_exists::<SelectRow>)
+                // Before the tap that confirms, and after the one that opened
+                // the card — which is what `Tapping` still holding an entry
+                // means.
+                .before(press_craft),
+        );
     }
-    for _ in 0..scenario.craft_presses * 2 + scenario.settle {
+    if !scenario.taps.is_empty() {
+        app.insert_resource(Tapping(scenario.taps.clone()));
+    }
+    for _ in 0..scenario.taps.len() as u32 * 2 + 2 + scenario.settle {
         app.update();
     }
 
@@ -336,25 +360,60 @@ fn run(scenario: &Scenario) -> Option<Observed> {
     })
 }
 
-/// Craft-key presses still owed.
+/// The item whose recipe row the cursor should sit on.
 #[derive(Resource)]
-struct PressCraft(u32);
+struct SelectRow(&'static str);
 
-/// Tap the real craft key once per frame while any are owed.
-///
-/// Down for one frame and up the next, which is what a keypress is: held for
-/// two would raise one edge and then look like a key nobody let go of.
-fn press_craft(mut owed: ResMut<PressCraft>, mut keys: ResMut<ButtonInput<KeyCode>>) {
-    let code = godgame_render::input::key_code(godgame_core::input::KEYS.craft[0])
-        .expect("the craft binding names a real key");
-    if keys.pressed(code) {
-        keys.release(code);
+/// Move the crafting cursor to that row, once the card is open.
+fn select_row(
+    mut commands: Commands,
+    want: Res<SelectRow>,
+    mut view: ResMut<godgame_render::craftscreen::CraftingView>,
+) {
+    if !view.open || view.rows.is_empty() {
         return;
     }
-    if owed.0 > 0 {
-        owed.0 -= 1;
-        keys.press(code);
+    let at = view
+        .rows
+        .iter()
+        .position(|r| r.out == godgame_core::items::item_by_id(want.0).expect("item").name)
+        .expect("no recipe makes that");
+    view.cursor = at;
+    commands.remove_resource::<SelectRow>();
+}
+
+/// Key taps still owed, in order.
+#[derive(Resource)]
+struct Tapping(Vec<&'static [&'static str]>);
+
+/// Tap one binding per two frames: down, then up.
+///
+/// Down for one frame and up the next, which is what a keypress is. Held for
+/// two it would raise one edge and then look like a key nobody let go of — and
+/// the crafting card toggles on that edge, so a held key would open and close
+/// it on alternate frames.
+fn press_craft(mut owed: ResMut<Tapping>, mut keys: ResMut<ButtonInput<KeyCode>>) {
+    // Anything still down goes up first, so two taps are two edges.
+    let mut released = false;
+    for binding in &owed.0 {
+        if let Some(code) = binding
+            .first()
+            .and_then(|n| godgame_render::input::key_code(n))
+            && keys.pressed(code)
+        {
+            keys.release(code);
+            released = true;
+        }
     }
+    if released {
+        return;
+    }
+    if owed.0.is_empty() {
+        return;
+    }
+    let binding = owed.0.remove(0);
+    let code = godgame_render::input::key_code(binding[0]).expect("a real key");
+    keys.press(code);
 }
 
 /// Run, or say why not and hand back `None`.
@@ -589,7 +648,9 @@ fn an_anvil_needs_a_workbench_and_says_so_when_there_is_none() {
 
     let without = Scenario {
         give: parts(),
-        craft_presses: 1,
+        // What a player does: `C` opens the card, confirm makes the row.
+        taps: vec![KEYS.craft, KEYS.confirm],
+        select: Some("anvil"),
         settle: 30,
         ..Scenario::default()
     };
@@ -599,7 +660,8 @@ fn an_anvil_needs_a_workbench_and_says_so_when_there_is_none() {
 
     let with = Scenario {
         give: parts(),
-        craft_presses: 1,
+        taps: vec![KEYS.craft, KEYS.confirm],
+        select: Some("anvil"),
         settle: 30,
         place_block: Some(("workbench", 2, 0)),
         ..Scenario::default()
