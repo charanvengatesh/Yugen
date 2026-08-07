@@ -4,14 +4,27 @@
 #
 # ---- THE GRAIN --------------------------------------------------------------
 # One art pixel is one world cell everywhere else in this game, and an icon has
-# no world to be measured against — but it is drawn NEXT TO the hotbar swatches
-# and, for a placeable, next to the block it puts down. So the icons are
-# authored at the same coarseness on purpose: 2x2 for anything whose identity is
-# a colour and a rough mass (ore, bar, gel, flask), 3x3 only where a SHAPE is
-# the identity (a pickaxe is a head and a handle; a ladder is rails and rungs;
-# an arrow is a head, a shaft and fletching). Nothing needs more than nine
-# pixels, and everything that tried to use more stopped reading as part of the
-# same game.
+# no world to be measured against — its only physical constraint is the 26px
+# hotbar well and `icon_scale`'s integer-only magnification. Everything here is
+# 8x8, which renders at 3x = 24px in the well: the same on-screen size the old
+# 3x3 icons had at 8x, so the resize cost nothing in the HUD and bought 64
+# pixels of art per icon.
+#
+# This file used to argue that "nothing needs more than nine pixels, and
+# everything that tried to use more stopped reading as part of the same game."
+# That was true, and then the game it had to read as part of changed: the
+# player grew from six art pixels to twenty, and a nine-pixel icon next to a
+# twenty-pixel character became the coarse thing in the frame. The coarseness
+# an icon must match is the game's, not the cell grid's, and it moved. 13x13
+# (2x = 26px, filling the well exactly) is the ceiling if it ever moves again.
+#
+# What survived the resize, because it was never about resolution: every
+# subject carries a 1px ink outline (#16121e, index 1 in every record) so the
+# silhouette reads on any background; everything is lit from the upper-left
+# like every lit edge in this game; and SPARKLE IS VALUE — a plus-shaped glint
+# on the precious, a single bright pixel on metals, nothing on organics.
+# Emissives carry a dim halo colour placed OUTSIDE the outline, two cells and
+# no more; a halo that fills the well stops being a halo.
 #
 # ---- WHY ONE `icon_block_cube` FOR TWO DOZEN ITEMS --------------------------
 # Roughly twenty-four items are `category placeable` and differ from each other
@@ -27,7 +40,7 @@
 # Repeated deliberately, so a glance at a slot says what KIND of thing is in it
 # before it says which one:
 #
-#   diagonal metal + rock checker   ore, unsmelted
+#   rock lump, embedded glints      ore, unsmelted
 #   trapezoid, lit top              a bar
 #   flask (narrow neck, wide body)  anything with a `use.effect`
 #   bowl (mass over a rim)          anything that only heals
@@ -39,658 +52,1211 @@
 # =============================================================================
 # The shared placeable cube
 # =============================================================================
-# Lit from the upper left, which is where every other lit edge in this game
-# comes from (see `edge` in content/blocks/*.block).
+# Still the only icon the game draws two dozen times, and still NEUTRAL grey so
+# a multiplicative tint by the item's own `color` lands where it should. At 8x8
+# it stops being a three-tone lump and becomes an actual box: a lit top face, a
+# mid left face, a dark right face, and a 1px ink outline that keeps the
+# silhouette after the tint has pushed every grey toward one hue. Lit from the
+# upper left, which is where every other lit edge in this game comes from (see
+# `edge` in content/blocks/*.block); the single bright pixel at the top-left
+# corner of the top face is the one that survives the darkest tint.
 [icon_block_cube]
-cellsW = 2
-cellsH = 2
-pal = [".", "#55555c", "#9a9aa4", "#c8c8d2"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5c5c66", "#8a8a95", "#b4b4c0", "#dcdce6"]
 [[icon_block_cube.seq]]
 frames = '''
-33
-21
+..1111..
+.154441.
+15444441
+13332221
+13332221
+13332221
+13332221
+.111111.
 '''
+
 
 # =============================================================================
 # Tools — the progression ladder, and the icons the player stares at longest
 # =============================================================================
 # One shape, five metals. The pickaxe is the only item in the game whose tiers
 # are a ladder the player is consciously climbing, so the tiers differ ONLY in
-# the metal tones and the silhouette is identical across all five: what you are
+# the palette and the five `frames` blocks are byte-identical: what you are
 # meant to read off the slot is "which metal", not "which shape".
 #
-#   row 0   the head — shade, lit crown, shade
-#   row 1   the haft, under the head
-#   row 2   the haft again, stepped right, so the handle reads as raked back
+# At 8x8 the shape is finally worth drawing. Every tier is:
+#
+#   rows 0-2   the head — a wide arc, crown lit, prongs falling away either side
+#   row  3     the prong tips, and the binding where the head meets the haft
+#   rows 4-7   the haft, stepped one cell right at row 6 so it reads as raked
+#
+# Index 8 is the glint, and it is the ONE knob the tier ladder is allowed to
+# turn other than the metal itself. On the mundane three it is just a lighter
+# step of the same metal and barely reads; on gold and gem it is nearly white
+# and catches the eye across a full hotbar. Sparkle is value, so it is spent
+# where value is — but it is spent in the PALETTE, not the drawing, because the
+# drawing is not permitted to move between tiers.
 
 [icon_pick_traveler]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6b4a2c", "#6e6458", "#a89a86"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#553a22", "#8a6238", "#4e463c", "#6e6458", "#a89a86", "#3e2c1a", "#c4b8a4"]
 [[icon_pick_traveler.seq]]
 frames = '''
-232
-.1.
-..1
+..1111..
+.186551.
+16554441
+15177141
+.113211.
+..1321..
+...1321.
+...1111.
 '''
+
 
 [icon_pick_copper]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6b4a2c", "#a35f36", "#e08a52"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#553a22", "#8a6238", "#7a4324", "#a35f36", "#e08a52", "#3e2c1a", "#ffc48a"]
 [[icon_pick_copper.seq]]
 frames = '''
-232
-.1.
-..1
+..1111..
+.186551.
+16554441
+15177141
+.113211.
+..1321..
+...1321.
+...1111.
 '''
+
 
 [icon_pick_iron]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6b4a2c", "#7e7a78", "#c8c4c0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#553a22", "#8a6238", "#5c5856", "#7e7a78", "#c8c4c0", "#3e2c1a", "#eceaea"]
 [[icon_pick_iron.seq]]
 frames = '''
-232
-.1.
-..1
+..1111..
+.186551.
+16554441
+15177141
+.113211.
+..1321..
+...1321.
+...1111.
 '''
+
 
 [icon_pick_gold]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6b4a2c", "#b08a2e", "#f0d878"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#553a22", "#8a6238", "#7e5f18", "#b08a2e", "#f0d878", "#3e2c1a", "#fff6c0"]
 [[icon_pick_gold.seq]]
 frames = '''
-232
-.1.
-..1
+..1111..
+.186551.
+16554441
+15177141
+.113211.
+..1321..
+...1321.
+...1111.
 '''
 
+
 # The gem pick breaks the palette rule the other four keep — a dark violet haft
-# instead of wood — because it is the end of the ladder and the only one that is
-# not a stick with a rock on it.
+# and a near-white violet glint instead of wood and a dull spark — because it is
+# the end of the ladder and the only one that is not a stick with a rock on it.
+# The silhouette is still identical to the other four, to the character.
 [icon_pick_gem]
-cellsW = 3
-cellsH = 3
-pal = [".", "#4a2c3a", "#8e2f5e", "#e878b4"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#38202c", "#5c3a4a", "#6e2048", "#8e2f5e", "#e878b4", "#2a1620", "#ffd8f0"]
 [[icon_pick_gem.seq]]
 frames = '''
-232
-.1.
-..1
+..1111..
+.186551.
+16554441
+15177141
+.113211.
+..1321..
+...1321.
+...1111.
 '''
+
 
 # =============================================================================
 # Weapons
 # =============================================================================
-# Blade on the rising diagonal, hilt in the bottom-left corner. Three pixels of
-# blade is enough to say "sword" as long as the guard breaks the line.
+# Blade on the rising diagonal, hilt in the bottom-left corner. At 8x8 the
+# diagonal is five cells long and two cells thick, so the blade can carry a lit
+# upper-left edge and a shadowed lower-right one, and the guard can be genuinely
+# wider than the blade instead of merely implied. One white pixel at the tip:
+# the reference gives plain metal a single bright pixel and nothing more.
 
 [icon_sword_traveler]
-cellsW = 3
-cellsH = 3
-pal = [".", "#5a4630", "#c2c6ce", "#8a8e96"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a2a1a", "#5a4630", "#8a8e96", "#c2c6ce", "#7d6a48", "#f2f6ff"]
 [[icon_sword_traveler.seq]]
 frames = '''
-..2
-.2.
-31.
+.....11.
+....1741
+...1541.
+..1541..
+.1541...
+166661..
+.1321...
+.1661...
 '''
 
-# The King's Sword gets a fourth colour for the gem in the guard and a brighter
-# tip than its own blade tone, so at three pixels it still reads as the relic
-# rather than as a yellow traveler sword.
+
+# The King's Sword keeps the traveler's silhouette exactly — same blade, same
+# guard, same grip — and spends every one of its extra palette slots on being
+# obviously precious: a gold blade, a pink gem set into the guard, and a
+# free-floating four-armed sparkle off the tip in the empty lower-right corner.
+# That sparkle is the file's loudest one, and it is loud on purpose: this is the
+# relic, and no other weapon is allowed to twinkle.
 [icon_sword_king]
-cellsW = 3
-cellsH = 3
-pal = [".", "#4a3a1e", "#f2dc94", "#fff6cc", "#e0508c"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a2c12", "#5c4820", "#c8a63e", "#f2dc94", "#9a7420", "#fff6cc", "#e0508c"]
 [[icon_sword_king.seq]]
 frames = '''
-..3
-.2.
-41.
+.....11.
+....1741
+...1541.
+..1541..
+.1541...
+1686617.
+.1321777
+.1661.7.
 '''
 
-# The bow is the one icon whose silhouette does all the work: columns 0 and 1
-# carry the limb as a `(` curve and column 2 is the string drawn straight, so
-# the two shapes cannot be confused with each other at three pixels wide.
+
+# The bow is still the one icon whose silhouette does all the work, and 8x8 is
+# where it finally gets to be a real recurve: the limb is a two-cell-thick `(`
+# bellying out to the left edge at the waist, and the string is a single pale
+# cell held dead straight down column 5 between the two tips. A curve and a
+# straight line, touching only at the ends — nothing else in the file can be
+# mistaken for it.
 [icon_bow]
-cellsW = 3
-cellsH = 3
-pal = [".", "#d8c898", "#8a5c2e"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6b4420", "#a5713a", "#d8c898"]
 [[icon_bow.seq]]
 frames = '''
-.21
-2.1
-.21
+...1321.
+..13241.
+.132.41.
+132..41.
+132..41.
+.132.41.
+..13241.
+...1321.
 '''
 
+
+# Two cords narrowing into a V, then the pouch: a leather cup with a stone
+# actually sitting in it. The cords converge instead of running parallel, which
+# is what keeps this from reading as a ladder at a glance, and the pouch tapers
+# to a two-cell point so the mass is unmistakably a bag and not a bowl.
 [icon_sling]
-cellsW = 3
-cellsH = 3
-pal = [".", "#b8a884", "#7c7a78"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#cdbb95", "#7a6c50", "#b8a884", "#9a9894"]
 [[icon_sling.seq]]
 frames = '''
-1.1
-.1.
-.2.
+121..121
+.121121.
+..1221..
+.144331.
+.145531.
+.143331.
+..1331..
+...11...
 '''
 
-# Ammunition reads as a rising diagonal with a heavy end and a light end —
-# fletching bottom-left, head top-right. The two tiers differ only in the head,
-# which is exactly the difference that matters.
+
+# Ammunition is still a rising diagonal with a heavy end and a light end —
+# fletching bottom-left, head top-right — but at 8x8 all three parts are drawn
+# rather than abbreviated: a two-cell barbed head, a three-cell shaft with a lit
+# left edge, and fletching that flares wider than the shaft it is bound to. The
+# two tiers still differ only in the head, which is exactly the difference that
+# matters, and the head is the top-right corner where the eye lands first.
 [icon_arrow]
-cellsW = 3
-cellsH = 3
-pal = [".", "#d8cfae", "#a0783f", "#6e6c74"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#7a5a2e", "#a0783f", "#9a98a2", "#6e6c74", "#b8b096", "#d8cfae"]
 [[icon_arrow.seq]]
 frames = '''
-..3
-.2.
-1..
+......41
+.....451
+....1451
+...1321.
+..1321..
+.1321...
+17661...
+.1661...
 '''
+
 
 [icon_arrow_iron]
-cellsW = 3
-cellsH = 3
-pal = [".", "#d8cfae", "#a0783f", "#c8ccd4"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#7a5a2e", "#a0783f", "#dfe3eb", "#9aa0a8", "#b8b096", "#d8cfae"]
 [[icon_arrow_iron.seq]]
 frames = '''
-..3
-.2.
-1..
+......41
+.....451
+....1451
+...1321.
+..1321..
+.1321...
+17661...
+.1661...
 '''
-
 # =============================================================================
-# Ore, bars and stones
-# =============================================================================
-# ORE is the checker: two rock pixels and two metal pixels on the diagonal, so
-# a vein reads as metal IN something rather than as a lump of metal. That is the
-# same idea `texture speckle` carries on the ore blocks themselves.
+# ORE was a two-pixel checker when a checker was all four pixels could say. At
+# 8x8 it can be the real thing: a rock LUMP in three greys with the metal
+# actually embedded in it — two clusters, upper-right and centre-left, never a
+# seam that runs edge to edge. The point is unchanged and now literal: metal IN
+# something, not a lump of metal. The three ores share one matrix and one
+# silhouette so the only thing that differs between slots is the metal.
 
 [icon_ore_copper]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e6a64", "#a35f36", "#e08a52"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#7a4526", "#c2703f", "#f09a5e"]
 [[icon_ore_copper.seq]]
 frames = '''
-13
-21
+...111..
+..14431.
+.1443761
+14433651
+14763221
+13365221
+.132221.
+..1111..
 '''
 
+
+# Same rock, same lump, cooler and brighter metal. Iron's glints are pushed a
+# half-step blue so they separate from the grey matrix they sit in — at copper's
+# warmth that separation is free, at iron's it has to be bought.
 [icon_ore_iron]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e6a64", "#8e8a86", "#cfcbc6"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#6e7682", "#aab2be", "#eaf0f6"]
 [[icon_ore_iron.seq]]
 frames = '''
-13
-21
+...111..
+..14431.
+.1443761
+14433651
+14763221
+13365221
+.132221.
+..1111..
 '''
 
+
+# The only ore that sparkles. A five-cell plus sits over the upper-right vein —
+# near-white core, gold arms — because gold is the one ore whose value the
+# player is meant to read off the slot before the name. Sparkle is value; the
+# other two get none.
 [icon_ore_gold]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e6a64", "#b08a2e", "#f0d878"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#8a6a20", "#c8a038", "#f0d878", "#fff6c0"]
 [[icon_ore_gold.seq]]
 frames = '''
-13
-21
+...111..
+..14431.
+.1443761
+14437871
+14763721
+13365221
+.132221.
+..1111..
 '''
 
-# Coal is not a vein, it is a lump, so it gets the solid three-pixel mass
-# instead of the checker — the shape difference is what stops a dark ore icon
-# and a coal icon being the same picture.
+
+# Coal is still not a vein. It keeps the solid mass and gets a squarer, blockier
+# silhouette than the three ores — flat facets, no embedded anything — plus a
+# wet anthracite sheen running down the upper-left arris. The sheen is what
+# stops the darkest icon in the set reading as a hole in the hotbar.
 [icon_coal]
-cellsW = 2
-cellsH = 2
-pal = [".", "#1e1c20", "#3a3640", "#5a5464"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#26232c", "#3d3848", "#565064", "#7a7290"]
 [[icon_coal.seq]]
 frames = '''
-23
-12
+..11111.
+.1454321
+14543321
+14433221
+13332221
+13222221
+.1222221
+.111111.
 '''
 
-# BARS are a trapezoid: a lit top face narrower than the body. Three pixels, but
-# the missing top-left corner is the whole read.
+
+# BARS are still the trapezoid, and the missing top-left corner is still the
+# whole read — but eight pixels of width buy the two things the ingot was
+# missing: a lit top FACE with a break line under it, and a stamped 2x2 die mark
+# on the front. Copper and iron get the metal's single bright pixel at the top
+# left of the face, and nothing else.
+
 [icon_bar_copper]
-cellsW = 2
-cellsH = 2
-pal = [".", "#a35f36", "#e08a52"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6b3c1f", "#a35f36", "#c2703f", "#e08a52", "#f7b478"]
 [[icon_bar_copper.seq]]
 frames = '''
-.2
-11
+........
+.111111.
+.165551.
+14444441
+14322331
+13322331
+13222221
+11111111
 '''
+
 
 [icon_bar_iron]
-cellsW = 2
-cellsH = 2
-pal = [".", "#8e8a86", "#cfcbc6"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4e535c", "#7c828c", "#a6acb6", "#ced4de", "#f0f4fa"]
 [[icon_bar_iron.seq]]
 frames = '''
-.2
-11
+........
+.111111.
+.165551.
+14444441
+14322331
+13322331
+13222221
+11111111
 '''
 
+
+# Gold trades the stamp for the sparkle: the same plus the gold ore carries,
+# core in the pickaxe's near-white, sitting on the shoulder where the light
+# lands. A gold bar that read like an iron bar in a warmer hue was the old
+# problem; now the two differ in what they DO, not only in tone.
 [icon_bar_gold]
-cellsW = 2
-cellsH = 2
-pal = [".", "#b08a2e", "#f0d878"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e5218", "#b08a2e", "#d0a838", "#f0d878", "#ffeaa0", "#fff6c0"]
 [[icon_bar_gold.seq]]
 frames = '''
-.2
-11
+........
+.111111.
+.155551.
+14644441
+16764331
+13633221
+13222221
+11111111
 '''
 
-# Cut stones are small on purpose: three pixels with the bright facet up and to
-# the right, against the bar's three pixels with the light face flat on top.
+
+# The gem is the one icon in this section that gets the full treatment, because
+# it is the only one that is nothing BUT its cut: a table across the crown, a
+# girdle at the widest row, four facet values stepping down the pavilion to a
+# one-pixel point. The plus-glint sits on the crown's upper-left where the light
+# comes from, not in the middle, because a centred glint reads as a hole.
 [icon_gem]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e1e46", "#b8407e", "#f0a0d0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#52123a", "#6e1e46", "#b8407e", "#e878b4", "#f0a0d0", "#ffe6f6"]
 [[icon_gem.seq]]
 frames = '''
-.3
-12
+..1111..
+.165441.
+16764331
+.164331.
+..1431..
+..1321..
+...121..
+...11...
 '''
 
+
+# The shard leans. That is the whole difference from the gem and it is enough:
+# the gem is symmetric about a vertical axis and comes to a point at the bottom,
+# the shard is a raked spike with its tip in the top-right corner and a broad
+# broken base. It sparkles because crystal is precious; it sparkles once.
 [icon_crystal_shard]
-cellsW = 2
-cellsH = 2
-pal = [".", "#4a3a7a", "#8e6ce0", "#cfb4ff"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#322558", "#4a3a7a", "#6e52b0", "#8e6ce0", "#cfb4ff", "#f4ecff"]
 [[icon_crystal_shard.seq]]
 frames = '''
-.3
-21
+.....11.
+....151.
+...1651.
+..16761.
+..13641.
+.134431.
+.133221.
+.111111.
 '''
 
+
+# Flint is the control case for the whole set: a knapped wedge with one pale
+# arris along the top-left fracture and NO sparkle at all. It is the thing you
+# pick up by the hundred. Five palette entries, all grey, and the silhouette —
+# blunt heel, chipped point — does every bit of the work.
 [icon_flint]
-cellsW = 2
-cellsH = 2
-pal = [".", "#3e3c42", "#6e6c74", "#a8a6b0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#2e2c34", "#4e4c56", "#7a7884", "#b0aeba"]
 [[icon_flint.seq]]
 frames = '''
-.2
-31
+..1111..
+.154431.
+15444331
+14443321
+14433221
+1433221.
+.13221..
+..111...
 '''
+
 
 # =============================================================================
 # Consumables
 # =============================================================================
-# FLASK = narrow neck over a wide body, and it is reserved for the three
-# DRAUGHTS — the items whose whole reason to exist is a `use.effect` and which
-# heal nothing at all, or nearly nothing. Food that carries an effect as a rider
-# (spore cake) stays food-shaped, because what the player needs off the slot is
-# "can I eat this", and the tooltip is right there for the rest.
+# FLASK is still narrow neck over wide body, still reserved for the three
+# DRAUGHTS, and at 8x8 it is finally a flask rather than a suggestion of one:
+# cork, neck, shoulder, and a liquid LINE with glass headspace above it. All
+# three share that skeleton exactly and differ in three places only — the
+# liquid's colour, where its surface sits, and what is rising through the glass.
+# Food that carries an effect as a rider (spore cake) still stays food-shaped,
+# because what the player needs off the slot is "can I eat this".
 
+# Fire: the surface is flat and high, and a single hot mote climbs the headspace.
 [icon_flask_fire]
-cellsW = 2
-cellsH = 2
-pal = [".", "#e8763a", "#ffc06a"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#43384a", "#877a90", "#a83a14", "#e8763a", "#ffc06a", "#ffe8b0", "#7a5230"]
 [[icon_flask_fire.seq]]
 frames = '''
-.2
-11
+..1111..
+.188881.
+..1321..
+.132221.
+13227221
+16665551
+15444441
+11111111
 '''
-
+# Light is the draught that is itself an emissive, so it is the one flask that
+# follows the halo rule: two dim cells OUTSIDE the ink at the shoulder, never
+# more, and a bubble of the liquid's own bright rising through the glass. The
+# glow is the identity — a lantern you drink — and the halo is what says so
+# before the colour does.
 [icon_flask_light]
-cellsW = 2
-cellsH = 2
-pal = [".", "#b48ad8", "#f0d8ff"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4a3f5c", "#8f82a8", "#7a52a8", "#b48ad8", "#f0d8ff", "#fcf2ff", "#7a5230", "#3a2a52"]
 [[icon_flask_light.seq]]
 frames = '''
-.2
-11
+..1111..
+.188881.
+..1321..
+91322219
+13227221
+16665551
+15444441
+11111111
 '''
 
+
+# Haste has no bubble and no halo. Its liquid surface is TILTED — high on the
+# right, low on the left — as if the flask had just been swung, and one bright
+# mote streaks off the leading edge. A tick drawn outside the outline would have
+# read as a glow, which is the light flask's word, not this one's.
 [icon_flask_haste]
-cellsW = 2
-cellsH = 2
-pal = [".", "#8a72b8", "#cfc0f0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3f3a52", "#7e7898", "#5e4a92", "#8a72b8", "#cfc0f0", "#efe6ff", "#7a5230"]
 [[icon_flask_haste.seq]]
 frames = '''
-.2
-11
+..1111..
+.188881.
+..1321..
+.132221.
+13276661
+16655551
+15544441
+11111111
 '''
 
-# Cloth wound over itself — the checker again, but in two tones of the same
-# colour rather than two different materials, which is what stops it reading as
-# an ore.
+
+# Still cloth wound over itself, but the wound seam is now a real dark diagonal
+# crossing a real roll, and the loose end unrolls off the bottom-right. Two
+# tones of one colour, as before — that is what stops it reading as an ore, and
+# it matters more now that the ores are lumps rather than checkers.
 [icon_bandage]
-cellsW = 2
-cellsH = 2
-pal = [".", "#d8d2c0", "#a89878"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#8a7a5c", "#a89878", "#d8d2c0", "#efe9dc"]
 [[icon_bandage.seq]]
 frames = '''
-21
-12
+..1111..
+.154421.
+15442331
+14423331
+.142331.
+..11431.
+...14331
+...11111
 '''
 
+
+# BOWL is mass over a rim, and at 8x8 the rim is an actual lit band across the
+# widest row with the vessel tapering under it. The stew mounds ABOVE that band
+# — heaped, not level — with one bright chunk in it, because a level bowl reads
+# as an empty bowl.
 [icon_stew]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6a5240", "#b06a3c"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4a3a2c", "#6a5240", "#8a6a50", "#8a4e2a", "#b06a3c", "#d8935c", "#e8b878"]
 [[icon_stew.seq]]
 frames = '''
-22
-11
+...11...
+..1771..
+.176651.
+17686551
+14444431
+14333321
+.133221.
+..1111..
 '''
 
+
+# A drumstick: seared meat massed in the upper right, bone poking out of the
+# lower left and ending in a knob. The bone is the only part drawn in a colour
+# that is not the meat's, which is what tells the eye where the handle is at a
+# glance — and it is the same bone-white the bone drop uses, deliberately.
 [icon_roast]
-cellsW = 2
-cellsH = 2
-pal = [".", "#7a4a2a", "#c88a52"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5c3620", "#9a5e34", "#c88a52", "#e6a86c", "#e4dcc4", "#b0a68c"]
 [[icon_roast.seq]]
 frames = '''
-22
-.1
+...1111.
+..154441
+.1544331
+.1443321
+.1433221
+.1672221
+1671111.
+1661....
 '''
 
+
+# Food-shaped, as promised: a slice standing on a flat base, frosting flowing
+# over the top edge into the crumb below, and a spore cap sitting on it. The cap
+# is the only thing that says which cake this is, so it gets the palette's
+# brightest entry and sits proud of the silhouette where nothing can hide it.
 [icon_cake]
-cellsW = 2
-cellsH = 2
-pal = [".", "#8a6aa8", "#d8b8f0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5e4478", "#8a6aa8", "#a888c0", "#d8b8f0", "#f2e2ff"]
 [[icon_cake.seq]]
 frames = '''
-22
-21
+...11...
+..1661..
+.111111.
+16555551
+15544441
+14433331
+13332221
+11111111
 '''
+
 
 # =============================================================================
 # Fixtures — light, traversal, storage
 # =============================================================================
-# The three traversal icons are the only 3x3s in this section, because all three
-# ARE their shape: a ladder is rails and rungs, a coil is a ring, a platform is
-# a plank on legs. The light sources are masses and read fine at four pixels.
+# The three emissives each get index 7: a dim warm cell sitting OUTSIDE the ink
+# outline, never inside it. That is the whole trick — the outline still closes
+# the silhouette, and the halo leaks past it, so a lit thing reads as lit
+# instead of merely reading as orange. Two halo cells each, no more; a halo that
+# fills the well stops being a halo.
 
+# Flame over a wrapped head over a haft: the head-over-shaft family, but the
+# head is fire. Three flame tones taper to a two-cell tip, the wrap is one cell
+# wider than the haft so the joint reads, and the halo sits at the flame's
+# shoulders where the light would actually spill.
 [icon_torch]
-cellsW = 2
-cellsH = 2
-pal = [".", "#7a5230", "#ffc25a"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5a3a20", "#7a5230", "#c85a1c", "#ff9a3a", "#ffd67e", "#a3521a"]
 [[icon_torch.seq]]
 frames = '''
-.2
-.1
+...11...
+..1661..
+7156517.
+.14541..
+.13321..
+..1321..
+..1321..
+..1111..
 '''
 
+
+# The lantern is a mass at 2x2 and a machine at 8x8: a carry bar, a cap narrower
+# than the body so the top reads as a lid, four rows of glass graded bright at
+# the upper-left corner and deep at the lower-right, and a flared base plate. It
+# is the only one of the three lights that is a manufactured object, so it is
+# the only one built out of straight horizontal courses.
 [icon_lantern]
-cellsW = 2
-cellsH = 2
-pal = [".", "#c8a03c", "#ffe8a0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e5418", "#c8a03c", "#e8a82e", "#ffdc88", "#fff8d8", "#8a6418"]
 [[icon_lantern.seq]]
 frames = '''
-11
-22
+.712217.
+.133221.
+12655521
+12654421
+12554421
+12544421
+13332221
+.111111.
 '''
 
+
+# Fire over two log ends. The logs are the read: two stubby round butts side by
+# side at the bottom, which no other icon in the file has, and which is what
+# stops a campfire and a torch being the same orange blob at a glance. Halo cells
+# sit level with the widest part of the flame, on the floor line, not above it.
 [icon_campfire]
-cellsW = 2
-cellsH = 2
-pal = [".", "#7a4a2a", "#ff9a3c"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4e3018", "#7a4a2a", "#c04a12", "#ff9a3c", "#ffd070", "#8f3f0e"]
 [[icon_campfire.seq]]
 frames = '''
-.2
-11
+...11...
+..1661..
+.156651.
+.145541.
+71455417
+.144441.
+13211321
+12211221
 '''
 
+
+# Rails and rungs, and now there is room for three rungs instead of one, which
+# is the count that makes a ladder look like a ladder. Each rail is two cells
+# wide — lit column then shadow column — and the gaps between the rungs are left
+# transparent so the dark well shows through and the ladder is genuinely
+# see-through, the way the placed block is.
 [icon_ladder]
-cellsW = 3
-cellsH = 3
-pal = [".", "#8a6234", "#c8a068"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#8a6234", "#c8a068"]
 [[icon_ladder.seq]]
 frames = '''
-1.1
-222
-1.1
+11....11
+132..321
+13233321
+132..321
+13233321
+132..321
+13233321
+11....11
 '''
 
+
+# A coil with a hole you can see through and a loose end hanging out the bottom.
+# The hole is the identity — it is the only closed ring in the file — and the
+# tail is what says rope rather than torus. Three tones run bright at the
+# upper-left of the ring and dark at the lower-right, so the coil reads as round.
 [icon_rope]
-cellsW = 3
-cellsH = 3
-pal = [".", "#a08858", "#d8c098"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#7d6640", "#a08858", "#d8c098"]
 [[icon_rope.seq]]
 frames = '''
-.2.
-1.1
-.2.
+..1111..
+.144331.
+143..321
+143..321
+133..221
+.133221.
+..1111..
+...1321.
 '''
 
+
+# A plank on legs, and at 8x8 the plank can be three courses thick — lit face,
+# body, shadowed underside — which is what makes it read as something you stand
+# ON. The legs are single cells inset from the plank's ends, so the overhang is
+# visible; that overhang is the difference between this and the workbench.
 [icon_platform]
-cellsW = 3
-cellsH = 3
-pal = [".", "#8a6234", "#c09050"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6a4a24", "#8a6234", "#c09050"]
 [[icon_platform.seq]]
 frames = '''
-222
-1.1
-...
+.111111.
+14444441
+13333331
+12222221
+.13..31.
+.13..31.
+.13..31.
+.11..11.
 '''
 
+
+# Lid, seam, body, and a brass strap running down the middle through a lock
+# plate. The strap is what carries the icon: it splits the lid and the body into
+# four quadrants so the horizontal seam is unmissable, and the single bright
+# brass cell at the lock is the only sparkle a mundane container is allowed —
+# one pixel, because a chest is worth something but is not a gem.
 [icon_chest]
-cellsW = 3
-cellsH = 3
-pal = [".", "#7a5228", "#a06e38", "#e8c85a"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4e3316", "#7a5228", "#a06e38", "#b8901f", "#e8c85a"]
 [[icon_chest.seq]]
 frames = '''
-222
-313
-111
+.111111.
+14455441
+13355331
+11156111
+13355331
+12255221
+12255221
+.111111.
 '''
 
 # =============================================================================
 # Relics
 # =============================================================================
-# The only two icons in the file with a pure white in the palette. That is the
-# point: nothing else the player can hold is allowed to be that bright, so the
-# Pearl is findable in a full inventory without reading a single label.
+# Still the only two icons in the file with a pure white in the palette, and now
+# the only two that spend it twice: nothing else the player can hold is allowed
+# to be that bright, so the Pearl is findable in a full inventory without
+# reading a single label. They also carry the most sparkle in the set — that is
+# the top of the value ladder the gold ore and the gem are climbing.
 
+# A sphere, and the light does all of it: a four-armed plus of pure white on the
+# upper-left specular where the light lands, and a smaller secondary reflection
+# low on the right where a real pearl bounces light back up through itself.
 [icon_pearl]
-cellsW = 2
-cellsH = 2
-pal = [".", "#c8c2d8", "#eae6f4", "#ffffff"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e6a84", "#9a94b0", "#c8c2d8", "#eae6f4", "#ffffff"]
 [[icon_pearl.seq]]
 frames = '''
-32
-21
+..1111..
+.165431.
+16664331
+15644321
+14443521
+14333221
+.133221.
+..1111..
 '''
 
+
+# The same nacre broken off. It keeps the pearl's palette exactly and loses the
+# sphere: an angular chip coming to a point, with one plus-glint instead of two
+# and no secondary. Smaller, sharper, dimmer — three ways of saying "a piece of".
 [icon_pearl_shard]
-cellsW = 2
-cellsH = 2
-pal = [".", "#c8c2d8", "#eae6f4", "#ffffff"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e6a84", "#9a94b0", "#c8c2d8", "#eae6f4", "#ffffff"]
 [[icon_pearl_shard.seq]]
 frames = '''
-.3
-12
+........
+...111..
+..15441.
+.156541.
+.145431.
+..1431..
+...121..
+...111..
 '''
+
 
 # =============================================================================
 # Creature drops and field materials
 # =============================================================================
+# Organics, and they are deliberately the least decorated records in the file:
+# no sparkle anywhere except the two cores, which glow because they are magic
+# rather than meat. Everything here is carried by silhouette — four legs, a
+# ridge, a scalloped edge, a bone knob — so a hotbar full of loot reads as
+# shapes before it reads as colours.
 
-# Two knobs on a raked shaft. It is the only icon in the file drawn as a
-# descending diagonal, which is what keeps it from reading as an arrow.
+# Two knobs on a raked shaft. It is still the only icon in the file drawn as a
+# DESCENDING diagonal, which is what keeps it from reading as an arrow, and the
+# knobs are now real lobes rather than two pixels claiming to be.
 [icon_bone]
-cellsW = 3
-cellsH = 3
-pal = [".", "#e4dcc4"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#b0a68c", "#e4dcc4", "#f6f0dc"]
 [[icon_bone.seq]]
 frames = '''
-11.
-.1.
-.11
+.111....
+14431...
+143331..
+.11331..
+...1331.
+...13321
+...13221
+....111.
 '''
 
+
+# A torn plate, not a lump: the top edge is bitten into two teeth and the sheet
+# tapers away to the lower right. One bright pixel on the freshest tear — the
+# metal's single glint, the same allowance the copper and iron bars get, and the
+# only thing in this section besides the cores that is allowed to catch light.
 [icon_scrap]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e7686", "#b0b8c8"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#454c5a", "#6e7686", "#b0b8c8", "#e2e8f2"]
 [[icon_scrap.seq]]
 frames = '''
-21
-12
+.11.11..
+1541441.
+14444331
+14333321
+.1332221
+..132221
+...12221
+....1111
 '''
 
+
+# The two cores are the only emissives in the section, and they follow the halo
+# rule the lanterns set: a dedicated dim colour OUTSIDE the ink outline, two
+# cells, never more. Ember is a molten ORB — round, banded, hottest at the
+# centre — and its halo is a dark warm at the shoulders.
 [icon_core_ember]
-cellsW = 2
-cellsH = 2
-pal = [".", "#8a3010", "#e86a20", "#ffc060"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5c1c08", "#8a3010", "#e86a20", "#ffc060", "#fff0c0", "#4a1c0c"]
 [[icon_core_ember.seq]]
 frames = '''
-23
-12
+..1111..
+71443317
+14554331
+14565431
+13455431
+13344321
+.133221.
+..1111..
 '''
 
+
+# Frozen is the same idea and the opposite shape: an octahedral crystal with
+# four flat faces and points top and bottom, against ember's round mass. Cold
+# halo, same two cells, same places. Told apart by silhouette in the dark, which
+# is the test — two glowing balls in different hues would not have passed it.
 [icon_core_frozen]
-cellsW = 2
-cellsH = 2
-pal = [".", "#3a6a90", "#6ab0e0", "#d8f4ff"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#1e4058", "#3a6a90", "#6ab0e0", "#a8dcf6", "#eafaff", "#142c44"]
 [[icon_core_frozen.seq]]
 frames = '''
-23
-12
+...11...
+..1441..
+71455417
+14566541
+13455431
+.134431.
+..1321..
+...11...
 '''
 
+
+# Slime: a blob that peaks into a drip at the top and pools flat on a hard base
+# line. The single soft highlight on the upper-left shoulder is the only thing
+# that says the surface is wet, and it is a spot, not an edge — an edge would
+# have read as a rim and put it in the bowl family.
 [icon_gel]
-cellsW = 2
-cellsH = 2
-pal = [".", "#4e9a62", "#8ee0a0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#2e6640", "#4e9a62", "#8ee0a0", "#c8f6d4"]
 [[icon_gel.seq]]
 frames = '''
-.2
-11
+...11...
+..1441..
+.155441.
+14544331
+14433321
+14333221
+13322221
+11111111
 '''
 
+
+# A carapace plate: hard shoulders, and a lit ridge running the full height down
+# the centre. The ridge is the identity — it is what the chitin armour icon
+# repeats, and what stops a brown curved mass being mistaken for hide.
 [icon_chitin]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e5a3c", "#a8895c"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4a3c26", "#6e5a3c", "#a8895c", "#d0ae78"]
 [[icon_chitin.seq]]
 frames = '''
-22
-11
+..1111..
+.155441.
+15554331
+14454321
+14353221
+13353221
+.135321.
+..1111..
 '''
 
+
+# A pelt stretched flat, with four legs. Nothing else in the file has limbs, so
+# the silhouette alone carries it at any distance — and it is soft-edged
+# throughout, against the chitin plate's hard shoulder and ridge, which is
+# exactly the contrast the two armour icons need to inherit.
 [icon_hide]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6e523a", "#a07a52"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4a3626", "#6e523a", "#a07a52", "#c49a6c"]
 [[icon_hide.seq]]
 frames = '''
-22
-1.
+.1....1.
+151..151
+15444451
+15444331
+14433321
+14332221
+131..121
+.1....1.
 '''
 
+
+# Membrane on ribs, rooted in the top-left corner and sweeping down and right,
+# with a scalloped trailing edge and a notch cut out of it. The ribs are drawn
+# in the darkest tone rather than the lightest so they read as struts UNDER a
+# translucent skin rather than as veins painted on top of it.
 [icon_wing]
-cellsW = 2
-cellsH = 2
-pal = [".", "#5a4a5e", "#9a86a2"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a2e3e", "#5a4a5e", "#9a86a2", "#c2b0c8"]
 [[icon_wing.seq]]
 frames = '''
-2.
-12
+1111....
+154411..
+1542431.
+14423331
+14323231
+.1323231
+..123231
+..11.11.
 '''
 
+
+# A heap with three motes drifting off it. The motes are the read — a heap on
+# its own is sand — and each one carries a single ink pixel on its lower right
+# so that even at one pixel of subject the outline rule holds and the mote does
+# not dissolve into the well.
 [icon_dust]
-cellsW = 2
-cellsH = 2
-pal = [".", "#b8a878", "#f0e2b0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#8a7a4e", "#b8a878", "#f0e2b0"]
 [[icon_dust.seq]]
 frames = '''
-2.
-.1
+...41...
+.41.....
+.....41.
+...11...
+..1431..
+.144331.
+14333221
+11111111
 '''
 
+
+# A sac hangs, so this one is drawn hanging: narrow at the attachment, heavy and
+# round at the bottom. Two pale eggs sit suspended inside the membrane rather
+# than on it, which is the only way a bag of something reads differently from a
+# bag of nothing at this size.
 [icon_sac]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6a4a86", "#b088d0"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#45285e", "#6a4a86", "#b088d0", "#e8d4ff"]
 [[icon_sac.seq]]
 frames = '''
-.2
-11
+...11...
+..1431..
+.144331.
+14453331
+14353521
+13332521
+.133221.
+..1111..
 '''
 
+
+# Raw, and it has to look raw next to the roast, which is cooked and has a bone.
+# So: no bone, a wetter and pinker range, and a pale seam of fat wandering down
+# through the cut. The fat is the tell — cooked meat in this file is sear tones
+# all the way through.
 [icon_meat]
-cellsW = 2
-cellsH = 2
-pal = [".", "#a86868", "#d89a94"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e3a3e", "#a86868", "#d89a94", "#eec4bc", "#f2ddc8"]
 [[icon_meat.seq]]
 frames = '''
-22
-11
+..11111.
+.1554431
+15464331
+14463321
+14336321
+13332221
+.132221.
+..1111..
 '''
 
+
+# Two leaves on a stem in a mound of soil. The left leaf is lit and the right
+# one is shaded, which is the only reason a symmetric sprout does not look
+# stamped out — and the mound is there because a sapling with no soil under it
+# reads as a herb, which is a different item the player will one day have.
 [icon_sapling]
-cellsW = 2
-cellsH = 2
-pal = [".", "#6a4a2c", "#7ac04e"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a2a18", "#6a4a2c", "#4e8a34", "#7ac04e", "#a8e070", "#8a6a44"]
 [[icon_sapling.seq]]
 frames = '''
-.2
-1.
+.11..11.
+16511541
+.1513141
+..11311.
+...131..
+..17731.
+.1733221
+.111111.
 '''
 
-# The three crafting stations. Three cells each, like every other placeable
-# fixture's icon, and each one built to be told apart at 3x3 rather than to be
-# pretty: a bench is a flat top on two legs, a furnace is an arch with a fire in
-# it, an anvil is a horn and a waist.
+
+# The three crafting stations. Eight cells each now, and each one still built to
+# be told apart at a glance rather than to be pretty — but at this size the
+# distinguishing feature can be structural instead of merely tonal: the bench
+# overhangs, the furnace has a chimney, the anvil has a waist.
+
+# A flat top on legs, with the top slab a full cell wider than everything below
+# it. That overhang is the whole read — it is the one silhouette in this section
+# that gets narrower as it goes down and then widens again for the shelf, and
+# the shelf between the legs is what stops it reading as a platform on stilts.
 [icon_workbench]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6a4a26", "#9a703e", "#c49a5c"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6a4a26", "#9a703e", "#c49a5c"]
 [[icon_workbench.seq]]
 frames = '''
-333
-121
-1.1
+.111111.
+14444441
+13333331
+.122221.
+.131131.
+.131131.
+.133331.
+.121121.
 '''
 
+
+# An arch with a fire in it, and now a chimney on top — two cells wide, sitting
+# proud of the body — because the chimney is the fastest way to say furnace
+# before the eye has resolved the fire. The mouth is a four-cell arch inked
+# across the top and graded from deep orange at the hearth to bright at the
+# throat. Halo cells sit at the two bottom corners, on the floor, where a
+# furnace's light actually pools.
 [icon_furnace]
-cellsW = 3
-cellsH = 3
-pal = [".", "#5a5856", "#7a7674", "#e8903a"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3e3c3a", "#5a5856", "#7a7674", "#c8601c", "#ffb04a", "#7e3a10"]
 [[icon_furnace.seq]]
 frames = '''
-222
-232
-111
+..1441..
+..1331..
+14444441
+13111131
+13566531
+13566531
+13555531
+72222227
 '''
 
+
+# Horn and waist, drawn properly for the first time: the face widens by a cell
+# below its lit crown so the horn and heel overhang, then the body pinches to
+# two cells at the waist, then the base flares back out. Widest-narrowest-widest
+# down the vertical is a profile nothing else in the file has, and it is heavy
+# at both ends, which is what an anvil is. One bright cell on the face — plain
+# iron gets a single glint and no more.
 [icon_anvil]
-cellsW = 3
-cellsH = 3
-pal = [".", "#3c3e42", "#56585e", "#82868e"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#33353a", "#4c4e54", "#72767e", "#b4b8c0"]
 [[icon_anvil.seq]]
 frames = '''
-333
-.2.
-111
+..1111..
+.154441.
+14444441
+13333331
+..1331..
+..1221..
+.133331.
+12222221
 '''
+
 
 # Armour. Two pieces, so the icons have to be told apart at a glance in a
-# hotbar: the hide jerkin is a soft shoulder line, the chitin plate a hard one
-# with a ridge down the middle.
+# hotbar, and at 8x8 the difference is structural rather than a one-cell tweak:
+# the hide jerkin has ROUNDED shoulders — the top corners are cut away — and a
+# soft lace running down the front. The chitin plate has a hard flat shoulder
+# line straight across the top row, a bright ridge down the centre, and a
+# segment seam across the middle.
 [icon_hide_jerkin]
-cellsW = 3
-cellsH = 3
-pal = [".", "#6a4c30", "#8c6a44", "#a88458"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4e3620", "#6a4c30", "#8c6a44", "#c2a074"]
 [[icon_hide_jerkin.seq]]
 frames = '''
-.3.
-232
-121
+.14..41.
+14411441
+13455321
+13355321
+13255221
+.132221.
+.122221.
+..1111..
 '''
 
+
 [icon_chitin_plate]
-cellsW = 3
-cellsH = 3
-pal = [".", "#5c4c30", "#8a7450", "#c0a870"]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4a3c24", "#6a5838", "#8a7450", "#c0a870"]
 [[icon_chitin_plate.seq]]
 frames = '''
-.3.
-323
-131
+11111111
+14411441
+14355321
+13355321
+11355311
+13355221
+.135521.
+..1111..
 '''
