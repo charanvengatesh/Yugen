@@ -152,7 +152,7 @@ impl Plugin for WorldSimPlugin {
                 Last,
                 autosave
                     .run_if(resource_exists::<SimWorld>)
-                    .run_if(|save: Res<WorldSave>| save.0.is_some()),
+                    .run_if(|save: Res<WorldSave>| save.dir.is_some()),
             );
     }
 }
@@ -185,7 +185,7 @@ fn autosave(
     let SimWorld { level, window, .. } = &mut *world;
     window.flush(&level.grid);
 
-    let Some(dir) = run.save.0.as_deref() else {
+    let Some(dir) = run.save.dir.as_deref() else {
         return;
     };
     if let Err(e) = write_run(dir, &run.snapshot(world.seed)) {
@@ -305,8 +305,31 @@ const AUTOSAVE_EVERY_S: f32 = 30.0;
 /// `spawn_world` only, so opening the game with `--world` logged the save
 /// directory and then immediately replaced that world with an unsaved one. Both
 /// read this resource now.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct WorldSave(pub Option<std::path::PathBuf>);
+#[derive(Resource, Clone, Debug)]
+pub struct WorldSave {
+    /// Where this world's chunks and run file live, or `None` to play unsaved.
+    pub dir: Option<std::path::PathBuf>,
+    /// The seed to grow it from.
+    ///
+    /// **The first thing in this tree to make the seed a RUNTIME value.** Every
+    /// production path built its world from the `SEED` constant, which is why
+    /// `light::LightGrid::follow_seed` and `ambience`'s equivalent were written
+    /// against a hazard nobody could reach: both keep a private `Noise` and
+    /// `Heightmap`, and a world grown from a different seed would have left the
+    /// lighting flooding sky to one surface line while the terrain sat at
+    /// another, silently. They guard themselves, so this is safe to turn on —
+    /// and it is now worth having a test that says so rather than a comment.
+    pub seed: u32,
+}
+
+impl Default for WorldSave {
+    fn default() -> WorldSave {
+        WorldSave {
+            dir: None,
+            seed: SEED,
+        }
+    }
+}
 
 /// Generate the world and fill the streaming window once, at load.
 ///
@@ -315,7 +338,7 @@ pub struct WorldSave(pub Option<std::path::PathBuf>);
 /// synchronous. A loading screen is a later milestone's problem; correctness of
 /// the first frame is this one's.
 fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>, save: Res<WorldSave>) {
-    let world = build_world_saved(SEED, save.0.as_deref());
+    let world = build_world_saved(save.seed, save.dir.as_deref());
     *focus = WorldFocus {
         x: world.level.spawn.x,
         y: world.level.spawn.y,

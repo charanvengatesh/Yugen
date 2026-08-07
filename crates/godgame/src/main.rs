@@ -153,6 +153,8 @@ struct Args {
     play: bool,
     /// Directory to keep this world's edits in. `None` plays unsaved.
     world: Option<PathBuf>,
+    /// The seed to grow the world from. `None` uses the compile-time default.
+    seed: Option<u32>,
     /// Where `--dump-state` writes the simulation's state as JSON.
     dump_state: Option<PathBuf>,
     /// A parsed `--script FILE`: the whole run's input, frame by frame.
@@ -185,8 +187,11 @@ fn main() -> AppExit {
     .add_plugins(GodGameRenderPlugin);
 
     // Before `Startup`, which is where the world is built from it.
-    if args.world.is_some() {
-        app.insert_resource(WorldSave(args.world.clone()));
+    if args.world.is_some() || args.seed.is_some() {
+        app.insert_resource(WorldSave {
+            dir: args.world.clone(),
+            seed: args.seed.unwrap_or(godgame_core::config::SEED),
+        });
     }
 
     // Before the plugin group's `PostStartup` runs, which is the only thing
@@ -318,6 +323,7 @@ fn parse_args() -> Args {
         debug_overlay: false,
         play: false,
         world: None,
+        seed: None,
         dump_state: None,
         script: None,
         drive: None,
@@ -332,6 +338,7 @@ fn parse_args() -> Args {
                 let Some(dir) = argv.next() else { usage() };
                 args.world = Some(PathBuf::from(dir));
             }
+            "--seed" => args.seed = Some(next_int(&mut argv).unsigned_abs()),
             "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
             "--drive" => {
                 let secs = argv.next().unwrap_or_else(|| usage());
@@ -400,6 +407,7 @@ fn usage() -> ! {
          \x20              [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
     );
     eprintln!("  --world DIR      keep this world's edits in DIR; without it nothing is saved");
+    eprintln!("  --seed N         grow the world from N instead of the built-in seed");
     eprintln!("  --dump-state P   write the simulation's state to P as JSON, then carry on");
     eprintln!("  --script FILE    drive the run from a verb-per-line file; it ends the run");
     eprintln!("  --warmup N       with --script, frames to settle the world BEFORE the first verb");

@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 582 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 584 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -503,6 +503,8 @@ only the exported surface is held to the rule.
 | `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 72 |
 | `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 76 |
 | `RUN_VERSION` (private) | `1` | Run-file version, independent of [`VERSION`]. | 186 |
+| `META_VERSION` (private) | `1` | Identity-file version. | 367 |
+| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 374 |
 
 ### `crates/godgame-core/src/sim/worldgen/caves.rs`
 

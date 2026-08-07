@@ -75,6 +75,7 @@ without a human at the keyboard:
 | `--script FILE` | drive the whole run from a verb-per-line file, on a pinned 60 Hz clock |
 | `--dump-state PATH` | write the simulation's state as JSON, for a diff rather than an eye |
 | `--world DIR` | keep this world's edits in DIR; without it nothing is saved |
+| `--seed N` | grow the world from N instead of the built-in seed |
 
 ## Testing
 

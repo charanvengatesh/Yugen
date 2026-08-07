@@ -19,7 +19,7 @@ use bevy::prelude::*;
 
 use godgame_core::input::{KEYS, KeyState};
 
-use godgame_core::config::{SEED, STEP_DT};
+use godgame_core::config::STEP_DT;
 use godgame_core::entities::{HitFn, Loadout, NoTargets, PlayerEvent};
 use godgame_core::items::{Inventory, item_code_of};
 use godgame_core::sim::save::read_run;
@@ -314,7 +314,7 @@ fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: R
     // FIRST transition into `Playing` threw that world away and built an
     // unsaved one over the top. 22 chunks were "persisted" — into memory — and
     // not one file appeared on disk, while every log line said it had worked.
-    let world = build_world_saved(SEED, save.0.as_deref());
+    let world = build_world_saved(save.seed, save.dir.as_deref());
     *focus = WorldFocus {
         x: world.level.spawn.x,
         y: world.level.spawn.y,
@@ -349,10 +349,10 @@ fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: R
     // LAST, after every reset above, and that order is the whole of it: a
     // restore that ran first would be undone by `body.reset()` and buried under
     // the starting kit, and it would look like the save had not been written.
-    let Some(dir) = save.0.as_deref() else {
+    let Some(dir) = save.dir.as_deref() else {
         return;
     };
-    let Some(loaded) = read_run(dir, SEED) else {
+    let Some(loaded) = read_run(dir, save.seed) else {
         return;
     };
     info!(
@@ -525,8 +525,8 @@ mod tests {
         // `start_a_run` regenerates rather than repairing, and the whole reason
         // that is safe is that a world is a pure function of its seed. If it ever
         // stops being one, a restart would silently drop you somewhere else.
-        let first = build_world_saved(SEED, None);
-        let again = build_world_saved(SEED, None);
+        let first = build_world_saved(godgame_core::config::SEED, None);
+        let again = build_world_saved(godgame_core::config::SEED, None);
         assert_eq!(first.level.spawn.x, again.level.spawn.x);
         assert_eq!(first.level.spawn.y, again.level.spawn.y);
         assert_eq!(first.seed, again.seed);

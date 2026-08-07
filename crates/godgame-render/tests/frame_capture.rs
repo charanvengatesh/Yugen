@@ -321,6 +321,69 @@ fn the_rendered_frame_has_the_variety_and_contrast_of_a_drawn_image() {
     );
 }
 
+/// The light follows a RUNTIME seed, not the one it was compiled with.
+///
+/// `light::LightGrid` and `ambience::Ambience` each keep a private `Noise` and
+/// `Heightmap`, and both grew a `follow_seed` against a hazard nobody could
+/// reach: every production path built its world from the `SEED` constant, so a
+/// mismatch was impossible and the guard was untested. `WorldSave::seed` makes
+/// the seed a runtime value, which turns that from a hypothetical into something
+/// one line could break.
+///
+/// The failure it guards is silent. A light grid still reading the compile-time
+/// seed floods sky down to the WRONG surface line: the frame stays varied, stays
+/// coloured, stays the right way up, and simply lights the inside of a hill
+/// while leaving the surface dark. Every other test in this file passes through
+/// it — which is exactly the `HANDOFF.md` §7.1 shape, and why this asserts the
+/// same sky/ground gap at a seed the constant is not.
+///
+/// 777 rather than a neighbour of 2334: it lands in desert, so the terrain, the
+/// biome and the surface height are all different. A seed producing a similar
+/// world would let a stale heightmap agree by luck.
+#[test]
+fn the_light_follows_a_runtime_seed_rather_than_the_compiled_one() {
+    if !common::gpu_is_available() {
+        println!("SKIPPED runtime seed: no wgpu adapter on this machine");
+        return;
+    }
+
+    let mut app = common::headless_game("GodGame runtime seed");
+    app.insert_resource(godgame_render::world::WorldSave {
+        dir: None,
+        seed: 777,
+    });
+    app.finish();
+    app.cleanup();
+    app.world_mut()
+        .resource_mut::<NextState<Scene>>()
+        .set(Scene::Playing);
+    for _ in 0..WARMUP_FRAMES {
+        app.update();
+    }
+
+    let png = common::artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "seed777.png");
+    let image = common::capture_low_res(&mut app, &png);
+    let frame = common::Frame::from_image(&image, png);
+
+    let band = (frame.height / BAND_FRACTION).max(1);
+    let sky = frame.band_luma(0, band);
+    let underground = frame.band_luma(frame.height - band, band);
+    println!(
+        "seed 777: sky {sky:.1}, underground {underground:.1}, gap {:.1}",
+        sky - underground
+    );
+    assert!(
+        sky - underground >= MIN_SKY_ADVANTAGE,
+        "at seed 777 the sky is not brighter than the underground: {sky:.1} vs \
+         {underground:.1}, gap {:.1} against a required {MIN_SKY_ADVANTAGE:.1}. The \
+         likeliest cause is a light or ambience field still built from the \
+         compile-time SEED, flooding sky to another world's surface line. \
+         Compare {}",
+        sky - underground,
+        frame.png.display()
+    );
+}
+
 /// The picture is the right way up: sky above, ground below.
 ///
 /// The clock starts at `DEFAULT_START` = 0.34, mid-morning, and `LightPlugin`
