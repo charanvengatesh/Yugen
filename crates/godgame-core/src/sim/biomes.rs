@@ -410,10 +410,13 @@ pub enum UndergroundLayerId {
     Magma = 2,
     Geode = 3,
     Fungal = 4,
+    /// Cold and wet, and the first layer this project authored rather than
+    /// ported. See [`UNDERGROUND_LAYERS`].
+    Rime = 5,
 }
 
 /// How many underground layers compete for a column.
-pub const UG_COUNT: usize = 5;
+pub const UG_COUNT: usize = 6;
 
 impl UndergroundLayerId {
     /// Every layer, in stable palette order.
@@ -423,6 +426,7 @@ impl UndergroundLayerId {
         UndergroundLayerId::Magma,
         UndergroundLayerId::Geode,
         UndergroundLayerId::Fungal,
+        UndergroundLayerId::Rime,
     ];
 
     /// This layer's definition — rock, pocket liquid, veins.
@@ -472,6 +476,29 @@ pub static UNDERGROUND_LAYERS: [UndergroundLayer; UG_COUNT] = [
         rock: block::DIRT, pocket: block::ACID,
         vein_rich: block::CRYSTAL, vein_common: block::MOSS, vein_soft: block::MUD,
         cave_scale: 0.95, pocket_bias: 0.06, climate: [0.72, 0.74], bias: 0.0,
+    },
+    // The first layer this project authored rather than ported, and it is placed
+    // where it is on purpose. Sweeping the climate square against the five above,
+    // the emptiest point is cold and wet at roughly [0.0, 0.64] — 0.425 from the
+    // nearest of them, which is more than three times `BLEND_WIDTH`. A layer put
+    // anywhere else would have had to win columns the existing five were already
+    // winning; this one fills a corner nothing reached.
+    //
+    // That matters beyond taste. `Weights::fill` eases a layer to EXACTLY zero at
+    // `BLEND_WIDTH` of separation, so a sixth entry only perturbs columns near
+    // its own niche and leaves the rest of the world bit-identical. It is what
+    // made the `worldgen_golden` bless a diff somebody can read rather than 357
+    // changed hashes.
+    UndergroundLayer {
+        id: "rime", name: "Rime Hollows",
+        // Ice over packed ice, with water pooling in the low cavities and
+        // freezing at the edges — the deep counterpart to a tundra rather than a
+        // second Flooded Grottos, which sits at [0.32, 0.92] and is merely wet.
+        rock: block::PACKED_ICE, pocket: block::WATER,
+        vein_rich: block::CRYSTAL, vein_common: block::ICE, vein_soft: block::SNOW,
+        // Tight caves and a low liquid table: the water that would have filled
+        // them is the walls.
+        cave_scale: 0.8, pocket_bias: 0.12, climate: [0.02, 0.64], bias: 0.0,
     },
 ];
 
@@ -1127,6 +1154,42 @@ mod tests {
             1,
             "exactly one biome may sit outside the climate diagram"
         );
+    }
+
+    #[test]
+    fn every_underground_layer_is_somewhere() {
+        // A layer nobody can stand in passes every other check in this file.
+        // `the_palette_index_is_the_enum_discriminant` proves it is wired into
+        // the tables, `the_weights_sum_to_one` proves its weights are sane, and
+        // `worldgen_purity` proves the world is a pure function -- all of which
+        // stay true of a layer sited so close to another that it never wins a
+        // column. This is the one check that says the content is REACHABLE.
+        //
+        // Measured over this sweep, as fractions of 4 616 columns:
+        //   fungal 24%, geode 23%, grottos 16%, magma 14%, rime 12%, caverns 11%
+        // so the 2% floor below is far under every one of them. It is deliberately
+        // not a tighter bound: the point is to catch a layer that is effectively
+        // dead, not to pin the climate tuning, which
+        // `the_climate_constants_are_the_tuned_ones` already does exactly.
+        let n = noise();
+        let mut wins = [0usize; UG_COUNT];
+        let mut cols = 0;
+        let mut wcx = -30_000;
+        while wcx < 30_000 {
+            wins[underground_mix_at(&n, wcx).top.index()] += 1;
+            cols += 1;
+            wcx += 13;
+        }
+        let floor = cols / 50;
+        for l in UndergroundLayerId::ALL {
+            assert!(
+                wins[l.index()] >= floor,
+                "underground layer {:?} wins {} of {cols} columns, under the {floor} floor: \
+                 it is sited too close to its neighbours to ever be reached",
+                l.def().id,
+                wins[l.index()],
+            );
+        }
     }
 
     #[test]

@@ -260,6 +260,11 @@ static LAYER_MULT: [[f64; N_ORES]; UG_COUNT] = [
     /* magma   */ [0.35, 0.7,    1.2,  2.0,   1.7], // coal has long since burnt
     /* geode   */ [0.5,  0.6,    0.6,  0.9,   3.0], // gem country
     /* fungal  */ [1.6,  0.5,    0.4,  0.35,  0.3], // organic, metal-poor
+    // Frozen ground gives up very little. Ore in the Rime Hollows is what the
+    // ice happened to close around rather than what the rock made, so every
+    // metal is scarce and the one thing it has more of than anywhere but the
+    // geodes is crystal — which is what ice does to water given long enough.
+    /* rime    */ [0.6,  0.45,   0.5,  0.4,   1.4],
 ];
 
 #[inline]
