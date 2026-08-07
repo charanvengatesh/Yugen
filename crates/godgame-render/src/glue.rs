@@ -153,6 +153,15 @@ fn step_the_body(
     let mut pack = pack;
     let mut creatures = creatures;
 
+    // The body's armour, from whatever the pack says is worn. Recomputed here
+    // rather than written when the equipment changes, and that is the point: a
+    // stat cached at the moment of equipping is a stat that disagrees with the
+    // pack the first time anything else touches it — a save restore, a death, a
+    // creative reset. One line a frame, and the two cannot drift.
+    if let Some(pack) = &pack {
+        body.0.armour = crate::input::worn_armour(&pack.0);
+    }
+
     // The pool and the pack, lent for the length of the call and no longer.
     // `Inventory` IS an `AmmoSource` and `ProjectileSystem` IS a `Projectiles`,
     // so there is no adapter here — which is the whole point of both traits

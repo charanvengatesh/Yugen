@@ -575,6 +575,16 @@ fn run_script(
         // while the binding, the mode branch and the toast were all broken.
         set_key(keys, KEYS.craft, next.craft);
         set_key(keys, KEYS.use_item, next.use_item);
+        // The hotbar digit, so `use` and `place` act on the item the script
+        // meant. Every slot is released and the wanted one pressed, because
+        // `tool_keys` reads all ten and a stale digit would fight the new one.
+        for (i, name) in KEYS.hotbar.iter().enumerate() {
+            set_key(
+                keys,
+                std::slice::from_ref(name),
+                next.hotbar == Some(i as u8),
+            );
+        }
 
         run.frame += 1;
         return;
@@ -587,6 +597,9 @@ fn run_script(
     set_button(buttons, MouseButton::Right, false);
     set_key(keys, KEYS.craft, false);
     set_key(keys, KEYS.use_item, false);
+    for name in KEYS.hotbar {
+        set_key(keys, std::slice::from_ref(name), false);
+    }
 
     let mut awaited = false;
     if let Some(shot) = shot {

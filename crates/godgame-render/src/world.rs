@@ -231,6 +231,7 @@ impl RunSources<'_> {
                     .collect()
             }),
             selected: self.pack.as_ref().map_or(0, |p| p.0.selected() as u16),
+            worn: self.pack.as_ref().and_then(|p| p.0.worn()),
         }
     }
 }
@@ -294,6 +295,13 @@ pub fn restore_run(
             pack.0.put_at(*slot as usize, *code, *n);
         }
         pack.0.select_slot(run.selected as usize);
+        // What was worn goes back on. Through `put_at`-style restoration rather
+        // than `equip`, which would take the piece out of a pack slot it is not
+        // in — the saved pack and the saved armour are two separate facts and
+        // restoring one must not consume the other.
+        if let Some(code) = run.worn {
+            pack.0.wear_restored(code);
+        }
     }
     if let Some(clock) = clock {
         clock.0 = DayNight::new(run.clock_t);

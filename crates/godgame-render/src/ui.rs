@@ -1096,6 +1096,20 @@ fn js_num(v: f32) -> String {
 ///
 /// `drawHud` in `src/ui/Hud.ts`, drawn after the world in screen space.
 pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
+    hud_with(health, dash_ready, 0.0, 0, view)
+}
+
+/// [`hud`], plus the two numbers that had nowhere to be shown.
+///
+/// `armour` is what a hit is reduced by and `xp` is what `MobSystem` has banked.
+/// Both were real and invisible: the XP counter has been incremented on every
+/// kill since M6 and read by nothing, which is the `HANDOFF.md` §7.1 shape —
+/// a value that is written, plausible, and never looked at.
+///
+/// Zero of either draws nothing. A player with no armour should not carry a
+/// "0" telling them so, and the HUD's whole design is that a row appears when
+/// it has something to say.
+pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View) -> Vec<UiPrim> {
     let mut out = Vec::new();
     let (x, y) = (MARGIN, MARGIN);
     let frac = (health / MAX_HEALTH).clamp(0.0, 1.0);
@@ -1130,6 +1144,34 @@ pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
         LABEL,
         rgb(0xff, 0xff, 0xff),
     ));
+
+    // Armour and XP, on the row under the bar. Left-aligned with it rather than
+    // beside the dash pip, because they are STATS and the pip is a state — a
+    // player scanning for "how tough am I" reads down from the health bar.
+    let mut stat_x = MARGIN;
+    let stat_y = MARGIN + BAR_H + 12;
+    if armour > 0.0 {
+        let text = format!("ARM {}", js_round(armour));
+        out.push(UiPrim::text(
+            text.clone(),
+            stat_x,
+            stat_y,
+            Align::Left,
+            SMALL,
+            rgb(0x96, 0xc8, 0xff),
+        ));
+        stat_x += SMALL.measure(&text) + 14;
+    }
+    if xp > 0 {
+        out.push(UiPrim::text(
+            format!("XP {xp}"),
+            stat_x,
+            stat_y,
+            Align::Left,
+            SMALL,
+            rgb(0xd2, 0xc8, 0x8c),
+        ));
+    }
 
     // Dash readiness pip.
     let pip_x = x + BAR_W + 28;
@@ -1963,6 +2005,9 @@ struct HudSources<'w> {
     picker: Res<'w, crate::worldselect::WorldPicker>,
     /// The crafting card, drawn over the world rather than instead of it.
     crafting: Res<'w, crate::craftscreen::CraftingView>,
+    /// For the banked XP. `Option` because a host may run the HUD with no
+    /// creatures in the app at all.
+    creatures: Option<Res<'w, crate::mobs::Creatures>>,
     /// Whether the F3 panel is up.
     debug_shown: Res<'w, crate::debug::DebugOverlay>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
@@ -2080,7 +2125,13 @@ fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiF
         UiScreen::GameOver => prims.extend(game_over(view)),
         UiScreen::Playing => {
             if let Some(body) = &sources.body {
-                prims.extend(hud(body.0.health, body.0.dash_ready(), view));
+                prims.extend(hud_with(
+                    body.0.health,
+                    body.0.dash_ready(),
+                    body.0.armour,
+                    sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
+                    view,
+                ));
             }
             prims.extend(build_hud(
                 &sources.tool.0,

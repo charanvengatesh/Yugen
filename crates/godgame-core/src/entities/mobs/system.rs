@@ -282,7 +282,16 @@ impl MobTarget for Player {
         if self.untouchable {
             return;
         }
-        self.health -= amount;
+        // `1.0.max(damage - armour)`, which is the rule creatures' own `armor`
+        // uses two hundred lines up — deliberately the same, so a player and a
+        // mob wearing the same number are equally hard to hurt and the item
+        // table can be read against the mob table without conversion.
+        //
+        // The floor matters more than the subtraction. Without it a player in
+        // enough armour is not merely tough, they are unkillable by anything
+        // below their number, and a whole band of the world stops being a
+        // threat rather than becoming an easy one.
+        self.health -= 1.0f32.max(amount - self.armour);
     }
     fn targetable(&self) -> bool {
         !self.untouchable
@@ -2067,5 +2076,43 @@ mod tests {
             "the accumulator survived a stall: {}",
             sys.accumulator
         );
+    }
+
+    /// Armour subtracts from a hit, and never all of it.
+    ///
+    /// The same rule and the same floor creatures get, which is why this asserts
+    /// against `d.armor`'s formula rather than a number typed twice.
+    #[test]
+    fn armour_reduces_a_hit_and_one_damage_always_gets_through() {
+        let mut p = Player::new(SpawnPoint { x: 0.0, y: 0.0 });
+
+        p.armour = 0.0;
+        p.health = 100.0;
+        p.take_damage(10.0);
+        assert_eq!(p.health, 90.0, "no armour, no reduction");
+
+        p.armour = 4.0;
+        p.health = 100.0;
+        p.take_damage(10.0);
+        assert_eq!(p.health, 94.0, "four points off a ten-point hit");
+
+        // The floor. Without it, enough armour is not toughness — it is
+        // invulnerability to a whole band of the world at once.
+        p.armour = 50.0;
+        p.health = 100.0;
+        p.take_damage(10.0);
+        assert_eq!(p.health, 99.0, "one damage always gets through");
+    }
+
+    /// Creative still stops everything, armour or not. `untouchable` is checked
+    /// first and is stronger than any number.
+    #[test]
+    fn untouchable_still_beats_armour_arithmetic() {
+        let mut p = Player::new(SpawnPoint { x: 0.0, y: 0.0 });
+        p.untouchable = true;
+        p.armour = 0.0;
+        p.health = 100.0;
+        p.take_damage(999.0);
+        assert_eq!(p.health, 100.0);
     }
 }

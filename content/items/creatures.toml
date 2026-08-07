@@ -189,3 +189,53 @@ use.heal = 0.0
 use.effect = "haste"
 use.duration = 20.0
 craft = [{ in = ["bat_wing", "moth_dust", "crystal_shard"], n = [3, 1, 1], out = 1, station = "workbench" }]
+
+# ---- THE ARMOUR TIER --------------------------------------------------------
+# The comment at the top of this file has said since the port that `hide` and
+# `worm_hide` "have no recipe yet on purpose: they are the armour tier's input,
+# and there is no armour." There is now.
+#
+# Two pieces and one slot, not five slots and a set bonus. The whole of what
+# armour does here is subtract from a hit, and five numbers that add up to one
+# number is four more things for a player to carry and no more decisions for
+# them to make. If armour ever gains a second axis — weight, resistance to one
+# damage kind — that is when it earns more slots.
+#
+# The numbers are set against the creatures that drop them rather than against
+# each other. `1.0.max(damage - armour)` is the same rule creatures' own `armor`
+# uses, so these are directly comparable with the mob table: a `sentinel` has 5.
+
+[hide_jerkin]
+name = "Hide Jerkin"
+category = "accessory"
+color = [140, 106, 68]
+icon = "icon_hide_jerkin"
+stack = 1
+tier = 2
+value = 70
+# Two points. A grubling hits for 6 and a bat for 4, so the first armour a
+# player can make turns the early surface from a nuisance into something they
+# can walk through — which is the point of it being the first.
+armour = 2.0
+desc = "Stiff, and it smells. Better than the alternative."
+tags = ["relic"]
+craft = [{ in = ["hide", "sapling"], n = [5, 2], out = 1, station = "workbench" }]
+
+[chitin_plate]
+name = "Chitin Plate"
+category = "accessory"
+color = [176, 150, 100]
+icon = "icon_chitin_plate"
+stack = 1
+tier = 4
+value = 260
+# Five. Level with a `sentinel`'s own plate, and deliberately not above it: the
+# player should be able to reach parity with the toughest ordinary thing in the
+# world and no further, because the floor of 1 damage means more would only
+# flatten the difference between every creature at once.
+armour = 5.0
+desc = "Plates laid over hide. Someone else grew them first."
+tags = ["relic"]
+craft = [
+    { in = ["chitin", "worm_hide", "iron_bar"], n = [8, 3, 2], out = 1, station = "anvil" },
+]

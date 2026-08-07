@@ -184,6 +184,17 @@ pub fn schema() -> Schema {
                     .default_int(0),
             ),
             (
+                "armour".into(),
+                Field::new("float")
+                    .doc(
+                        "Damage subtracted per hit while equipped. Flat, and \
+                         floored at 1 damage getting through — the same rule \
+                         creatures' `armor` uses, deliberately, so a player and \
+                         a mob wearing the same number are equally hard to hurt.",
+                    )
+                    .default_float(0.0),
+            ),
+            (
                 "desc".into(),
                 Field::new("string")
                     .doc("One line of flavour, shown under the name.")

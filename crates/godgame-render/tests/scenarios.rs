@@ -60,7 +60,7 @@ const RADIUS: i32 = 10;
 const SAMPLE: usize = ((2 * RADIUS + 1) * (2 * RADIUS + 1)) as usize;
 
 /// One scenario, as the command line would express it.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Scenario {
     /// Items to add on top of the starting kit — `--give`.
     give: Vec<(godgame_core::items::registry::ItemCode, u32)>,
@@ -112,6 +112,8 @@ struct Observed {
     wall: Vec<CellId>,
     day: f32,
     health: Option<f32>,
+    /// Damage the body subtracts from a hit, from whatever is worn.
+    armour: Option<f32>,
     body: Option<(f32, f32)>,
     pack: Vec<(godgame_core::items::registry::ItemCode, u16)>,
     /// Workbench cells anywhere in the streaming window, not just the sample.
@@ -320,6 +322,7 @@ fn run(scenario: &Scenario) -> Option<Observed> {
 
     let day = app.world().resource::<WorldClock>().0.phase().day;
     let health = app.world().get_resource::<PlayerBody>().map(|b| b.0.health);
+    let armour = app.world().get_resource::<PlayerBody>().map(|b| b.0.armour);
     let pack = app
         .world()
         .get_resource::<godgame_render::items::Pack>()
@@ -353,6 +356,7 @@ fn run(scenario: &Scenario) -> Option<Observed> {
         wall,
         day,
         health,
+        armour,
         body,
         pack,
         benches,
@@ -698,5 +702,61 @@ fn an_anvil_needs_a_workbench_and_says_so_when_there_is_none() {
         1,
         "a workbench one cell away should be in reach: it is not, or the craft \
          key is not reaching `try_craft`"
+    );
+}
+
+/// Armour is put on with the real key and reaches the body.
+///
+/// `crafting`'s rule and `Inventory::equip`'s swap and `Player::take_damage`'s
+/// subtraction all have unit tests. None of them can say the key a player
+/// presses reaches any of it — and the first attempt at this proved the point:
+/// the script pressed `use` with the pickaxe selected, because `use` acts on the
+/// HELD item and nothing had selected the armour. That is what the `hotbar` verb
+/// is for.
+#[test]
+fn armour_is_worn_by_pressing_use_on_it_and_the_body_feels_it() {
+    let plate = godgame_core::items::item_code_of("chitin_plate").expect("chitin_plate");
+    let worn = Scenario {
+        give: vec![(plate, 1)],
+        // Slot 4 is the first free one after the starting kit's three.
+        taps: vec![std::slice::from_ref(&KEYS.hotbar[3]), KEYS.use_item],
+        settle: 20,
+        ..Scenario::default()
+    };
+    let Some(dressed) = run_or_skip("wearing armour", &worn) else {
+        return;
+    };
+
+    let mut carried = worn.clone();
+    // The control: same plate, never put on. Carrying armour must do nothing.
+    carried.taps = vec![std::slice::from_ref(&KEYS.hotbar[3])];
+    let Some(carrying) = run_or_skip("carrying armour", &carried) else {
+        return;
+    };
+
+    println!(
+        "armour: worn {:?}, merely carried {:?}",
+        dressed.armour, carrying.armour
+    );
+    assert_eq!(
+        dressed.armour,
+        Some(5.0),
+        "the chitin plate is 5 points and the body did not get them — the key, \
+         the equip, or `glue`'s line that copies it across is not connected"
+    );
+    assert_eq!(
+        carrying.armour,
+        Some(0.0),
+        "armour in the pack must protect nobody"
+    );
+    assert_eq!(
+        carrying.holds("chitin_plate"),
+        1,
+        "the control must still be carrying it"
+    );
+    assert_eq!(
+        dressed.holds("chitin_plate"),
+        0,
+        "what is worn is out of the pack"
     );
 }

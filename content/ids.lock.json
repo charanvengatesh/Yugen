@@ -148,7 +148,9 @@
     "arrow_iron": 78,
     "anvil": 79,
     "furnace": 80,
-    "workbench": 81
+    "workbench": 81,
+    "chitin_plate": 82,
+    "hide_jerkin": 83
   },
   "mob": {
     "grubling": 0,
@@ -226,7 +228,9 @@
     "icon_sapling": 50,
     "icon_anvil": 51,
     "icon_furnace": 52,
-    "icon_workbench": 53
+    "icon_workbench": 53,
+    "icon_chitin_plate": 54,
+    "icon_hide_jerkin": 55
   },
   "struct": {
     "surface_cabin": 0,

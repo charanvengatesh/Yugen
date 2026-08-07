@@ -568,6 +568,15 @@ fn try_craft(inv: &mut Inventory, cursor: &mut usize, toast: &mut Toast, reach: 
     });
 }
 
+/// The armour value of whatever is worn, or zero.
+///
+/// One place, so the body's number and the pack cannot disagree — which is the
+/// failure mode a cached stat has, and the reason this is recomputed rather
+/// than adjusted.
+pub fn worn_armour(inv: &Inventory) -> f32 {
+    inv.worn().map_or(0.0, |code| item_by_code(code).armour)
+}
+
 /// Consume the held item if it heals or buffs. `Game.tryUse`.
 ///
 /// Effects are data and not code yet: the `effect` name is authored, compiled
@@ -580,6 +589,22 @@ fn try_use(inv: &mut Inventory, body: &mut PlayerBody, toast: &mut Toast) {
         return;
     };
     let def = item_by_code(code);
+
+    // Armour is USED by putting it on, which is why it shares the key rather
+    // than getting one of its own. A player holding a jerkin and pressing the
+    // key the HUD calls "use" means exactly one thing.
+    if def.armour > 0.0 {
+        let slot = inv.selected();
+        if inv.equip(slot) {
+            body.armour = worn_armour(inv);
+            toast.show(format!("wearing {}", def.name));
+        } else {
+            // The only way `equip` refuses is no room for what came off.
+            toast.show("no room to take that off");
+        }
+        return;
+    }
+
     if def.category != ItemCategory::Consumable {
         return;
     }

@@ -183,7 +183,12 @@ const RUN_MAGIC: [u8; 4] = *b"GGRN";
 /// adding a cell plane and adding an equipment slot have nothing to do with each
 /// other — and one shared number would force a world's terrain to be discarded
 /// because its inventory format moved.
-const RUN_VERSION: u16 = 1;
+///
+/// **2** adds the worn armour slot. A version-1 run is refused rather than read
+/// with a zero in it: the difference between "wearing nothing" and "this file
+/// predates armour" is invisible afterwards, and the terrain beside it survives
+/// either way, so the cost of refusing is a body back at the spawn.
+const RUN_VERSION: u16 = 2;
 
 /// The body, as a save file sees it.
 ///
@@ -234,6 +239,12 @@ pub struct RunState {
     pub slots: Vec<(u16, u16, u16)>,
     /// The selected hotbar slot.
     pub selected: u16,
+    /// The item code being worn, or `None`.
+    ///
+    /// Outside `slots`, because it is outside the pack — see
+    /// `Inventory::equip`. Folding it in as a 31st slot would make every reader
+    /// of `slots` know about a slot the pack does not have.
+    pub worn: Option<u16>,
 }
 
 /// Encode a run.
@@ -256,6 +267,13 @@ pub fn encode_run(run: &RunState) -> Vec<u8> {
     }
 
     out.extend_from_slice(&run.selected.to_le_bytes());
+    match run.worn {
+        Some(code) => {
+            out.push(1);
+            out.extend_from_slice(&code.to_le_bytes());
+        }
+        None => out.push(0),
+    }
     out.extend_from_slice(&(run.slots.len() as u16).to_le_bytes());
     for (slot, code, n) in &run.slots {
         out.extend_from_slice(&slot.to_le_bytes());
@@ -286,6 +304,10 @@ pub fn decode_run(bytes: &[u8]) -> Option<RunState> {
         }),
     };
     let selected = r.u16()?;
+    let worn = match r.u8()? {
+        0 => None,
+        _ => Some(r.u16()?),
+    };
     let n = r.u16()? as usize;
     let mut slots = Vec::with_capacity(n);
     for _ in 0..n {
@@ -298,6 +320,7 @@ pub fn decode_run(bytes: &[u8]) -> Option<RunState> {
         body,
         slots,
         selected,
+        worn,
     })
 }
 
@@ -821,6 +844,7 @@ mod tests {
             }),
             slots: vec![(0, 41, 1), (2, 7, 99), (29, 13, 5)],
             selected: 2,
+            worn: Some(77),
         }
     }
 

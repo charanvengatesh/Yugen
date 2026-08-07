@@ -669,3 +669,28 @@ frames = '''
 .2.
 111
 '''
+
+# Armour. Two pieces, so the icons have to be told apart at a glance in a
+# hotbar: the hide jerkin is a soft shoulder line, the chitin plate a hard one
+# with a ridge down the middle.
+[icon_hide_jerkin]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6a4c30", "#8c6a44", "#a88458"]
+[[icon_hide_jerkin.seq]]
+frames = '''
+.3.
+232
+121
+'''
+
+[icon_chitin_plate]
+cellsW = 3
+cellsH = 3
+pal = [".", "#5c4c30", "#8a7450", "#c0a870"]
+[[icon_chitin_plate.seq]]
+frames = '''
+.3.
+323
+131
+'''

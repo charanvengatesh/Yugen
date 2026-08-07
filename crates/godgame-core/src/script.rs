@@ -40,6 +40,7 @@
 //! | `hold punch 1s` | the punch key held down, for auto-repeat |
 //! | `dig 1s` | left mouse held: remove cells under the aim point |
 //! | `place 1s` | right mouse held: place the held item under the aim point |
+//! | `hotbar <1-10>` | select that hotbar slot |
 //! | `craft` | one press of the craft key |
 //! | `use` | one press of the use key |
 //! | `aim <dx> <dy>` | where to point, in px FROM THE BODY, for every later frame |
@@ -132,6 +133,13 @@ pub struct ScriptFrame {
     pub craft: bool,
     /// The use/consume key. Same argument as [`ScriptFrame::craft`].
     pub use_item: bool,
+    /// A hotbar slot to select, 0-based, on this frame.
+    ///
+    /// Without it a script cannot say WHICH item it means, and every verb that
+    /// acts on the held item — `use`, and placing — acts on whatever the
+    /// starting kit left selected. A scenario that gave itself a chitin plate
+    /// and pressed `use` used the pickaxe.
+    pub hotbar: Option<u8>,
 }
 
 /// A parsed script: a flat list of frames.
@@ -176,6 +184,8 @@ enum Line {
         craft: bool,
         /// The use key, likewise.
         use_item: bool,
+        /// A hotbar slot, likewise.
+        hotbar: Option<u8>,
         /// Held for every frame of this line, not just the first. Digging is a
         /// button you hold down, and the brush's own cadence decides how often
         /// it bites — see `BuildTool`.
@@ -228,6 +238,7 @@ impl Script {
                     place,
                     craft,
                     use_item,
+                    hotbar,
                 }) => {
                     for n in 0..count {
                         let mut intent = if n == 0 { first } else { rest };
@@ -240,6 +251,7 @@ impl Script {
                             // Edges: the first frame of the line only.
                             craft: craft && n == 0,
                             use_item: use_item && n == 0,
+                            hotbar: if n == 0 { hotbar } else { None },
                         });
                     }
                 }
@@ -379,6 +391,7 @@ fn compile(verb: &str, args: &[&str]) -> Result<Line, String> {
                 place: false,
                 craft: false,
                 use_item: false,
+                hotbar: None,
             })
         }
 
@@ -398,6 +411,30 @@ fn compile(verb: &str, args: &[&str]) -> Result<Line, String> {
                 place: false,
                 craft: verb == "craft",
                 use_item: verb == "use",
+                hotbar: None,
+            })
+        }
+
+        // `hotbar 4` is the fourth slot as a PLAYER counts them, because that
+        // is the number printed on it. The zero-based index is this module's
+        // business and nobody else's.
+        "hotbar" => {
+            let [which] = args else {
+                return Err("`hotbar` takes one slot number, 1 to 10".to_string());
+            };
+            let slot = match which.parse::<u32>() {
+                Ok(n) if (1..=10).contains(&n) => (n - 1) as u8,
+                _ => return Err(format!("`{which}` is not a hotbar slot; they are 1 to 10")),
+            };
+            Ok(Line::Frames {
+                first: Intent::default(),
+                rest: Intent::default(),
+                count: 1,
+                dig: false,
+                place: false,
+                craft: false,
+                use_item: false,
+                hotbar: Some(slot),
             })
         }
 
@@ -431,6 +468,7 @@ fn held(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         place: false,
         craft: false,
         use_item: false,
+        hotbar: None,
     })
 }
 
@@ -450,6 +488,7 @@ fn pointer(args: &[&str], verb: &str, dig: bool, place: bool) -> Result<Line, St
         place,
         craft: false,
         use_item: false,
+        hotbar: None,
     })
 }
 
@@ -468,6 +507,7 @@ fn edge(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         place: false,
         craft: false,
         use_item: false,
+        hotbar: None,
     })
 }
 

@@ -48,6 +48,14 @@ pub struct Inventory {
     /// Bumped on every mutation. The HUD and the crafting scan use it to skip
     /// work on frames where nothing moved — cheaper than diffing 30 slots.
     revision: u32,
+    /// What is being worn, if anything.
+    ///
+    /// ONE slot, not five. The whole of what armour does is subtract from a
+    /// hit, and five numbers that add up to one number is four more things to
+    /// carry and no more decisions to make. It also lives OUTSIDE the 30 slots
+    /// rather than reserving one of them, so equipping never costs a player
+    /// space they were using — see [`Inventory::equip`].
+    worn: Option<ItemCode>,
 }
 
 impl Default for Inventory {
@@ -64,6 +72,7 @@ impl Inventory {
             count: [0; SLOT_COUNT],
             selected: 0,
             revision: 0,
+            worn: None,
         }
     }
 
@@ -109,6 +118,73 @@ impl Inventory {
             Some(&0) | None => None,
             Some(&n) => Some((self.item[slot], n)),
         }
+    }
+
+    /// What is being worn, if anything.
+    #[inline]
+    pub const fn worn(&self) -> Option<ItemCode> {
+        self.worn
+    }
+
+    /// Wear the item in `slot`, taking it out of the pack.
+    ///
+    /// Whatever was worn goes back into the pack first, and the swap is refused
+    /// if it will not fit — a player with a full pack who equips something must
+    /// not have the old piece deleted. `false` means nothing happened, which is
+    /// the same contract [`Inventory::add`]'s caller already reads.
+    ///
+    /// It does NOT ask whether the item is armour. The registry knows what has
+    /// an `armour` value and this module does not read the registry's tables;
+    /// the caller checks, exactly as it already does for a consumable.
+    pub fn equip(&mut self, slot: usize) -> bool {
+        let Some((code, _)) = self.stack_at(slot) else {
+            return false;
+        };
+        if let Some(old) = self.worn {
+            // Room for the old piece is checked BEFORE the new one leaves the
+            // pack, so a refusal leaves everything exactly where it was.
+            if self.full(old) && self.count[slot] > 1 {
+                return false;
+            }
+        }
+        self.remove_at(slot, 1);
+        let previous = self.worn.replace(code);
+        if let Some(old) = previous {
+            self.add(old, 1);
+        }
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
+    /// Take off what is worn and put it back in the pack.
+    ///
+    /// Refused when there is nowhere to put it, for [`Inventory::equip`]'s
+    /// reason: a piece of armour is not a thing to silently destroy.
+    pub fn unequip(&mut self) -> bool {
+        let Some(code) = self.worn else {
+            return false;
+        };
+        if self.full(code) {
+            return false;
+        }
+        self.worn = None;
+        self.add(code, 1);
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
+    /// Set what is worn without touching the pack.
+    ///
+    /// For a SAVE LOADER and nothing else, which is why it is not [`equip`]:
+    /// `equip` takes the piece out of a pack slot, and a restore has already put
+    /// the pack back exactly as it was. The saved pack and the saved armour are
+    /// two separate facts, and restoring one by consuming the other would delete
+    /// an item every time a world was loaded.
+    ///
+    /// [`equip`]: Inventory::equip
+    pub fn wear_restored(&mut self, code: ItemCode) {
+        self.worn = Some(code);
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// Put a stack in a slot outright, ignoring stacking rules.
@@ -326,6 +402,10 @@ impl Inventory {
         self.item.fill(0);
         self.count.fill(0);
         self.selected = 0;
+        // What is WORN goes too. `clear` is what a fresh run and a save restore
+        // both start from, and a body that kept its armour across a death would
+        // be carrying the one thing the death was supposed to cost.
+        self.worn = None;
         self.revision += 1;
     }
 
@@ -601,5 +681,67 @@ mod tests {
 
         sync.reset();
         assert!(sync.poll(&inv).is_some(), "reset forces one more push");
+    }
+
+    /// Equipping is a SWAP through the pack, and a swap with nowhere to put the
+    /// old piece is refused rather than losing it.
+    #[test]
+    fn equipping_swaps_through_the_pack_and_never_destroys_a_piece() {
+        let mut inv = Inventory::new();
+        inv.put_at(0, 10, 1);
+        inv.put_at(1, 20, 1);
+
+        assert!(inv.equip(0));
+        assert_eq!(inv.worn(), Some(10));
+        assert_eq!(inv.stack_at(0), None, "the piece left the pack");
+
+        // Swapping puts the old one back.
+        assert!(inv.equip(1));
+        assert_eq!(inv.worn(), Some(20));
+        assert_eq!(inv.count_of(10), 1, "the old piece came back to the pack");
+
+        assert!(inv.unequip());
+        assert_eq!(inv.worn(), None);
+        assert_eq!(inv.count_of(20), 1);
+        assert!(!inv.unequip(), "nothing to take off");
+    }
+
+    /// Worn armour is not in the pack, so it does not cost a slot.
+    #[test]
+    fn what_is_worn_is_outside_the_thirty_slots() {
+        let mut inv = Inventory::new();
+        for slot in 0..SLOT_COUNT {
+            inv.put_at(slot, 10 + slot as u16, 1);
+        }
+        assert!(inv.equip(5), "a full pack can still equip");
+        // The slot it came out of is free, and nothing else moved.
+        assert_eq!(inv.stack_at(5), None);
+        assert_eq!(inv.worn(), Some(15));
+        assert_eq!(inv.stack_at(0), Some((10, 1)));
+    }
+
+    /// A fresh run takes the armour off with everything else.
+    #[test]
+    fn clearing_the_pack_takes_off_what_was_worn() {
+        let mut inv = Inventory::new();
+        inv.put_at(0, 10, 1);
+        assert!(inv.equip(0));
+        inv.clear();
+        assert_eq!(inv.worn(), None, "a death must cost the armour too");
+    }
+
+    /// The save loader's path does NOT consume a pack slot — the saved pack and
+    /// the saved armour are two separate facts.
+    #[test]
+    fn restoring_armour_does_not_eat_an_item_from_the_pack() {
+        let mut inv = Inventory::new();
+        inv.put_at(0, 10, 3);
+        inv.wear_restored(10);
+        assert_eq!(inv.worn(), Some(10));
+        assert_eq!(
+            inv.count_of(10),
+            3,
+            "restoring what was worn must not spend a stack that was also saved"
+        );
     }
 }

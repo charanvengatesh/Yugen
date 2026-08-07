@@ -9,7 +9,7 @@ what the sweep can and cannot see.
 
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
-| 1 — content | `content/` | 233 records | one THING: a block, a mob, an item |
+| 1 — content | `content/` | 237 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
 | 3 — module | `crates/*/src/**` | 592 constants | ONE ALGORITHM, beside the code it explains |
 
@@ -18,9 +18,9 @@ what the sweep can and cannot see.
 | Directory | Files | Records | Distinct fields |
 |---|---|---|---|
 | `content/blocks/` | 8 | 56 | 40 |
-| `content/items/` | 8 | 82 | 31 |
+| `content/items/` | 8 | 84 | 32 |
 | `content/mobs/` | 3 | 20 | 51 |
-| `content/sprites/` | 2 | 54 | 12 |
+| `content/sprites/` | 2 | 56 | 12 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
 
@@ -229,8 +229,8 @@ only the exported surface is held to the rule.
 | `MAX_SHOTS` (private) | `24` | Hard cap on projectiles in flight. | 179 |
 | `MAX_LOOT` (private) | `32` | Hard cap on undrained loot entries. | 181 |
 | `MAX_EVENTS` (private) | `48` | Hard cap on undrained events. | 183 |
-| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 317 |
-| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 319 |
+| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 326 |
+| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 328 |
 
 ### `crates/godgame-core/src/entities/player.rs`
 
@@ -315,8 +315,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 95 |
-| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 102 |
+| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 96 |
+| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 103 |
 
 ### `crates/godgame-core/src/sim/automata.rs`
 
@@ -502,9 +502,9 @@ only the exported surface is held to the rule.
 | `HEADER` (private) | `4 + 2 + 2 + 4 + 4` | Header bytes before the planes: magic, version, cell count, coordinates. | 69 |
 | `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 72 |
 | `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 76 |
-| `RUN_VERSION` (private) | `1` | Run-file version, independent of [`VERSION`]. | 186 |
-| `META_VERSION` (private) | `1` | Identity-file version. | 367 |
-| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 374 |
+| `RUN_VERSION` (private) | `2` | Run-file version, independent of [`VERSION`]. | 191 |
+| `META_VERSION` (private) | `1` | Identity-file version. | 390 |
+| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 397 |
 
 ### `crates/godgame-core/src/sim/worldgen/caves.rs`
 
@@ -1021,8 +1021,8 @@ only the exported surface is held to the rule.
 | `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 862 |
 | `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 868 |
 | `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 874 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1760 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1772 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1802 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1814 |
 
 ### `crates/godgame-render/src/weather.rs`
 
@@ -1041,7 +1041,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 316 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 324 |
 
 ### `crates/godgame-render/src/worldselect.rs`
 

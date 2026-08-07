@@ -433,6 +433,19 @@ pub struct Player {
     /// Hit points, clamped to `[0, MAX_HEALTH]` at the end of every step.
     pub health: f32,
 
+    /// Damage subtracted from every creature hit, from whatever is worn.
+    ///
+    /// A plain number on the body and not a look-up into the pack, because
+    /// `MobTarget::take_damage` is called from inside the creature update and
+    /// has no business reaching into an inventory. The host writes it whenever
+    /// the equipment changes — one line in `crate::glue` — which is the same
+    /// seam every other cross-module fact in this tree travels down.
+    ///
+    /// It does NOT apply to hazards. Standing in lava is not an attack you can
+    /// wear a jerkin against, and `overlap_effects` deliberately does not read
+    /// this.
+    pub armour: f32,
+
     /// Nothing in the world may act on this body. Off unless a host turns it on.
     ///
     /// Named `untouchable` and NOT `invulnerable`, because it is stronger than
@@ -578,6 +591,7 @@ impl Player {
             vy: 0.0,
             facing: 1.0,
             health: MAX_HEALTH,
+            armour: 0.0,
             untouchable: false,
             on_ground: false,
             on_ice: false,
@@ -981,6 +995,10 @@ impl Player {
         self.vx = 0.0;
         self.vy = 0.0;
         self.health = MAX_HEALTH;
+        // The armour goes with the run. `Inventory::clear` drops what was worn
+        // on the same transition, and a body that reset its health but kept a
+        // chitin plate would be wearing something the pack no longer holds.
+        self.armour = 0.0;
         self.on_ground = false;
         self.coyote = 0.0;
         self.jump_buffer = 0.0;
