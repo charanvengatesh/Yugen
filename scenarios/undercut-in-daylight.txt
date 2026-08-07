@@ -1,0 +1,55 @@
+# Sink a shaft in full daylight, then cut sideways off the bottom of it.
+#
+# What it is for: `WALL_DECAY`. The skylight rule for background walls is pinned
+# by unit tests in both directions and by a compile-time ordering assert, and
+# `docs/HANDOFF.md` §8.2 records that nobody has ever SEEN it — because the two
+# capture rigs are a 900 px cave, where there is no skylight left for the rule to
+# modulate, and a menu-dimmed surface, which is too dark to read a shaft against.
+# What was missing was a lit surface with a hole cut into it. This is that hole.
+#
+#   cargo run --release -- --play --time 0.5 \
+#       --script scenarios/undercut-in-daylight.txt --warmup 300 \
+#       --dump-state out.json --screenshot out.png
+#
+# `--time 0.5` is not decoration. It is the whole point: at `clock.day = 1.000`
+# the sky is at full strength, so the wall plane behind the cut is the only thing
+# in frame that the decay rule can be seen acting on.
+#
+# Measured against `dig-a-shaft.txt` run with the identical flags — both scripts
+# leave the body at (-615, 210), so the two dumped windows are the same 21x21
+# block of cells and compare row for row:
+#
+#   dig-a-shaft:        154 air cells, 61 of them with a non-zero `cells.wall`
+#   undercut (this):    179 air cells, 86 of them with a non-zero `cells.wall`
+#
+# So the sideways cut is worth 25 more cells of exposed wall plane, and that is
+# the surface the rule is written about. Both numbers reproduced exactly across
+# two runs, along with `drops` at 8.
+#
+# Why not walk along the cut and make it longer: it was tried. Adding `left 30f`
+# between strokes moves the body nowhere — it is standing in a one-cell shaft
+# with rock on both sides — and the extra strokes only re-dig cells already gone
+# while the snow above slumps back in. The measured result was WORSE, 66 exposed
+# cells against 86. The short script is not the lazy version of a longer one.
+
+# Straight down first, exactly as `dig-a-shaft.txt` does, and for its reason:
+# `aim` is an offset from the body's CENTRE in px, and the starting pick reaches
+# 4 cells, which is 20 px.
+aim 0 20
+dig 4s
+
+# Let the shaft finish collapsing before cutting into its side. Digging through
+# falling snow removes cells that were about to move anyway.
+wait 60f
+
+# Now the two side walls, at body height, from the bottom of the shaft. Left and
+# right rather than one deep cut: a cut on one side alone leaves the frame
+# lopsided, and the wall plane wants to be visible on both sides of the body for
+# a picture to be worth looking at.
+aim -20 0
+dig 3s
+aim 20 0
+dig 3s
+
+# Settle the loose snow overhead so the capture is not of material in mid-fall.
+wait 60f
