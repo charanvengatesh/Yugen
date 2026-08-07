@@ -2,8 +2,9 @@
 # the world stops being a cave system and starts being the endless deep.
 # Nothing here carries a `biomes` list — the surface biome overhead is
 # irrelevant this far down. Depth, predicates and immunities do the placing; see
-# the note in content/mobs/cavern.mob on how each creature is fitted to one of
-# the five underground layers in src/sim/biomes.ts without a `layers` field.
+# the note in content/mobs/cavern.toml on how each creature is fitted to one of
+# the six underground layers in crates/godgame-core/src/sim/biomes.rs without a
+# `layers` field.
 #
 # Authoring rules: content/mobs/surface.mob. Rationale: tools/contentc/schema/mob.ts.
 

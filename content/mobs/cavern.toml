@@ -10,10 +10,11 @@
 # in sync with the world generator.
 #
 # ---- ADDRESSING THE UNDERGROUND LAYERS -------------------------------------
-# `biomes` names a SURFACE biome, and the five underground layers in
-# src/sim/biomes.ts (caverns, grottos, magma, geode, fungal) are chosen from
-# their own climate field at their own frequency — so a Desert can sit on top of
-# flooded grottos and nothing in a `biomes` list can express "down there".
+# `biomes` names a SURFACE biome, and the six underground layers in
+# crates/godgame-core/src/sim/biomes.rs (caverns, grottos, magma, geode, fungal,
+# rime) are chosen from their own climate field at their own frequency — so a
+# Desert can sit on top of flooded grottos and nothing in a `biomes` list can
+# express "down there".
 # Until the spawn picker learns about layers, a creature is fitted to one by the
 # predicates that already exist and that the layer's own definition implies:
 #
@@ -21,6 +22,10 @@
 #   grottos  a depth window in the flooded band, `gravityScale 0` to swim it
 #   geode    a deep window, and immunities that match a body made of crystal
 #   fungal   a deep window and `immune poison acid` — the layer pools acid
+#   rime     NOTHING YET. The layer is newer than this list and no creature here
+#            is fitted to it, so the Rime Hollows are populated only by whatever
+#            the depth bands place everywhere. Wanting something that belongs to
+#            the ice specifically means a new creature, not a new predicate.
 #
 # That is a fit, not a gate: a slagworm can in principle surface in a dry deep
 # tunnel that happens to have lava nearby. Making it exact needs a `layers`

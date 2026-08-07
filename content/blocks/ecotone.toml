@@ -1,10 +1,16 @@
 # Ecotone blocks: transitional ground painted at specific biome adjacencies.
-# Each is resolved BY STRING ID through a pick(...) fallback chain in biomes.ts,
+# Each is named by the ECOTONES table in crates/godgame-core/src/sim/biomes.rs,
 # so adding these records is what promotes a seam off its fallback material.
+#
+# Not ONLY ecotones any more: Badlands caps in gravel and floors on clay, so two
+# of these are a biome's own signature as well as a seam between other biomes.
+# That is why they are still here rather than moved -- a material earns its way
+# into this file by being a transition, and keeps its place when it grows up.
 # Every one is deliberately off-hue from the fallback it replaces, otherwise the
 # seam stays invisible and the whole exercise is a no-op.
 
-# desert|plains, plains|savanna, desert|savanna — dusty hardpan.
+# desert|plains, plains|savanna, desert|savanna, badlands|savanna — dusty
+# hardpan, and the Badlands' own topsoil cap.
 # Was falling back to sandstone [200,175,120]; grey pebbles read as a scree band
 # between the tan desert and the green plain. A powder, like sand/ash: loose
 # rubble slumps. Heavier than sand so it sinks through it, and it does not melt —
@@ -23,7 +29,8 @@ tags = ["rock", "diggable", "buildable"]
 heat.conduct = 50
 drop = [{ item = "flint", count = 1, chance = 0.1 }]
 
-# jungle|plains, savanna|swamp — sun-baked clay pan.
+# jungle|plains, savanna|swamp, badlands|plains — sun-baked clay pan, and the
+# strata the Badlands is eroded out of.
 # Was falling back to sticky/dirt; a red-ochre, low-variance solid so it reads as
 # a smooth pan rather than more brown soil. Solid and cohesive (clay holds a
 # bank; it does not pour). Fires hard in enough heat, like a kiln.
