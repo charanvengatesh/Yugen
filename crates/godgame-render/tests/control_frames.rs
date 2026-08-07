@@ -92,6 +92,12 @@ struct Shot {
     depth: f32,
     /// Carve a room at the focus and floor it, so there is somewhere to stand.
     carve: bool,
+    /// Pour lava along the floor of the carved room.
+    ///
+    /// The only way to get a POINT light in a dark space. Everything else in the
+    /// set is either unlit or wall-to-wall emitter, and neither judges a bloom,
+    /// a falloff or a coloured splat -- which is most of the lighting stack.
+    lava_floor: bool,
 }
 
 /// The set.
@@ -107,6 +113,10 @@ struct Shot {
 ///   - `ore-chamber` — ore against rock. `BIOME_AMBIENT_ALPHA` was retuned from
 ///     0.6 to 0.05 because the veins had become invisible; a dark repaint pushes
 ///     the same nerve from the other side, and this is the frame that tells you.
+///   - `lit-chamber` — the frame the whole lighting stack is judged on: a pool
+///     of lava in a carved room, deep enough that the sky contributes nothing.
+///     Bloom, falloff shape and the coloured splat are invisible in every other
+///     frame here, because the rest are either unlit or wall-to-wall emitter.
 ///   - `night` / `dusk` — the atmosphere's range. Dusk at 0.735 is the measured
 ///     half-lit point, not 0.75.
 ///   - `seed777` / `seed42` — a different biome and a different surface height,
@@ -118,6 +128,7 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 0.0,
         carve: false,
+        lava_floor: false,
     },
     Shot {
         name: "night",
@@ -125,6 +136,7 @@ static SHOTS: &[Shot] = &[
         time: Some(0.0),
         depth: 0.0,
         carve: false,
+        lava_floor: false,
     },
     Shot {
         name: "dusk",
@@ -132,6 +144,7 @@ static SHOTS: &[Shot] = &[
         time: Some(0.735),
         depth: 0.0,
         carve: false,
+        lava_floor: false,
     },
     Shot {
         name: "deep-chamber",
@@ -139,6 +152,7 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 900.0,
         carve: true,
+        lava_floor: false,
     },
     Shot {
         name: "ore-chamber",
@@ -146,6 +160,7 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 1500.0,
         carve: true,
+        lava_floor: false,
     },
     Shot {
         name: "lava-sea",
@@ -153,6 +168,15 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 2900.0,
         carve: false,
+        lava_floor: false,
+    },
+    Shot {
+        name: "lit-chamber",
+        seed: None,
+        time: None,
+        depth: 900.0,
+        carve: true,
+        lava_floor: true,
     },
     Shot {
         name: "seed777",
@@ -160,6 +184,7 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 0.0,
         carve: false,
+        lava_floor: false,
     },
     Shot {
         name: "seed42",
@@ -167,6 +192,7 @@ static SHOTS: &[Shot] = &[
         time: None,
         depth: 0.0,
         carve: false,
+        lava_floor: false,
     },
 ];
 
@@ -197,7 +223,7 @@ fn the_control_set_is_captured_and_measured() {
                 shot.name
             ));
         }
-        if shot.name == "lava-sea" && !lava {
+        if (shot.name == "lava-sea" || shot.lava_floor) && !lava {
             problems.push(format!(
                 "{}: no lava within the room at this depth, so the bloom's worst \
                  case is not in the frame that exists to show it",
@@ -264,7 +290,7 @@ fn capture(shot: &Shot) -> (Frame, bool, bool) {
     }
 
     if shot.carve {
-        carve(&mut app, focus_x, target_y);
+        carve(&mut app, focus_x, target_y, shot.lava_floor);
         for _ in 0..SETTLE {
             app.world_mut().resource_mut::<WorldFocus>().y = target_y;
             app.update();
@@ -282,7 +308,7 @@ fn capture(shot: &Shot) -> (Frame, bool, bool) {
 /// The floor is stated rather than hoped for, which is the fix `lit_scene.rs`
 /// records: 900 px down, whatever worldgen left below the carve is as likely to
 /// be a void as rock, and over a void the room drains into the dark.
-fn carve(app: &mut App, focus_x: f32, focus_y: f32) {
+fn carve(app: &mut App, focus_x: f32, focus_y: f32, lava_floor: bool) {
     let stone = code_of("stone");
     let (cx, cy) = (cell_at(focus_x), cell_at(focus_y));
     let mut world = app.world_mut().resource_mut::<SimWorld>();
@@ -299,6 +325,20 @@ fn carve(app: &mut App, focus_x: f32, focus_y: f32) {
             .level
             .grid
             .set_world(WorldCell::new(cx + dx, cy + ROOM_H), stone);
+    }
+    // A POOL, not a point. One emitter shows the falloff; only a broad source
+    // shows whether the pass clips, which is what `lit_scene.rs` was built to
+    // catch and what it caught.
+    if lava_floor {
+        let lava = code_of("lava");
+        for dy in (ROOM_H - 4)..ROOM_H {
+            for dx in -ROOM_W..ROOM_W {
+                world
+                    .level
+                    .grid
+                    .set_world(WorldCell::new(cx + dx, cy + dy), lava);
+            }
+        }
     }
 }
 

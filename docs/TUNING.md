@@ -339,29 +339,29 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `BIOME_COUNT` | `8` | How many biomes compete for a column. | 174 |
-| `VOLCANIC_INDEX` | `Biome::Volcanic as usize` | Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate. | 314 |
-| `UG_COUNT` | `5` | How many underground layers compete for a column. | 416 |
-| `TEMP_FREQ` (private) | `0.0011` | Climate fields | 485 |
-| `TEMP_ANCHOR` (private) | `41.7` | Climate fields | 486 |
-| `MOIST_FREQ` (private) | `0.0017` | Climate fields | 487 |
-| `MOIST_ANCHOR` (private) | `613.3` | Climate fields | 488 |
-| `VOLC_FREQ` (private) | `0.00062` | Climate fields | 489 |
-| `VOLC_ANCHOR` (private) | `907.1` | Climate fields | 490 |
-| `CLIMATE_OCTAVES` (private) | `2` | Climate fields | 491 |
-| `CLIMATE_SPREAD` (private) | `1.5` | Contrast gain applied to a raw fBm value before it becomes a 0..1 climate coordinate. | 497 |
-| `BLEND_WIDTH` (private) | `0.085` | Width, in climate-distance units, of the band around a boundary where two (or more) biomes both contribute. | 502 |
-| `VOLC_SPREAD` (private) | `0.5` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 512 |
-| `VOLC_T0` (private) | `0.835` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 513 |
-| `VOLC_D0` (private) | `0.19` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 514 |
-| `VOLC_GAIN` (private) | `1.65` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 515 |
-| `POOL_MAX` (private) | `if BIOME_COUNT > UG_COUNT { BIOME_COUNT } else { UG_COUNT }` | Capacity of every scratch array below: the larger of the two palettes. | 567 |
-| `CAP_BASE` (private) | `6.0` | Base topsoil thickness in cells; scaled per biome. | 871 |
-| `UG_FADE_START` (private) | `22.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 876 |
-| `UG_FADE_SPAN` (private) | `46.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 877 |
-| `UG_FADE_JITTER` (private) | `13.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 878 |
-| `UG_JITTER_FREQ` (private) | `0.013` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 879 |
-| `UG_JITTER_ANCHOR` (private) | `317.4` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 880 |
+| `BIOME_COUNT` | `9` | How many biomes compete for a column. | 177 |
+| `VOLCANIC_INDEX` | `Biome::Volcanic as usize` | Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate. | 355 |
+| `UG_COUNT` | `6` | How many underground layers compete for a column. | 469 |
+| `TEMP_FREQ` (private) | `0.0011` | Climate fields | 562 |
+| `TEMP_ANCHOR` (private) | `41.7` | Climate fields | 563 |
+| `MOIST_FREQ` (private) | `0.0017` | Climate fields | 564 |
+| `MOIST_ANCHOR` (private) | `613.3` | Climate fields | 565 |
+| `VOLC_FREQ` (private) | `0.00062` | Climate fields | 566 |
+| `VOLC_ANCHOR` (private) | `907.1` | Climate fields | 567 |
+| `CLIMATE_OCTAVES` (private) | `2` | Climate fields | 568 |
+| `CLIMATE_SPREAD` (private) | `1.5` | Contrast gain applied to a raw fBm value before it becomes a 0..1 climate coordinate. | 574 |
+| `BLEND_WIDTH` (private) | `0.085` | Width, in climate-distance units, of the band around a boundary where two (or more) biomes both contribute. | 579 |
+| `VOLC_SPREAD` (private) | `0.5` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 589 |
+| `VOLC_T0` (private) | `0.835` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 590 |
+| `VOLC_D0` (private) | `0.19` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 591 |
+| `VOLC_GAIN` (private) | `1.65` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 592 |
+| `POOL_MAX` (private) | `if BIOME_COUNT > UG_COUNT { BIOME_COUNT } else { UG_COUNT }` | Capacity of every scratch array below: the larger of the two palettes. | 644 |
+| `CAP_BASE` (private) | `6.0` | Base topsoil thickness in cells; scaled per biome. | 948 |
+| `UG_FADE_START` (private) | `22.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 953 |
+| `UG_FADE_SPAN` (private) | `46.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 954 |
+| `UG_FADE_JITTER` (private) | `13.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 955 |
+| `UG_JITTER_FREQ` (private) | `0.013` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 956 |
+| `UG_JITTER_ANCHOR` (private) | `317.4` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 957 |
 
 ### `crates/godgame-core/src/sim/chunk_store.rs`
 
@@ -397,7 +397,7 @@ only the exported surface is held to the rule.
 | `CAVERN` (private) | `CAVERN_DEPTH as f64` |  | 173 |
 | `DEEP` (private) | `DEEP_DEPTH as f64` |  | 174 |
 | `N_ORES` (private) | `ORES.len()` |  | 241 |
-| `MEMO_N` (private) | `8` | Per-column memo | 317 |
+| `MEMO_N` (private) | `8` | Per-column memo | 322 |
 
 ### `crates/godgame-core/src/sim/decor/structures.rs`
 
@@ -868,14 +868,14 @@ only the exported surface is held to the rule.
 | `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 807 |
 | `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 809 |
 | `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 834 |
-| `UNDERWORLD_ALPHA` (private) | `0.20` | Strength of the underworld glow at full depth. | 836 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 870 |
-| `VIGNETTE_REBAKE_EPS` (private) | `0.002` | How far `depth` or `day` must move before the vignette is baked again. | 1887 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2211 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2213 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2225 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2240 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2242 |
+| `UNDERWORLD_ALPHA` (private) | `0.10` | Strength of the underworld glow at full depth. | 864 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 898 |
+| `VIGNETTE_REBAKE_EPS` (private) | `0.002` | How far `depth` or `day` must move before the vignette is baked again. | 1915 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2239 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2241 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2253 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2268 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2270 |
 
 ### `crates/godgame-render/src/lowres.rs`
 

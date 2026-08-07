@@ -833,7 +833,35 @@ const VIGNETTE_RGB_DEPTH: [f32; 3] = [20.0, 20.0, 0.0];
 /// regression rather than something inherited.
 const UNDERWORLD_GLOW_DEPTH: f32 = 0.62;
 /// Strength of the underworld glow at full depth.
-const UNDERWORLD_ALPHA: f32 = 0.20;
+///
+/// **This is coupled to how bright the PALETTE is, and it is not obvious that it
+/// would be.** The glow is a CONSTANT addition, so what it does to a frame
+/// depends entirely on what it is added to. Halve the world's base luma and the
+/// same wash is twice as loud in relative terms; every material in the deep
+/// converges on the same red-brown and the distinctions authored into them stop
+/// being visible.
+///
+/// That is exactly what happened. `content/PALETTE.md` took the palette's mean
+/// luma from 128.7 to 95.5, and the ore chamber — the frame that exists to watch
+/// ore-against-rock legibility, and the specific failure the 0.6 -> 0.05
+/// `BIOME_AMBIENT_ALPHA` retune was about — lost 814 distinct colours and rose
+/// from 7.7% to 9.6% single-colour dominance. The gold veins were washing out.
+///
+/// Measured on that frame, sweeping this alone:
+///
+/// ```text
+///   alpha    0.20    0.14    0.10    0.06    0.00
+///   distinct 2 797   3 259   3 698   4 385   6 496
+///   stddev   23.18   24.40   25.45   26.80   30.47
+/// ```
+///
+/// 0.10 is where the chamber passes its own PRE-repaint numbers (3 698 against
+/// 3 611 distinct, 25.45 against 23.03 stddev) while the deep still visibly
+/// reads as lit from below, which is the whole reason this constant exists. 0.00
+/// scores better on every number and is wrong: it is not a dark cave any more,
+/// it is a flat one. Judge this on the picture, underground, as with everything
+/// else in this module.
+const UNDERWORLD_ALPHA: f32 = 0.10;
 /// The underworld glow's colour, 0..255.
 const UNDERWORLD_RGB: [f32; 3] = [96.0, 30.0, 14.0];
 
