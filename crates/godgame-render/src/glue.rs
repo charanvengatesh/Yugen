@@ -30,7 +30,7 @@ use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_s
 use crate::scenes::Scene;
 use crate::sprite::SpriteAtlases;
 use crate::ui::{IconAtlas, Icons, UiScreen};
-use crate::world::{SimSet, SimWorld, WorldFocus, build_world};
+use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
 ///
@@ -282,17 +282,35 @@ fn death_ends_the_run(
 /// `OnEnter` and not a system that watches the state: Bevy re-fires `OnEnter`
 /// when a state is `set` to the value it already holds, which would rebuild the
 /// world under a live player. [`crate::scenes`] documents that trap and
+/// Everything a fresh run resets, plus where its world is kept. Bundled so the
+/// system stays inside clippy's argument budget — the same `SystemParam` trick
+/// `light`'s solve and `debug`'s gather use.
+#[derive(bevy::ecs::system::SystemParam)]
+struct RunState<'w> {
+    body: Option<ResMut<'w, PlayerBody>>,
+    arrows: Option<ResMut<'w, ArrowPool>>,
+    creatures: Option<ResMut<'w, Creatures>>,
+    ground: Option<ResMut<'w, GroundItems>>,
+    pack: Option<ResMut<'w, Pack>>,
+    save: Res<'w, WorldSave>,
+}
+
 /// [`confirm_advances_the_scene`] is the only thing that sets this state.
-fn start_a_run(
-    mut commands: Commands,
-    mut focus: ResMut<WorldFocus>,
-    body: Option<ResMut<PlayerBody>>,
-    arrows: Option<ResMut<ArrowPool>>,
-    creatures: Option<ResMut<Creatures>>,
-    ground: Option<ResMut<GroundItems>>,
-    pack: Option<ResMut<Pack>>,
-) {
-    let world = build_world(SEED);
+fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: RunState) {
+    let RunState {
+        body,
+        arrows,
+        creatures,
+        ground,
+        pack,
+        save,
+    } = &mut run;
+    // Through `WorldSave` and not `build_world`, which is the unsaved path.
+    // Missing this meant `--world` opened a directory, logged it, and then the
+    // FIRST transition into `Playing` threw that world away and built an
+    // unsaved one over the top. 22 chunks were "persisted" — into memory — and
+    // not one file appeared on disk, while every log line said it had worked.
+    let world = build_world_saved(SEED, save.0.as_deref());
     *focus = WorldFocus {
         x: world.level.spawn.x,
         y: world.level.spawn.y,
@@ -303,23 +321,23 @@ fn start_a_run(
     // scene machine without the whole game — the capture test and the examples
     // both do. A missing one means that system is not in the app, not that
     // something failed.
-    if let Some(mut body) = body {
+    if let Some(body) = body {
         body.reset();
     }
-    if let Some(mut arrows) = arrows {
+    if let Some(arrows) = arrows {
         // Every arrow in flight belongs to the life that fired it. `reset` used
         // to do this, back when the body owned its pool; it does not own one now,
         // so the drop is here, beside the reset it belongs to.
         arrows.clear();
     }
-    if let Some(mut creatures) = creatures {
+    if let Some(creatures) = creatures {
         creatures.clear();
     }
-    if let Some(mut ground) = ground {
+    if let Some(ground) = ground {
         ground.clear();
     }
-    if let Some(mut pack) = pack {
-        give_starting_kit(&mut pack);
+    if let Some(pack) = pack {
+        give_starting_kit(pack);
     }
 }
 
@@ -479,8 +497,8 @@ mod tests {
         // `start_a_run` regenerates rather than repairing, and the whole reason
         // that is safe is that a world is a pure function of its seed. If it ever
         // stops being one, a restart would silently drop you somewhere else.
-        let first = build_world(SEED);
-        let again = build_world(SEED);
+        let first = build_world_saved(SEED, None);
+        let again = build_world_saved(SEED, None);
         assert_eq!(first.level.spawn.x, again.level.spawn.x);
         assert_eq!(first.level.spawn.y, again.level.spawn.y);
         assert_eq!(first.seed, again.seed);

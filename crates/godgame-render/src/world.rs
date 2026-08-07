@@ -48,9 +48,10 @@ use bevy::prelude::*;
 
 use godgame_core::config::{MAX_STEPS_PER_FRAME, SEED, STEP_DT, cell_at};
 use godgame_core::sim::automata::Automata;
-use godgame_core::sim::chunk_store::ChunkStore;
+use godgame_core::sim::chunk_store::{ChunkPersistence, ChunkStore};
 use godgame_core::sim::grid::CellGrid;
 use godgame_core::sim::level::{Level, window_size};
+use godgame_core::sim::save::DiskChunkPersistence;
 use godgame_core::sim::window::WindowManager;
 use godgame_core::sim::worldgen::{SPAWN_COL, walkable_spawn};
 
@@ -127,6 +128,9 @@ impl Plugin for WorldSimPlugin {
         // than round-tripping an f32 1/120 back through a division.
         app.insert_resource(Time::<Fixed>::from_seconds(f64::from(STEP_DT)))
             .init_resource::<WorldFocus>()
+            // Default is `None` — unsaved, which is what every milestone before
+            // this one did. The binary's `--world` overwrites it before Startup.
+            .init_resource::<WorldSave>()
             .init_resource::<FixedStep>()
             .add_systems(Startup, (clamp_catch_up, spawn_world).chain())
             .configure_sets(FixedUpdate, (SimSet::Stream, SimSet::Simulate).chain())
@@ -137,8 +141,48 @@ impl Plugin for WorldSimPlugin {
                     simulate.in_set(SimSet::Simulate),
                 )
                     .run_if(resource_exists::<SimWorld>),
+            )
+            // `Last`, so a frame's edits are already in the grid, and gated on a
+            // save directory existing so an unsaved run pays nothing at all.
+            .add_systems(
+                Last,
+                autosave
+                    .run_if(resource_exists::<SimWorld>)
+                    .run_if(|save: Res<WorldSave>| save.0.is_some()),
             );
     }
+}
+
+/// Flush the world to disk on an interval, and once more on the way out.
+///
+/// Two triggers rather than one, because neither is enough on its own. An
+/// interval alone loses up to [`AUTOSAVE_EVERY_S`] of digging every time somebody
+/// quits normally, which is most of the time. Quit alone loses EVERYTHING if the
+/// process dies without getting there — a crash, a kill, a lid closing on a
+/// laptop that never wakes — which is rarer and much worse.
+///
+/// The exit path reads `AppExit` in `Last` rather than hooking a shutdown
+/// callback: Bevy writes that message and then finishes the frame, so this is
+/// still a normal system with normal access to the world, and there is exactly
+/// one code path that saves.
+fn autosave(
+    time: Res<Time>,
+    mut world: ResMut<SimWorld>,
+    mut since: Local<f32>,
+    exiting: MessageReader<AppExit>,
+) {
+    *since += time.delta_secs();
+    let leaving = !exiting.is_empty();
+    if !leaving && *since < AUTOSAVE_EVERY_S {
+        return;
+    }
+    *since = 0.0;
+    let SimWorld { level, window, .. } = &mut *world;
+    window.flush(&level.grid);
+    info!(
+        "AUTOSAVE fired leaving={leaving} persisted={}",
+        window.store().persisted_len()
+    );
 }
 
 /// Cap how much simulation a single slow frame may try to catch up on.
@@ -148,14 +192,38 @@ fn clamp_catch_up(mut virt: ResMut<Time<Virtual>>) {
     ));
 }
 
+/// Seconds between autosaves while a world with a save directory is running.
+///
+/// Thirty. The flush is cheap — only chunks that differ from worldgen are
+/// written, and only the ones marked diverged reach the disk — and the cost of
+/// getting this wrong is asymmetric: a save that is thirty seconds stale after a
+/// crash is a annoyance, and one that never happened is the run.
+const AUTOSAVE_EVERY_S: f32 = 30.0;
+
+/// Where a world's chunk edits are kept, if anywhere.
+///
+/// Inserted by the host BEFORE `Startup` — `--world DIR` on the binary — and
+/// absent by default, which is the behaviour every previous milestone had: edits
+/// survive eviction and revisiting but not the process.
+///
+/// A resource and not an argument to [`build_world`], because there are TWO
+/// places a world is built — `spawn_world` here and `glue::start_a_run` on every
+/// entry to `Scene::Playing` — and a path threaded through one of them is a path
+/// the other silently drops. It did: the first wiring passed the directory to
+/// `spawn_world` only, so opening the game with `--world` logged the save
+/// directory and then immediately replaced that world with an unsaved one. Both
+/// read this resource now.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct WorldSave(pub Option<std::path::PathBuf>);
+
 /// Generate the world and fill the streaming window once, at load.
 ///
 /// This is the expensive startup step — `WindowManager::init` generates all
 /// `WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y` chunks — and it is deliberately
 /// synchronous. A loading screen is a later milestone's problem; correctness of
 /// the first frame is this one's.
-fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>) {
-    let world = build_world(SEED);
+fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>, save: Res<WorldSave>) {
+    let world = build_world_saved(SEED, save.0.as_deref());
     *focus = WorldFocus {
         x: world.level.spawn.x,
         y: world.level.spawn.y,
@@ -175,6 +243,19 @@ fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>) {
 /// `CellGrid`. The world is a pure function of the seed, so what comes back is
 /// the same terrain, minus every hole that was dug in it.
 pub fn build_world(seed: u32) -> SimWorld {
+    build_world_saved(seed, None)
+}
+
+/// [`build_world`], with somewhere to keep the player's edits.
+///
+/// `None` is the in-memory backend every milestone before this one used: edits
+/// survive eviction and revisiting, and die with the process. `Some(dir)` puts
+/// them on disk, so the hole you dug is there when you come back.
+///
+/// A failure to open the directory falls back to memory and says so rather than
+/// refusing to start. A player who mistyped a path wants to play; what they must
+/// not get is a world that silently pretends to save.
+pub fn build_world_saved(seed: u32, save: Option<&std::path::Path>) -> SimWorld {
     // `walkable_spawn` and not `spawn_point`: the latter asks the heightmap
     // where the land is and the heightmap knows nothing about the trees the
     // decorators put on it. Every leaf material is authored `collides = true`,
@@ -186,7 +267,27 @@ pub fn build_world(seed: u32) -> SimWorld {
     let (cols, rows) = window_size();
     let mut grid = CellGrid::new(cols, rows);
 
-    let mut window = WindowManager::new(ChunkStore::new(seed));
+    let store = match save {
+        Some(dir) => match DiskChunkPersistence::open(dir.join("chunks")) {
+            Ok(disk) => {
+                info!(
+                    "world save: {} ({} chunks on disk)",
+                    dir.display(),
+                    disk.len()
+                );
+                ChunkStore::with_persistence(seed, Box::new(disk))
+            }
+            Err(e) => {
+                error!(
+                    "world save: cannot use {}: {e} — playing unsaved",
+                    dir.display()
+                );
+                ChunkStore::new(seed)
+            }
+        },
+        None => ChunkStore::new(seed),
+    };
+    let mut window = WindowManager::new(store);
     window.init(&mut grid, cell_at(spawn.x), cell_at(spawn.y));
 
     let mut automata = Automata::new();

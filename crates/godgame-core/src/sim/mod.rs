@@ -14,5 +14,6 @@ pub mod materials;
 pub mod noise;
 pub mod reactions;
 pub mod rng;
+pub mod save;
 pub mod window;
 pub mod worldgen;

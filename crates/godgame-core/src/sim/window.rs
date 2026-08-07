@@ -319,6 +319,26 @@ impl WindowManager {
         }
     }
 
+    /// Write the whole live window back to the store, then push every diverged
+    /// chunk through to persistence.
+    ///
+    /// The one call a durable backend needs and the trait cannot imply.
+    /// `ChunkStore` is a write-back cache: a chunk reaches persistence when the
+    /// window shifts far enough to evict it, which means a player who digs a
+    /// hole and quits where they stand has written nothing at all. `ChunkStore`'s
+    /// own `flush` has carried a comment since the port saying it is "the hook a
+    /// durable backend needs on shutdown or manual save"; this is the half of it
+    /// that lives up here, because the store cannot see the LIVE grid and the
+    /// freshest edits are in exactly that.
+    ///
+    /// Cheap when nothing changed: `save_slot` only writes a chunk whose
+    /// contents differ from what worldgen would produce, and `flush` only
+    /// persists the ones marked diverged.
+    pub fn flush(&mut self, grid: &CellGrid) {
+        self.save_all(grid);
+        self.store_mut().flush();
+    }
+
     fn save_all(&mut self, grid: &CellGrid) {
         for cj in 0..WINDOW_CHUNKS_Y {
             for ci in 0..WINDOW_CHUNKS_X {

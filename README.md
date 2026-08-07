@@ -74,6 +74,7 @@ without a human at the keyboard:
 | `--play` | leave the title card at once; without it a capture photographs the menu |
 | `--script FILE` | drive the whole run from a verb-per-line file, on a pinned 60 Hz clock |
 | `--dump-state PATH` | write the simulation's state as JSON, for a diff rather than an eye |
+| `--world DIR` | keep this world's edits in DIR; without it nothing is saved |
 
 ## Testing
 

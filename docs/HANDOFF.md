@@ -176,6 +176,44 @@ It exists because of `§7.1`: three bugs whose shape was *a resource is declared
 read, and written by nothing*, one of which lit every biome identically for two
 milestones. The panel is the cheapest instrument that would have shown all three.
 
+### Saving: `--world DIR`
+
+Without it nothing is durable, which is what every milestone up to this one did.
+With it, `godgame_core::sim::save` puts each edited chunk in its own ~8 KB file
+under `DIR/chunks/`, and the hole you dug is there when you come back.
+
+`ChunkPersistence`'s doc has said since the port that "there is no durable save
+behind this trait" and that the boundary was narrow so adding one later would be
+"a new implementation of these three methods and no change anywhere else". That
+held — `DiskChunkPersistence` is that implementation. What it did NOT imply, and
+what cost two debugging rounds, is the rest of it:
+
+- **The store is a write-back cache.** A chunk reaches persistence when the
+  window shifts far enough to evict it, so a player who digs and quits where they
+  stand writes nothing. `WindowManager::flush` is the missing half — `ChunkStore`
+  already had a `flush` with zero callers and a comment saying it was "the hook a
+  durable backend needs"; the store cannot see the LIVE grid, and the freshest
+  edits are in exactly that. `world::autosave` calls it every 30 s and once more
+  on `AppExit`.
+- **A world is built in TWO places** — `world::spawn_world` at `Startup` and
+  `glue::start_a_run` on every entry to `Scene::Playing`. Passing the directory
+  to one of them means the other silently discards that world and builds an
+  unsaved one over the top. It did. The logs said the save directory was open,
+  22 chunks reported as persisted, and not one file existed.
+
+Both are pinned by
+`sim::save::an_edit_flushed_from_the_live_window_is_there_for_the_next_world`,
+which is headless and needs no renderer. To check the whole path instead, dig
+with a script and reload in a fresh process:
+
+```
+godgame --play --world /tmp/w --script scenarios/dig-a-shaft.txt --warmup 300 --dump-state a.json
+godgame --play --world /tmp/w --warmup 300 --dump-state b.json     # a second process
+```
+
+Compare `cells` by ABSOLUTE coordinate — the window moves between runs, so
+comparing them row by row compares two different places.
+
 ### The spawn is chosen by `walkable_spawn`, not `spawn_point`
 
 `spawn_point` asks the heightmap where the dry land is. The heightmap knows

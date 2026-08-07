@@ -40,7 +40,7 @@ use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
 use godgame_render::scenes::Scene;
-use godgame_render::world::{SimWorld, WorldFocus};
+use godgame_render::world::{SimWorld, WorldFocus, WorldSave};
 
 /// Frames to render before `--screenshot` captures, by default.
 ///
@@ -151,6 +151,8 @@ struct Args {
     debug_overlay: bool,
     /// Leave the title card immediately instead of waiting for a confirm key.
     play: bool,
+    /// Directory to keep this world's edits in. `None` plays unsaved.
+    world: Option<PathBuf>,
     /// Where `--dump-state` writes the simulation's state as JSON.
     dump_state: Option<PathBuf>,
     /// A parsed `--script FILE`: the whole run's input, frame by frame.
@@ -181,6 +183,11 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins(GodGameRenderPlugin);
+
+    // Before `Startup`, which is where the world is built from it.
+    if args.world.is_some() {
+        app.insert_resource(WorldSave(args.world.clone()));
+    }
 
     // Before the plugin group's `PostStartup` runs, which is the only thing
     // that reads it.
@@ -310,6 +317,7 @@ fn parse_args() -> Args {
         free_camera: false,
         debug_overlay: false,
         play: false,
+        world: None,
         dump_state: None,
         script: None,
         drive: None,
@@ -320,6 +328,10 @@ fn parse_args() -> Args {
             "--free-camera" => args.free_camera = true,
             "--debug-overlay" => args.debug_overlay = true,
             "--play" => args.play = true,
+            "--world" => {
+                let Some(dir) = argv.next() else { usage() };
+                args.world = Some(PathBuf::from(dir));
+            }
             "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
             "--drive" => {
                 let secs = argv.next().unwrap_or_else(|| usage());
@@ -384,9 +396,10 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: godgame [--screenshot PATH] [--dump-state PATH] [--script FILE] [--warmup FRAMES]\n\
+        "usage: godgame [--world DIR] [--screenshot PATH] [--dump-state PATH] [--script FILE] [--warmup FRAMES]\n\
          \x20              [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
     );
+    eprintln!("  --world DIR      keep this world's edits in DIR; without it nothing is saved");
     eprintln!("  --dump-state P   write the simulation's state to P as JSON, then carry on");
     eprintln!("  --script FILE    drive the run from a verb-per-line file; it ends the run");
     eprintln!("  --warmup N       with --script, frames to settle the world BEFORE the first verb");
