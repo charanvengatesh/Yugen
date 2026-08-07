@@ -65,6 +65,7 @@ pub mod mobs;
 pub mod particles;
 pub mod player;
 pub mod player_art;
+pub mod scene;
 pub mod scenes;
 pub mod shear;
 pub mod sky;

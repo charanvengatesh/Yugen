@@ -1,5 +1,20 @@
 # Scenarios
 
+> **Five of these rows are now gated.**
+> `crates/godgame-render/tests/scenarios.rs` runs the carved chamber, the lava
+> sea, the wall plane, the clock and "lava kills a body" through
+> `scene::ScenePlugin` — the same code path `--at` and `--edit` use — and
+> asserts the claim each row makes. The numbers below are still exact
+> measurements; the assertions are deliberately looser, because a chamber's
+> exact cell count is a function of the brush, the automata's settling and the
+> terrain it was cut into, and pinning 417 would fail on the next legitimate
+> change and be deleted within a month.
+>
+> Everything NOT in that file is still an observation in a document, which is
+> where a true statement goes to quietly stop being true. If you add a row, add
+> the assertion.
+
+
 A scenario is a named way of putting the game into a situation worth looking at.
 There are two kinds and the difference is whether input is involved:
 

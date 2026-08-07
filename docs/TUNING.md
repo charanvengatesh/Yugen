@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 586 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 587 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -937,6 +937,12 @@ only the exported surface is held to the rule.
 | `LEAN_DEADBAND` (private) | `0.005` | Below this the lean is treated as no lean at all. | 170 |
 | `POSE_COUNT` | `12` | How many poses there are. | 294 |
 
+### `crates/godgame-render/src/scene.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `ARRANGE_FRAMES` | `8` | Frames a caller should allow for [`arrange_the_scene`] to finish. | 154 |
+
 ### `crates/godgame-render/src/shear.rs`
 
 | Constant | Value | Meaning | Line |
@@ -1020,7 +1026,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 338 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 316 |
 
 ### `crates/godgame-render/src/worldselect.rs`
 
@@ -1033,5 +1039,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 59 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 60 |
 

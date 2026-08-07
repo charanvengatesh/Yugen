@@ -313,6 +313,31 @@ Four things about them are load-bearing:
 diff its dump against a control run with the verb removed; that is how the dig
 above was confirmed to have removed exactly the two cells it aimed at.
 
+### Scenarios are gated, and the scene path is shared
+
+`crates/godgame-render/src/scene.rs` owns `StartAt`, `StartupEdit` and
+`arrange_the_scene`. It used to live in the binary, which meant a scenario proved
+at a terminal could never become a gate: an integration test would have had to
+reimplement it, including three orderings that took three attempts to get right.
+
+`tests/scenarios.rs` now runs five of `scenarios/README.md`'s rows through that
+same path and asserts what each one claims — a carved chamber opens (417 air of
+441 against a control of 58), y=3000 is a lava sea (387 lava), underground air
+has a wall behind it and surface air does not (417/417 against 0/344), the clock
+reaches midnight/noon/dawn/dusk, and a body in lava dies while one in a chamber
+does not (0 vs 100 health).
+
+Two things to know before adding one:
+
+- **The bounds are loose on purpose.** The catalogue's figures are exact and the
+  assertions are not, for `frame_capture.rs`'s reason: pinning 417 would fail on
+  the next legitimate change to the brush, the automata or the terrain.
+- **Sample where the scenario actually is.** The first version of the wall-plane
+  test sampled (0, 0) when there was no body and no `--at`, which is open sky a
+  hundred cells above the spawn. It reported 441 of 441 air with nothing behind
+  it and PASSED, because open sky genuinely has no wall. The claim was true and
+  about nothing.
+
 ### Jumping straight to a situation: `--at`, `--time`, `--edit`
 
 ```

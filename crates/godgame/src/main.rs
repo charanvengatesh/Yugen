@@ -31,8 +31,8 @@ use bevy::window::{PresentMode, WindowResolution};
 
 use godgame_core::config::{PLAYER_H, PLAYER_W};
 use godgame_core::script::Script;
-use godgame_core::sim::edits::{EditMode, apply_brush};
-use godgame_core::sim::materials::{CellId, EMPTY, code_of};
+use godgame_core::sim::edits::EditMode;
+use godgame_core::sim::materials::{EMPTY, code_of};
 use godgame_render::GodGameRenderPlugin;
 use godgame_render::daynight::{DayNight, WorldClock};
 use godgame_render::dump::{DumpState, dump_when_ready};
@@ -40,8 +40,9 @@ use godgame_render::input::{CursorOverride, PlayerIntent};
 use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
+use godgame_render::scene::{ScenePlugin, StartAt, StartupEdit};
 use godgame_render::scenes::Scene;
-use godgame_render::world::{SimWorld, StartAt, WorldFocus, WorldSave, place_body};
+use godgame_render::world::{SimWorld, WorldFocus, WorldSave};
 use godgame_render::worldselect::WorldPicker;
 
 /// Frames to render before `--screenshot` captures, by default.
@@ -67,30 +68,6 @@ struct ScreenshotRun {
     path: PathBuf,
     frames_left: u32,
     taken: bool,
-}
-
-/// One brush stroke stamped at load, from `--edit MODE CX CY R`.
-///
-/// The brush is a mouse verb, and a `--screenshot` run has no mouse. This is the
-/// same stroke [`godgame_render::input`] would emit, taken from the command line
-/// instead: it is what lets an agent or CI show that digging changes the world
-/// and that the automata reacts to the hole, rather than assert it from a test
-/// that never drew a pixel.
-///
-/// `cx`/`cy` are cells RELATIVE TO THE VIEW CENTRE, because that is the only
-/// coordinate a caller knows without first reading the spawn point out of the
-/// worldgen.
-#[derive(Resource, Clone, Copy, Debug)]
-struct StartupEdit {
-    mode: EditMode,
-    /// Material to place. Ignored when digging.
-    mat: CellId,
-    /// Cells right of the view centre.
-    cx: i32,
-    /// Cells below the view centre.
-    cy: i32,
-    /// Disc radius in cells.
-    r: i32,
 }
 
 /// Hold "run right" and tap jump on a timer, with no hand on the keyboard.
@@ -263,10 +240,10 @@ fn main() -> AppExit {
         app.insert_resource(edit);
     }
     if args.edit.is_some() || args.start_at.is_some() {
-        app.add_systems(
-            Update,
-            arrange_the_scene.run_if(resource_exists::<SimWorld>),
-        );
+        // The shared path, not a copy. `crate::scene`'s header says why: a
+        // scenario proved at a terminal has to be reachable from a test, and
+        // the ordering inside it took three attempts to get right.
+        app.add_plugins(ScenePlugin);
     }
 
     // Started ON rather than toggled, because a headless `--screenshot` run has
@@ -503,70 +480,6 @@ fn usage() -> ! {
         "  --warmup N     frames to render before --screenshot fires (default {SCREENSHOT_WARMUP_FRAMES}); creatures need a few hundred"
     );
     std::process::exit(2)
-}
-
-/// Put the scene in the state `--at` and `--edit` asked for.
-///
-/// ONE system, and not three chained ones, because the steps are not
-/// independent and an ordering alone was not enough. Three versions of this
-/// looked right and were not:
-///
-/// 1. Place the body, then carve. The body is standing in solid rock and the
-///    collision resolver ejects it before the carve that was meant to make room
-///    lands — 260 px of drift, into terrain nobody asked to see.
-/// 2. Carve, then place the body. `--edit`'s coordinates are cells from the VIEW
-///    CENTRE, and the view is still at the spawn, so `--at 0,900 --edit dig 0 0
-///    12` carved at cell (-127, 32) — a thousand cells from the cave it was
-///    supposed to make.
-/// 3. Aim the camera, carve, then place, all on one frame. The camera moves
-///    instantly and the WORLD does not: the streaming window still covered the
-///    spawn, so the brush was clipped away entirely and the "cave" was solid
-///    stone with the body ejected out of the top of it.
-///
-/// So it waits. The focus moves on the first frame, `stream_window` brings the
-/// world to it over the next few, and nothing is stamped until the grid actually
-/// holds the cell the stroke is aimed at. Then the carve and the placement
-/// happen together, in that order, on one frame — and both resources are
-/// removed, because a placement that ran every frame would pin the body and no
-/// scenario could walk away from it.
-///
-/// The brush is the same [`apply_brush`] the mouse path calls, for the reason
-/// `--edit` has always given: a flag that wrote cells its own way could pass
-/// while the thing it demonstrates was broken.
-fn arrange_the_scene(
-    mut commands: Commands,
-    at: Option<Res<StartAt>>,
-    edit: Option<Res<StartupEdit>>,
-    mut focus: ResMut<WorldFocus>,
-    mut world: ResMut<SimWorld>,
-    body: Option<ResMut<PlayerBody>>,
-) {
-    // The camera first, and every frame until this system retires, so the
-    // streamer has somewhere to go.
-    if let Some(at) = &at {
-        place_body(**at, &mut focus, None);
-    }
-
-    if let Some(edit) = &edit {
-        let cx = godgame_core::config::cell_at(focus.x) + edit.cx;
-        let cy = godgame_core::config::cell_at(focus.y) + edit.cy;
-        let grid = &world.level.grid;
-        let (gx, gy) = (cx - grid.origin_cell_x(), cy - grid.origin_cell_y());
-        if gx < 0 || gy < 0 || gx >= grid.cols() || gy >= grid.rows() {
-            // Still streaming. Next frame.
-            return;
-        }
-        apply_brush(&mut world.level.grid, edit.mode, cx, cy, edit.r, edit.mat);
-        info!("--edit {:?} at cell ({cx}, {cy}) r={}", edit.mode, edit.r);
-        commands.remove_resource::<StartupEdit>();
-    }
-
-    if let Some(at) = at {
-        let at = *at;
-        place_body(at, &mut focus, body.map(ResMut::into_inner));
-        info!("--at ({}, {})", at.x, at.y);
-        commands.remove_resource::<StartAt>();
-    }
 }
 
 /// Play one frame of a `--script`, and end the run when it runs out.
