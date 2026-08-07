@@ -1795,6 +1795,8 @@ const UI_Z_STEP: f32 = 1.0e-3;
 pub enum UiScreen {
     /// The title card. `drawMenu`.
     Menu,
+    /// The world list. Drawn by `crate::worldselect`, which owns its state.
+    WorldSelect,
     /// The HUD and the build panel.
     #[default]
     Playing,
@@ -1957,6 +1959,8 @@ struct HudSources<'w> {
     screen: Res<'w, UiScreen>,
     /// Where item art comes from.
     icons: Res<'w, Icons>,
+    /// The world list, for the screen that shows it.
+    picker: Res<'w, crate::worldselect::WorldPicker>,
     /// Whether the F3 panel is up.
     debug_shown: Res<'w, crate::debug::DebugOverlay>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
@@ -2068,6 +2072,9 @@ fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiF
 
     match *sources.screen {
         UiScreen::Menu => prims.extend(menu(view)),
+        UiScreen::WorldSelect => {
+            prims.extend(crate::worldselect::screen(&sources.picker, view));
+        }
         UiScreen::GameOver => prims.extend(game_over(view)),
         UiScreen::Playing => {
             if let Some(body) = &sources.body {

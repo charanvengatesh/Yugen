@@ -76,6 +76,7 @@ without a human at the keyboard:
 | `--dump-state PATH` | write the simulation's state as JSON, for a diff rather than an eye |
 | `--world DIR` | keep this world's edits in DIR; without it nothing is saved |
 | `--seed N` | grow the world from N instead of the built-in seed |
+| `--saves DIR` | where the world-select screen looks (default: per-user data dir) |
 
 ## Testing
 

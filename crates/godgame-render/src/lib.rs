@@ -72,6 +72,7 @@ pub mod sprite;
 pub mod ui;
 pub mod weather;
 pub mod world;
+pub mod worldselect;
 
 /// The whole render/sim stack: the owned world and its fixed schedule, the
 /// low-res target, the cell pass that draws the window into it, the input that
@@ -100,6 +101,7 @@ impl PluginGroup for GodGameRenderPlugin {
             // atlases without an ordering edge.
             .add(sprite::SpritePlugin)
             .add(scenes::ScenesPlugin)
+            .add(worldselect::WorldSelectPlugin)
             // Composites over everything the world passes drew.
             .add(light::LightPlugin)
             // The overlay sits above the composite: the HUD is not in the world

@@ -78,9 +78,16 @@ use bevy::prelude::*;
 /// clothes.
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Scene {
-    /// The title screen. Confirm starts a run.
+    /// The title screen. Confirm goes to [`Scene::WorldSelect`].
     #[default]
     Menu,
+    /// Pick a save, make one, or delete one.
+    ///
+    /// Between the menu and a run rather than replacing the menu, because the
+    /// menu is the game's front door and a list of directories is not a title
+    /// card. `--play` skips both: a capture or a scenario has already been told
+    /// which world it wants.
+    WorldSelect,
     /// A world, a body, and every simulation system running.
     Playing,
     /// The death card. Confirm rebuilds the level and starts again.

@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 584 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 586 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -1022,9 +1022,16 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 293 |
 
+### `crates/godgame-render/src/worldselect.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `VISIBLE_ROWS` (private) | `8` | Rows of the list drawn at once. | 47 |
+| `ROW_H` (private) | `22` | Height of one list row. | 95 |
+
 ### `crates/godgame/src/main.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 57 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 58 |
 

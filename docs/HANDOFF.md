@@ -214,6 +214,23 @@ godgame --play --world /tmp/w --warmup 300 --dump-state b.json     # a second pr
 Compare `cells` by ABSOLUTE coordinate — the window moves between runs, so
 comparing them row by row compares two different places.
 
+**Picking a world.** `Menu -> WorldSelect -> Playing`. The select screen lists
+what is under the saves root (`--saves DIR`, default per-user data dir), makes
+new worlds with a fresh random seed, and deletes them behind a named
+confirmation. `--play` skips both screens: a capture or a scenario has already
+been told which world it wants, via `--world` and `--seed`.
+
+`crate::worldselect` follows `crate::debug`'s shape — plain data, a pure layout
+function, systems only where the world is touched — so seven unit tests cover
+every string and every bound with no GPU and no filesystem. The capture test
+covers the one thing they cannot: that the screen is reached, composed and
+painted, which a pure layout function nothing routes to would not be.
+
+It has **no text field and no seed field**. That is a widget, and `crate::ui`
+has rectangles and text runs. New worlds are "World N" until somebody builds
+one; `create_world` already takes any name and `slug_of` already survives
+whatever a field would produce.
+
 **A world is two things.** `DIR/chunks/` is the terrain, `DIR/run.save` is
 everything else: seed, world clock, the body, and the inventory slot by slot.
 Both are written atomically, both refuse a file that is not theirs, and the run

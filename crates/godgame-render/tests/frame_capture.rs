@@ -321,6 +321,85 @@ fn the_rendered_frame_has_the_variety_and_contrast_of_a_drawn_image() {
     );
 }
 
+/// The world-select screen draws, with real worlds in it.
+///
+/// Not a gate on how it LOOKS — `worldselect`'s own unit tests assert every
+/// string and every bound, headlessly and much faster. This is the one thing
+/// they cannot say: that the screen is reached, composed and painted at all.
+/// A pure layout function that nothing routes to would pass all seven of them.
+#[test]
+fn the_world_select_screen_is_reachable_and_paints() {
+    if !common::gpu_is_available() {
+        println!("SKIPPED world select: no wgpu adapter on this machine");
+        return;
+    }
+
+    let root = std::env::temp_dir().join("godgame-worldselect-capture");
+    let _ = std::fs::remove_dir_all(&root);
+    for (name, seed) in [("Home", 2334u32), ("The Deep Below", 777)] {
+        godgame_core::sim::save::create_world(&root, name, seed).expect("create");
+    }
+
+    let mut app = common::headless_game("GodGame world select");
+    app.insert_resource(godgame_render::worldselect::WorldPicker { root, ..default() });
+    app.finish();
+    app.cleanup();
+
+    // The control: the same app, same world, PLAYING. Comparing against this
+    // rather than against an absolute luminance is what makes the assertion mean
+    // "the card is over the world" instead of "the frame happens to be dark",
+    // which a night-time capture would satisfy just as well.
+    app.world_mut()
+        .resource_mut::<NextState<Scene>>()
+        .set(Scene::Playing);
+    for _ in 0..WARMUP_FRAMES {
+        app.update();
+    }
+    let lit_png =
+        common::artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "playing.png");
+    let playing = common::Frame::from_image(&common::capture_low_res(&mut app, &lit_png), lit_png);
+
+    app.world_mut()
+        .resource_mut::<NextState<Scene>>()
+        .set(Scene::WorldSelect);
+    for _ in 0..8 {
+        app.update();
+    }
+
+    // The picker read the saves root on the way in. Without this the frame below
+    // could be a correctly-drawn EMPTY list and still pass everything else.
+    let picker = app
+        .world()
+        .resource::<godgame_render::worldselect::WorldPicker>();
+    assert_eq!(
+        picker.worlds.len(),
+        2,
+        "the screen did not read the saves root"
+    );
+
+    let png = common::artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "worlds.png");
+    let frame = common::Frame::from_image(&common::capture_low_res(&mut app, &png), png);
+
+    let (lit, _) = playing.luma_spread();
+    let (dimmed, contrast) = frame.luma_spread();
+    println!(
+        "world select: playing mean {lit:.1} -> select mean {dimmed:.1}, contrast \
+         {contrast:.1}, {}",
+        frame.artefact()
+    );
+    assert!(
+        dimmed < lit * 0.75,
+        "the world-select card did not dim the world behind it: playing mean {lit:.1}, \
+         select mean {dimmed:.1}. {}",
+        frame.artefact()
+    );
+    assert!(
+        contrast > 12.0,
+        "the card dimmed the world but drew nothing on it: contrast {contrast:.1}. {}",
+        frame.artefact()
+    );
+}
+
 /// The light follows a RUNTIME seed, not the one it was compiled with.
 ///
 /// `light::LightGrid` and `ambience::Ambience` each keep a private `Noise` and

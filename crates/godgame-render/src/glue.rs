@@ -420,9 +420,16 @@ fn confirm_advances_the_scene(
         return;
     }
     match scene.get() {
-        Scene::Menu | Scene::GameOver => next.set(Scene::Playing),
-        // Confirm is not a pause key. Nothing to advance to from here.
-        Scene::Playing => {}
+        // The menu asks WHICH world before starting one. Game over does not:
+        // dying and pressing confirm is a restart of the run you were in, and
+        // sending the player back to a directory listing to do it would be a
+        // different game.
+        Scene::Menu => next.set(Scene::WorldSelect),
+        Scene::GameOver => next.set(Scene::Playing),
+        // `WorldSelect` reads confirm itself — see `crate::worldselect` — and
+        // this must not also act on it, or picking a world would start the
+        // PREVIOUS one on the same keypress.
+        Scene::WorldSelect | Scene::Playing => {}
     }
 }
 
@@ -450,6 +457,7 @@ fn install_icons(mut commands: Commands, atlases: Res<SpriteAtlases>) {
 fn follow_scene(scene: Res<State<Scene>>, mut screen: ResMut<UiScreen>) {
     let want = match scene.get() {
         Scene::Menu => UiScreen::Menu,
+        Scene::WorldSelect => UiScreen::WorldSelect,
         Scene::Playing => UiScreen::Playing,
         Scene::GameOver => UiScreen::GameOver,
     };
@@ -475,11 +483,13 @@ mod tests {
         // never appears.
         for (scene, want) in [
             (Scene::Menu, UiScreen::Menu),
+            (Scene::WorldSelect, UiScreen::WorldSelect),
             (Scene::Playing, UiScreen::Playing),
             (Scene::GameOver, UiScreen::GameOver),
         ] {
             let got = match scene {
                 Scene::Menu => UiScreen::Menu,
+                Scene::WorldSelect => UiScreen::WorldSelect,
                 Scene::Playing => UiScreen::Playing,
                 Scene::GameOver => UiScreen::GameOver,
             };

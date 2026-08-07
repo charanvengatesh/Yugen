@@ -41,6 +41,7 @@ use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
 use godgame_render::scenes::Scene;
 use godgame_render::world::{SimWorld, WorldFocus, WorldSave};
+use godgame_render::worldselect::WorldPicker;
 
 /// Frames to render before `--screenshot` captures, by default.
 ///
@@ -155,6 +156,8 @@ struct Args {
     world: Option<PathBuf>,
     /// The seed to grow the world from. `None` uses the compile-time default.
     seed: Option<u32>,
+    /// Where the world-select screen looks for saves.
+    saves: Option<PathBuf>,
     /// Where `--dump-state` writes the simulation's state as JSON.
     dump_state: Option<PathBuf>,
     /// A parsed `--script FILE`: the whole run's input, frame by frame.
@@ -185,6 +188,12 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins(GodGameRenderPlugin);
+
+    // The world-select screen needs somewhere to look before it is entered.
+    app.insert_resource(WorldPicker {
+        root: args.saves.clone().unwrap_or_else(saves_root),
+        ..default()
+    });
 
     // Before `Startup`, which is where the world is built from it.
     if args.world.is_some() || args.seed.is_some() {
@@ -324,6 +333,7 @@ fn parse_args() -> Args {
         play: false,
         world: None,
         seed: None,
+        saves: None,
         dump_state: None,
         script: None,
         drive: None,
@@ -339,6 +349,10 @@ fn parse_args() -> Args {
                 args.world = Some(PathBuf::from(dir));
             }
             "--seed" => args.seed = Some(next_int(&mut argv).unsigned_abs()),
+            "--saves" => {
+                let Some(dir) = argv.next() else { usage() };
+                args.saves = Some(PathBuf::from(dir));
+            }
             "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
             "--drive" => {
                 let secs = argv.next().unwrap_or_else(|| usage());
@@ -393,6 +407,32 @@ fn parse_args() -> Args {
     args
 }
 
+/// Where saved worlds go when `--saves` does not say.
+///
+/// Per-user rather than beside the binary: a game installed once and played by
+/// two accounts must not put their worlds in the same directory, and a binary in
+/// a read-only location must still be able to save. `XDG_DATA_HOME` then `HOME`
+/// on unix, `APPDATA` on Windows, and the working directory if the environment
+/// says nothing at all — which is a strange machine, but a strange machine
+/// should still be able to play.
+///
+/// Hand-rolled rather than a `directories` dependency, for the reason the rest
+/// of this tree gives about its dependency list: it is four environment reads
+/// and a `join`.
+fn saves_root() -> PathBuf {
+    let var = |k: &str| {
+        std::env::var_os(k)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    #[cfg(windows)]
+    let base = var("APPDATA");
+    #[cfg(not(windows))]
+    let base = var("XDG_DATA_HOME").or_else(|| var("HOME").map(|h| h.join(".local/share")));
+    base.unwrap_or_else(|| PathBuf::from("."))
+        .join("godgame/saves")
+}
+
 /// The next argument as an integer, or the usage message.
 fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
     match argv.next().map(|a| a.parse()) {
@@ -408,6 +448,9 @@ fn usage() -> ! {
     );
     eprintln!("  --world DIR      keep this world's edits in DIR; without it nothing is saved");
     eprintln!("  --seed N         grow the world from N instead of the built-in seed");
+    eprintln!(
+        "  --saves DIR      where the world-select screen looks (default: per-user data dir)"
+    );
     eprintln!("  --dump-state P   write the simulation's state to P as JSON, then carry on");
     eprintln!("  --script FILE    drive the run from a verb-per-line file; it ends the run");
     eprintln!("  --warmup N       with --script, frames to settle the world BEFORE the first verb");
