@@ -235,6 +235,25 @@ impl RunSources<'_> {
     }
 }
 
+/// Move the body and the camera to a point, and let the world stream to it.
+///
+/// The window is NOT recentred here. `stream_window` does that every frame from
+/// the focus, so writing the focus is the whole of it — and reaching into the
+/// window as well would be a second thing to keep in step with the first.
+pub fn place_body(at: StartAt, focus: &mut WorldFocus, body: Option<&mut PlayerBody>) {
+    focus.x = at.x;
+    focus.y = at.y;
+    if let Some(body) = body {
+        body.0.x = at.x;
+        body.0.y = at.y;
+        // Whatever it was doing before it was moved, it is not doing now. A body
+        // teleported mid-fall keeps its downward velocity and is through the
+        // floor before the first frame is drawn.
+        body.0.vx = 0.0;
+        body.0.vy = 0.0;
+    }
+}
+
 /// Put a loaded run back into the live resources.
 ///
 /// Public because the thing that builds a world and the thing that resets a run
@@ -282,6 +301,32 @@ fn clamp_catch_up(mut virt: ResMut<Time<Virtual>>) {
     virt.set_max_delta(Duration::from_secs_f32(
         STEP_DT * MAX_STEPS_PER_FRAME as f32,
     ));
+}
+
+/// Put the body somewhere specific, once, on the frame the run starts.
+///
+/// `--at X,Y` on the binary. This is what turns "photograph a lava-lit cave" or
+/// "check the sky at dusk" from a hand-built Rust scene into two flags, and it
+/// is why `lit_scene.rs` exists at all: its header records that it was built and
+/// thrown away three times before it stuck, purely because the default spawn is
+/// a snowy surface in daylight where most of the lighting stack is invisible.
+///
+/// Applied AFTER the world reaches its STARTING STATE, which includes any
+/// `--edit` stroke, and that ordering is the whole of it. Placed first, a body
+/// asked for a point 900 px underground is standing in solid rock, and the
+/// collision resolver ejects it before the carve that was meant to make room
+/// lands — measured at 260 px of drift, into terrain nobody asked to see. So the
+/// binary owns this flag and applies it after its own edit, rather than
+/// `glue::start_a_run` doing it a schedule earlier.
+///
+/// It also beats a position remembered from a saved run: somebody passing `--at`
+/// is saying where they want to be.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct StartAt {
+    /// World px, sim convention (+y down).
+    pub x: f32,
+    /// World px.
+    pub y: f32,
 }
 
 /// Seconds between autosaves while a world with a save directory is running.

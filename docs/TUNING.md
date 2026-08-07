@@ -1020,7 +1020,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 293 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 338 |
 
 ### `crates/godgame-render/src/worldselect.rs`
 
@@ -1033,5 +1033,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 58 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 59 |
 

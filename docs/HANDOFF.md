@@ -313,6 +313,33 @@ Four things about them are load-bearing:
 diff its dump against a control run with the verb removed; that is how the dig
 above was confirmed to have removed exactly the two cells it aimed at.
 
+### Jumping straight to a situation: `--at`, `--time`, `--edit`
+
+```
+godgame --play --at 0,900 --edit dig 0 0 12 --time 0.5 --warmup 300 --screenshot cave.png
+```
+
+That is a lit chamber 900 px underground at noon, in three flags. It is the
+scene `lit_scene.rs` hand-builds in Rust, and whose header records that it was
+built and thrown away three times before it stuck — because the default spawn is
+a snowy surface in daylight where most of the lighting stack is invisible.
+
+**The three flags are not independent, and `main::arrange_the_scene` is one
+system rather than three because ordering them was not enough.** Three versions
+looked right and were not:
+
+1. Place the body, then carve. The body stands in solid rock and the collision
+   resolver ejects it before the carve lands — 260 px of drift.
+2. Carve, then place. `--edit` is relative to the VIEW CENTRE, still at the
+   spawn, so `--at 0,900 --edit dig 0 0 12` carved at cell (-127, 32).
+3. Aim the camera, carve, place, all on one frame. The camera moves instantly
+   and the WORLD does not: the streaming window still covered the spawn, the
+   brush was clipped away entirely, and the "cave" was solid stone.
+
+So it waits for `stream_window` to bring the world to the new focus, and only
+then carves and places, on one frame. If you add a flag that touches the world at
+startup, put it in that system rather than beside it.
+
 ### Debug
 
 Three rigs, in increasing order of how much they tell you:

@@ -34,13 +34,14 @@ use godgame_core::script::Script;
 use godgame_core::sim::edits::{EditMode, apply_brush};
 use godgame_core::sim::materials::{CellId, EMPTY, code_of};
 use godgame_render::GodGameRenderPlugin;
+use godgame_render::daynight::{DayNight, WorldClock};
 use godgame_render::dump::{DumpState, dump_when_ready};
 use godgame_render::input::{CursorOverride, PlayerIntent};
 use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
 use godgame_render::scenes::Scene;
-use godgame_render::world::{SimWorld, WorldFocus, WorldSave};
+use godgame_render::world::{SimWorld, StartAt, WorldFocus, WorldSave, place_body};
 use godgame_render::worldselect::WorldPicker;
 
 /// Frames to render before `--screenshot` captures, by default.
@@ -158,6 +159,10 @@ struct Args {
     seed: Option<u32>,
     /// Where the world-select screen looks for saves.
     saves: Option<PathBuf>,
+    /// Put the body here on the frame the scene is arranged.
+    start_at: Option<StartAt>,
+    /// Set the world clock to this fraction of a day.
+    time: Option<f32>,
     /// Where `--dump-state` writes the simulation's state as JSON.
     dump_state: Option<PathBuf>,
     /// A parsed `--script FILE`: the whole run's input, frame by frame.
@@ -248,12 +253,19 @@ fn main() -> AppExit {
         );
     }
 
+    if let Some(at) = args.start_at {
+        app.insert_resource(at);
+    }
+    if let Some(t) = args.time {
+        app.insert_resource(WorldClock(DayNight::new(t)));
+    }
     if let Some(edit) = args.edit {
-        app.insert_resource(edit).add_systems(
+        app.insert_resource(edit);
+    }
+    if args.edit.is_some() || args.start_at.is_some() {
+        app.add_systems(
             Update,
-            stamp_startup_edit
-                .run_if(resource_exists::<StartupEdit>)
-                .run_if(resource_exists::<SimWorld>),
+            arrange_the_scene.run_if(resource_exists::<SimWorld>),
         );
     }
 
@@ -334,6 +346,8 @@ fn parse_args() -> Args {
         world: None,
         seed: None,
         saves: None,
+        start_at: None,
+        time: None,
         dump_state: None,
         script: None,
         drive: None,
@@ -349,6 +363,29 @@ fn parse_args() -> Args {
                 args.world = Some(PathBuf::from(dir));
             }
             "--seed" => args.seed = Some(next_int(&mut argv).unsigned_abs()),
+            "--at" => {
+                let Some(spec) = argv.next() else { usage() };
+                let Some((x, y)) = spec.split_once(',') else {
+                    eprintln!("--at wants X,Y in world px, e.g. --at 0,900");
+                    usage()
+                };
+                match (x.trim().parse::<f32>(), y.trim().parse::<f32>()) {
+                    (Ok(x), Ok(y)) if x.is_finite() && y.is_finite() => {
+                        args.start_at = Some(StartAt { x, y });
+                    }
+                    _ => {
+                        eprintln!("--at: {spec:?} is not a pair of world coordinates");
+                        usage()
+                    }
+                }
+            }
+            "--time" => {
+                let Some(t) = argv.next() else { usage() };
+                args.time = Some(match t.parse::<f32>() {
+                    Ok(t) if t.is_finite() => t,
+                    _ => usage(),
+                });
+            }
             "--saves" => {
                 let Some(dir) = argv.next() else { usage() };
                 args.saves = Some(PathBuf::from(dir));
@@ -443,7 +480,8 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: godgame [--world DIR] [--screenshot PATH] [--dump-state PATH] [--script FILE] [--warmup FRAMES]\n\
+        "usage: godgame [--world DIR] [--seed N] [--at X,Y] [--time T] [--screenshot PATH]\n\
+         \x20              [--dump-state PATH] [--script FILE] [--warmup FRAMES]\n\
          \x20              [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
     );
     eprintln!("  --world DIR      keep this world's edits in DIR; without it nothing is saved");
@@ -467,23 +505,68 @@ fn usage() -> ! {
     std::process::exit(2)
 }
 
-/// Stamp the `--edit` stroke once, the first frame the world exists.
+/// Put the scene in the state `--at` and `--edit` asked for.
 ///
-/// This is deliberately the same [`apply_brush`] call the mouse path makes and
-/// not a private shortcut: a flag that wrote cells its own way could pass while
-/// the thing it is supposed to be demonstrating was broken.
-fn stamp_startup_edit(
+/// ONE system, and not three chained ones, because the steps are not
+/// independent and an ordering alone was not enough. Three versions of this
+/// looked right and were not:
+///
+/// 1. Place the body, then carve. The body is standing in solid rock and the
+///    collision resolver ejects it before the carve that was meant to make room
+///    lands — 260 px of drift, into terrain nobody asked to see.
+/// 2. Carve, then place the body. `--edit`'s coordinates are cells from the VIEW
+///    CENTRE, and the view is still at the spawn, so `--at 0,900 --edit dig 0 0
+///    12` carved at cell (-127, 32) — a thousand cells from the cave it was
+///    supposed to make.
+/// 3. Aim the camera, carve, then place, all on one frame. The camera moves
+///    instantly and the WORLD does not: the streaming window still covered the
+///    spawn, so the brush was clipped away entirely and the "cave" was solid
+///    stone with the body ejected out of the top of it.
+///
+/// So it waits. The focus moves on the first frame, `stream_window` brings the
+/// world to it over the next few, and nothing is stamped until the grid actually
+/// holds the cell the stroke is aimed at. Then the carve and the placement
+/// happen together, in that order, on one frame — and both resources are
+/// removed, because a placement that ran every frame would pin the body and no
+/// scenario could walk away from it.
+///
+/// The brush is the same [`apply_brush`] the mouse path calls, for the reason
+/// `--edit` has always given: a flag that wrote cells its own way could pass
+/// while the thing it demonstrates was broken.
+fn arrange_the_scene(
     mut commands: Commands,
-    edit: Res<StartupEdit>,
-    focus: Res<WorldFocus>,
+    at: Option<Res<StartAt>>,
+    edit: Option<Res<StartupEdit>>,
+    mut focus: ResMut<WorldFocus>,
     mut world: ResMut<SimWorld>,
+    body: Option<ResMut<PlayerBody>>,
 ) {
-    let cx = godgame_core::config::cell_at(focus.x) + edit.cx;
-    let cy = godgame_core::config::cell_at(focus.y) + edit.cy;
-    apply_brush(&mut world.level.grid, edit.mode, cx, cy, edit.r, edit.mat);
-    info!("--edit {:?} at cell ({cx}, {cy}) r={}", edit.mode, edit.r);
-    // Once is the whole contract; removing the resource stops the system.
-    commands.remove_resource::<StartupEdit>();
+    // The camera first, and every frame until this system retires, so the
+    // streamer has somewhere to go.
+    if let Some(at) = &at {
+        place_body(**at, &mut focus, None);
+    }
+
+    if let Some(edit) = &edit {
+        let cx = godgame_core::config::cell_at(focus.x) + edit.cx;
+        let cy = godgame_core::config::cell_at(focus.y) + edit.cy;
+        let grid = &world.level.grid;
+        let (gx, gy) = (cx - grid.origin_cell_x(), cy - grid.origin_cell_y());
+        if gx < 0 || gy < 0 || gx >= grid.cols() || gy >= grid.rows() {
+            // Still streaming. Next frame.
+            return;
+        }
+        apply_brush(&mut world.level.grid, edit.mode, cx, cy, edit.r, edit.mat);
+        info!("--edit {:?} at cell ({cx}, {cy}) r={}", edit.mode, edit.r);
+        commands.remove_resource::<StartupEdit>();
+    }
+
+    if let Some(at) = at {
+        let at = *at;
+        place_body(at, &mut focus, body.map(ResMut::into_inner));
+        info!("--at ({}, {})", at.x, at.y);
+        commands.remove_resource::<StartAt>();
+    }
 }
 
 /// Play one frame of a `--script`, and end the run when it runs out.
