@@ -20,6 +20,12 @@ record leaves a tombstone.
 `cargo run -p contentc -- --check` is the gate that fails if the generated
 tables are stale.
 
+This file says how to author. **`PALETTE.md` says what to author**, for anything
+with a colour in it: the ramps, the tonal bands, the accent allow-list, and the
+arithmetic that turns `color`, `colorVar` and `edge` into a rendered pixel. A
+block or sprite that compiles cleanly can still be wrong, and that is the file
+that says how.
+
 ---
 
 ## 1. A record is a top-level table

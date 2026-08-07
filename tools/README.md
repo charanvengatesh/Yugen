@@ -88,3 +88,28 @@ least 1.0.
 
 Mobs are reported as a census, never matched individually. `id` is the species,
 not an identity, and nothing in a dump survives across runs to match them by.
+
+## `palette_check.py`
+
+Checks `content/blocks/*.toml` against the invariants in `content/PALETTE.md`.
+
+```
+python3 tools/palette_check.py             # exit 1 on a violation
+python3 tools/palette_check.py --baseline  # report only, always exit 0
+```
+
+**Not yet a gate**, because the palette it describes has not landed: on the
+current content it reports 25 violations, which is the work the repaint exists
+to do. It joins `cargo xtask check` when the last band commit lands.
+
+Two things about it are worth knowing before reading its output.
+
+It measures **chroma**, `(max-min)/255`, and never HSL saturation. At extreme
+lightness HSL-S is meaningless: `snow` reports S 58% at a chroma of 5.5, so an
+HSL rule flags the least colourful material in the game and waves through
+`copperOre`. This was got wrong once already.
+
+The band-dependent invariants report **SKIPPED** rather than passing while
+`BANDS` is empty. Band membership is authored, not inferred — inferring it lets
+two bands' ranges overlap until a block is silently in whichever one was tested
+first — and a check that has no data should say so rather than print a tick.
