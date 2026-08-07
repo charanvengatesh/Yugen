@@ -242,6 +242,12 @@ static FLORA: [Flora; BIOME_COUNT] = [
     Flora { density: 0.17, clutter: 0.36, weights: &[
         (SP_ACACIA, 0.6), (SP_SHRUB, 0.32), (SP_SNAG, 0.08),
     ] },
+    // badlands -- barer than the desert, which at least has cacti. What stands
+    // here is mostly dead: snags first, then the scrub that can live on the
+    // little water the clay holds.
+    Flora { density: 0.12, clutter: 0.18, weights: &[
+        (SP_SNAG, 0.62), (SP_SHRUB, 0.38),
+    ] },
 ];
 
 #[inline]

@@ -168,10 +168,13 @@ pub enum Biome {
     Glacier = 5,
     Jungle = 6,
     Savanna = 7,
+    /// Mild and bone dry, and the first surface biome this project authored
+    /// rather than ported. See [`BIOMES`].
+    Badlands = 8,
 }
 
 /// How many biomes compete for a column.
-pub const BIOME_COUNT: usize = 8;
+pub const BIOME_COUNT: usize = 9;
 
 impl Biome {
     /// Every biome, in stable palette order. Entry `i` describes `BIOMES[i]`.
@@ -184,6 +187,7 @@ impl Biome {
         Biome::Glacier,
         Biome::Jungle,
         Biome::Savanna,
+        Biome::Badlands,
     ];
 
     /// This biome's definition — materials, height knobs, atmosphere.
@@ -206,12 +210,18 @@ impl Biome {
 ///        |
 ///        |             Plains
 ///        |
-///   dry  |  Tundra             Savanna          Desert
+///   dry  |  Tundra    Badlands  Savanna          Desert
 ///        +------------------------------------------------
 ///          cold                                     hot
 /// ```
 ///
 /// Volcanic sits outside the diagram and is driven by its own sparse field.
+///
+/// Badlands fills the one part of the square that was empty. The dry row was
+/// held only at its two ends -- Desert at a moisture of 0.08 and Tundra at 0.28
+/// -- and the temperate middle of it had nothing, so a mild column simply could
+/// not be arid. Badlands sits there at [0.44, 0.12], drier than either Tundra or
+/// Savanna and second only to Desert.
 #[rustfmt::skip]
 pub static BIOMES: [BiomeDef; BIOME_COUNT] = [
     BiomeDef {
@@ -308,6 +318,37 @@ pub static BIOMES: [BiomeDef; BIOME_COUNT] = [
             weather: Weather::Dust,
         },
     },
+    // The first surface biome this project authored rather than ported, and
+    // sited the same way Rime Hollows was: by sweeping the climate square for
+    // the point furthest from anything. The dry edge of the diagram was held
+    // only at its two ends, by hot desert and cold tundra, and the temperate
+    // middle of it was empty.
+    //
+    // That sweep's answer was [0.44, 0.00], 0.439 from savanna, tundra and
+    // plains alike. This sits at 0.12 instead, and the difference is the point:
+    // the emptiest coordinate is not the best one, because moisture is a noise
+    // field that rarely reaches the very edge of its own range, so a biome
+    // parked on the boundary wins columns nobody visits. Measured over 4 616
+    // columns, moving it inward is worth a third more ground -- 189, 230, 245,
+    // 236 at wetness 0.00, 0.06, 0.12, 0.18 -- and the 0.342 that is left to the
+    // nearest neighbour is still four times BLEND_WIDTH, which is all the
+    // separation the blending needs.
+    //
+    // Eroded rather than merely arid, which is what keeps it from reading as a
+    // cool desert: a thin scree cap over clay strata, jagged relief, and more
+    // shallow cave than anywhere else on the surface, because the caves here are
+    // what the water cut before it left.
+    BiomeDef {
+        id: "badlands", name: "Badlands",
+        cap: block::GRAVEL, rock: block::CLAY, pocket: block::WATER,
+        amp_scale: 1.35, height_offset: 0.0, cap_scale: 0.6, cave_scale: 1.15, trees: false,
+        climate: Some([0.44, 0.12]), bias: 0.0,
+        atmo: BiomeAtmosphere {
+            sky_top: hex(0x2e2320), sky_top_deep: hex(0x140f0d), sky_bottom: hex(0x5c3b2c),
+            star: hex(0xffd9b8), hill: hex(0x35241c), ambient: [0.05, 0.02, 0.0],
+            weather: Weather::Dust,
+        },
+    },
 ];
 
 /// Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate.
@@ -339,6 +380,14 @@ static ECOTONES: &[(Biome, Biome, CellId)] = &[
     (Biome::Desert,  Biome::Swamp,    block::WET_SAND),   //  salt flat
     (Biome::Desert,  Biome::Jungle,   block::WET_SAND),
     (Biome::Savanna, Biome::Swamp,    block::CLAY),
+    // Badlands, against each of its climate neighbours. Dry-to-dry borders keep
+    // the hardpan; the wet and the cold ones get the same materials those
+    // borders already use elsewhere, so a Badlands edge reads like the rest of
+    // the world rather than like a special case.
+    (Biome::Badlands, Biome::Desert,  block::SAND),       // the dunes encroach
+    (Biome::Badlands, Biome::Savanna, block::GRAVEL),
+    (Biome::Badlands, Biome::Plains,  block::CLAY),       // strata bleeding up
+    (Biome::Badlands, Biome::Tundra,  block::PERMAFROST),
     // Volcanic margins are scorched, whatever they border.
     (Biome::Plains,  Biome::Volcanic, block::ASH),
     (Biome::Desert,  Biome::Volcanic, block::ASH),
@@ -347,6 +396,7 @@ static ECOTONES: &[(Biome, Biome, CellId)] = &[
     (Biome::Jungle,  Biome::Volcanic, block::ASH),
     (Biome::Savanna, Biome::Volcanic, block::ASH),
     (Biome::Glacier, Biome::Volcanic, block::ASH),
+    (Biome::Badlands, Biome::Volcanic, block::ASH),
 ];
 
 /// Transitional cap material for an adjacency, or `None` when the two biomes are
@@ -1157,6 +1207,42 @@ mod tests {
     }
 
     #[test]
+    fn every_surface_biome_is_somewhere() {
+        // The surface half of `every_underground_layer_is_somewhere`; see there
+        // for why a reachability check is not implied by any of the others.
+        //
+        // Volcanic is excluded because it is the one biome that does not compete
+        // on climate at all -- `volcanic_is_rare_but_real` is its own check --
+        // but it is measured here anyway and, at 289 columns, would pass.
+        //
+        // Measured over this sweep, as fractions of 4 616 columns:
+        //   desert 23%, jungle 17%, tundra 14%, glacier 12%, swamp 8%,
+        //   plains 7%, savanna 6%, badlands 5%
+        // Badlands is deliberately the rarest and still clears the 2% floor with
+        // room. That floor is the same one the underground check uses, and for
+        // the same reason: catch dead content, do not pin the tuning.
+        let n = noise();
+        let mut wins = [0usize; BIOME_COUNT];
+        let mut cols = 0;
+        let mut wcx = -30_000;
+        while wcx < 30_000 {
+            wins[biome_mix_at(&n, wcx).top.index()] += 1;
+            cols += 1;
+            wcx += 13;
+        }
+        let floor = cols / 50;
+        for b in Biome::ALL {
+            assert!(
+                wins[b.index()] >= floor,
+                "surface biome {:?} wins {} of {cols} columns, under the {floor} floor: \
+                 it is sited too close to its neighbours to ever be reached",
+                b.def().id,
+                wins[b.index()],
+            );
+        }
+    }
+
+    #[test]
     fn every_underground_layer_is_somewhere() {
         // A layer nobody can stand in passes every other check in this file.
         // `the_palette_index_is_the_enum_discriminant` proves it is wired into
@@ -1553,7 +1639,7 @@ mod tests {
     #[test]
     fn biome_at_index_is_total() {
         assert_eq!(biome_at_index(0), Biome::Plains);
-        assert_eq!(biome_at_index(BIOME_COUNT - 1), Biome::Savanna);
+        assert_eq!(biome_at_index(BIOME_COUNT - 1), Biome::Badlands);
         assert_eq!(biome_at_index(9999), Biome::Plains);
         let n = noise();
         let p = biome_at(&n, 0);
