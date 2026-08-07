@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 581 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 582 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -502,6 +502,7 @@ only the exported surface is held to the rule.
 | `HEADER` (private) | `4 + 2 + 2 + 4 + 4` | Header bytes before the planes: magic, version, cell count, coordinates. | 69 |
 | `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 72 |
 | `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 76 |
+| `RUN_VERSION` (private) | `1` | Run-file version, independent of [`VERSION`]. | 186 |
 
 ### `crates/godgame-core/src/sim/worldgen/caves.rs`
 
@@ -1017,7 +1018,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 201 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 293 |
 
 ### `crates/godgame/src/main.rs`
 

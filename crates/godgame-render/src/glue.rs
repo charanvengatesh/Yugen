@@ -22,7 +22,9 @@ use godgame_core::input::{KEYS, KeyState};
 use godgame_core::config::{SEED, STEP_DT};
 use godgame_core::entities::{HitFn, Loadout, NoTargets, PlayerEvent};
 use godgame_core::items::{Inventory, item_code_of};
+use godgame_core::sim::save::read_run;
 
+use crate::daynight::WorldClock;
 use crate::input::{BevyKeys, FixedSubstep, PlayerIntent, Tool};
 use crate::items::{GroundItems, Pack};
 use crate::mobs::Creatures;
@@ -30,7 +32,7 @@ use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_s
 use crate::scenes::Scene;
 use crate::sprite::SpriteAtlases;
 use crate::ui::{IconAtlas, Icons, UiScreen};
-use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved};
+use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
 ///
@@ -293,6 +295,7 @@ struct RunState<'w> {
     ground: Option<ResMut<'w, GroundItems>>,
     pack: Option<ResMut<'w, Pack>>,
     save: Res<'w, WorldSave>,
+    clock: Option<ResMut<'w, WorldClock>>,
 }
 
 /// [`confirm_advances_the_scene`] is the only thing that sets this state.
@@ -304,6 +307,7 @@ fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: R
         ground,
         pack,
         save,
+        clock,
     } = &mut run;
     // Through `WorldSave` and not `build_world`, which is the unsaved path.
     // Missing this meant `--world` opened a directory, logged it, and then the
@@ -339,6 +343,30 @@ fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: R
     if let Some(pack) = pack {
         give_starting_kit(pack);
     }
+
+    // And then, if this world has been played before, put back what was left.
+    //
+    // LAST, after every reset above, and that order is the whole of it: a
+    // restore that ran first would be undone by `body.reset()` and buried under
+    // the starting kit, and it would look like the save had not been written.
+    let Some(dir) = save.0.as_deref() else {
+        return;
+    };
+    let Some(loaded) = read_run(dir, SEED) else {
+        return;
+    };
+    info!(
+        "world save: resuming a run — clock {:.2}, {} filled slots",
+        loaded.clock_t,
+        loaded.slots.len()
+    );
+    restore_run(
+        &loaded,
+        &mut focus,
+        body.as_deref_mut(),
+        pack.as_deref_mut(),
+        clock.as_deref_mut(),
+    );
 }
 
 /// What you wake up with.

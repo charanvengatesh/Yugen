@@ -111,6 +111,26 @@ impl Inventory {
         }
     }
 
+    /// Put a stack in a slot outright, ignoring stacking rules.
+    ///
+    /// For a SAVE LOADER and nothing else, which is why it is not `add`. `add`
+    /// implements the game's placement policy — merge into an existing stack,
+    /// otherwise take the first free slot, respecting per-item stack limits —
+    /// and that policy is exactly wrong when restoring: the slots are already
+    /// decided, and re-deriving them would silently rearrange the player's
+    /// inventory every time they loaded.
+    ///
+    /// A count of 0 empties the slot. Out-of-range slots are ignored rather than
+    /// panicking, because the caller is reading a file.
+    pub fn put_at(&mut self, slot: usize, code: ItemCode, n: u16) {
+        if slot >= SLOT_COUNT {
+            return;
+        }
+        self.item[slot] = code;
+        self.count[slot] = n;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// First slot holding `code`, or `None`.
     ///
     /// The TypeScript hand-rolled this loop specifically to avoid `Array#find`,

@@ -46,12 +46,16 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 
+use crate::daynight::{DayNight, WorldClock};
+use crate::items::Pack;
+use crate::player::PlayerBody;
 use godgame_core::config::{MAX_STEPS_PER_FRAME, SEED, STEP_DT, cell_at};
+use godgame_core::items::inventory::SLOT_COUNT;
 use godgame_core::sim::automata::Automata;
 use godgame_core::sim::chunk_store::{ChunkPersistence, ChunkStore};
 use godgame_core::sim::grid::CellGrid;
 use godgame_core::sim::level::{Level, window_size};
-use godgame_core::sim::save::DiskChunkPersistence;
+use godgame_core::sim::save::{BodyState, DiskChunkPersistence, RunState, write_run};
 use godgame_core::sim::window::WindowManager;
 use godgame_core::sim::worldgen::{SPAWN_COL, walkable_spawn};
 
@@ -168,21 +172,109 @@ impl Plugin for WorldSimPlugin {
 fn autosave(
     time: Res<Time>,
     mut world: ResMut<SimWorld>,
+    run: RunSources,
     mut since: Local<f32>,
     exiting: MessageReader<AppExit>,
 ) {
     *since += time.delta_secs();
-    let leaving = !exiting.is_empty();
-    if !leaving && *since < AUTOSAVE_EVERY_S {
+    if exiting.is_empty() && *since < AUTOSAVE_EVERY_S {
         return;
     }
     *since = 0.0;
+
     let SimWorld { level, window, .. } = &mut *world;
     window.flush(&level.grid);
-    info!(
-        "AUTOSAVE fired leaving={leaving} persisted={}",
-        window.store().persisted_len()
-    );
+
+    let Some(dir) = run.save.0.as_deref() else {
+        return;
+    };
+    if let Err(e) = write_run(dir, &run.snapshot(world.seed)) {
+        // A warning and not a panic. The terrain is already on disk by this
+        // point, so a lost run file costs the player their position and pack and
+        // not their world — and taking the process down on the way out would be
+        // a strange way to report it.
+        warn!("world save: could not write the run file: {e}");
+    }
+}
+
+/// The parts of a run that are not terrain, on the way out and on the way in.
+///
+/// Every field optional for `glue`'s reason: a host may run the scene machine
+/// without the whole game — the capture rigs do — and a missing resource means
+/// that system is not in the app rather than that something failed.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RunSources<'w> {
+    save: Res<'w, WorldSave>,
+    body: Option<Res<'w, PlayerBody>>,
+    pack: Option<Res<'w, Pack>>,
+    clock: Option<Res<'w, WorldClock>>,
+}
+
+impl RunSources<'_> {
+    /// What to write.
+    fn snapshot(&self, seed: u32) -> RunState {
+        RunState {
+            seed,
+            clock_t: self.clock.as_ref().map_or(0.0, |c| c.0.t()),
+            body: self.body.as_ref().map(|b| BodyState {
+                x: b.0.x,
+                y: b.0.y,
+                vx: b.0.vx,
+                vy: b.0.vy,
+                facing: b.0.facing,
+                health: b.0.health,
+                untouchable: b.0.untouchable,
+            }),
+            slots: self.pack.as_ref().map_or_else(Vec::new, |p| {
+                (0..SLOT_COUNT)
+                    .filter_map(|i| p.0.stack_at(i).map(|(code, n)| (i as u16, code, n)))
+                    .collect()
+            }),
+            selected: self.pack.as_ref().map_or(0, |p| p.0.selected() as u16),
+        }
+    }
+}
+
+/// Put a loaded run back into the live resources.
+///
+/// Public because the thing that builds a world and the thing that resets a run
+/// are in different modules — `crate::glue` owns the second — and a restore that
+/// lived in only one of them would be a restore the other silently skipped. That
+/// is the shape of the bug this module already had once, with `WorldSave`.
+pub fn restore_run(
+    run: &RunState,
+    focus: &mut WorldFocus,
+    body: Option<&mut PlayerBody>,
+    pack: Option<&mut Pack>,
+    clock: Option<&mut WorldClock>,
+) {
+    if let (Some(body), Some(b)) = (body, run.body) {
+        body.0.x = b.x;
+        body.0.y = b.y;
+        body.0.vx = b.vx;
+        body.0.vy = b.vy;
+        body.0.facing = b.facing;
+        body.0.health = b.health;
+        body.0.untouchable = b.untouchable;
+        // The camera goes where the BODY is, not where the spawn is. Without
+        // this the world streams in around a point the player is not at and the
+        // first frame looks at somewhere else entirely.
+        focus.x = b.x;
+        focus.y = b.y;
+    }
+    if let Some(pack) = pack {
+        // Cleared first: the starting kit has already been handed out by the
+        // time this runs, and a restore that only wrote the saved slots would
+        // leave a second pick in whatever slot the kit used.
+        pack.0.clear();
+        for (slot, code, n) in &run.slots {
+            pack.0.put_at(*slot as usize, *code, *n);
+        }
+        pack.0.select_slot(run.selected as usize);
+    }
+    if let Some(clock) = clock {
+        clock.0 = DayNight::new(run.clock_t);
+    }
 }
 
 /// Cap how much simulation a single slow frame may try to catch up on.

@@ -214,6 +214,24 @@ godgame --play --world /tmp/w --warmup 300 --dump-state b.json     # a second pr
 Compare `cells` by ABSOLUTE coordinate — the window moves between runs, so
 comparing them row by row compares two different places.
 
+**A world is two things.** `DIR/chunks/` is the terrain, `DIR/run.save` is
+everything else: seed, world clock, the body, and the inventory slot by slot.
+Both are written atomically, both refuse a file that is not theirs, and the run
+file also refuses one whose seed does not match the world it was found beside —
+dropping a save into the wrong directory would otherwise teleport the body into
+terrain grown from a different seed, which reads as corruption rather than as a
+mistake.
+
+Two ordering facts, both of which cost a debugging round if forgotten:
+
+- **The restore runs LAST in `glue::start_a_run`**, after the body reset and
+  after the starting kit. Any earlier and `body.reset()` undoes it and the kit
+  buries it, and it looks exactly like the save was never written.
+- **`Inventory::put_at`, not `add`.** `add` implements the game's placement
+  policy — merge, then first free slot — which is precisely wrong when the slots
+  are already decided. Loading through `add` silently rearranges the player's
+  pack every time.
+
 ### The spawn is chosen by `walkable_spawn`, not `spawn_point`
 
 `spawn_point` asks the heightmap where the dry land is. The heightmap knows
