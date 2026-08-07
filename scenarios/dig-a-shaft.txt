@@ -1,19 +1,28 @@
 # Stand still and dig straight down.
 #
-# What it demonstrates end to end: the pointer, the reach check, the tool's
-# cadence, the brush, and the falling-sand automata settling what is left.
-# Nothing here reaches into `apply_brush` directly — the script presses the
-# actual left mouse button, so a run that passes proves the real path works.
+# What it demonstrates, end to end and with nothing stubbed: the pointer, the
+# reach check, the tool's cadence, the brush, the drop tables, and the pickup.
+# The script presses the ACTUAL left mouse button, so a run that works proves
+# the real path works — see `--edit`'s doc comment for why that matters.
 #
 #   cargo run --release -- --play --script scenarios/dig-a-shaft.txt \
 #       --warmup 300 --dump-state out.json --screenshot out.png
 #
-# Read `cells.front` in the dump: the column under the body should be air.
+# Measured against a control run with `dig 3s` replaced by `wait 3s`, comparing
+# the two dumps by ABSOLUTE cell coordinate (the window moves, so comparing them
+# row by row compares two different places):
+#
+#   53 cells of snow and stone removed inside the dumped window
+#   the body fell from y=165 to y=210, down its own shaft
+#   43 snow_ball and 18 stone_chunk collected into the inventory
+#
+# `drops` stays 0 in both, and that is correct rather than suspicious: the
+# player walks over what it breaks and picks it straight up.
 
 # `aim` is an offset from the body's CENTRE, in px. The starting pick reaches
 # 4 cells — 20px — so this is just inside it.
 aim 0 20
 dig 3s
 
-# Let the sand and gravel above the hole finish falling before anything looks.
+# Let the snow above the hole finish falling before anything looks.
 wait 90f

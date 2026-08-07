@@ -176,6 +176,36 @@ It exists because of `§7.1`: three bugs whose shape was *a resource is declared
 read, and written by nothing*, one of which lit every biome identically for two
 milestones. The panel is the cheapest instrument that would have shown all three.
 
+### The spawn is chosen by `walkable_spawn`, not `spawn_point`
+
+`spawn_point` asks the heightmap where the dry land is. The heightmap knows
+nothing about the trees the decorators put on it afterwards, and every leaf
+material in `content/blocks/flora.toml` is authored `collides = true` — so a
+canopy is a wall. Measured over 24 seeds at `SPAWN_COL`, counting cells of
+walkable ground either side of the body:
+
+| | under 12 cells one side or both | zero on one side |
+|---|---|---|
+| `spawn_point` | **23 / 24** | 6, one of them zero on BOTH |
+| `walkable_spawn` | 0 / 24 | 0 |
+
+`spawn_point` is untouched and still what `worldgen_golden` pins — "where is the
+land" and "where can a body stand" are different questions, the second needs
+generated chunks, and folding it into the first would make a cheap pure function
+expensive and move a baselined value for no terrain reason.
+
+**It follows the ground, not a row**, and the first version did not. `spawn_point`
+returns a point six cells ABOVE the surface, so a check run at that row measures
+thin air: every column passed and the body still stopped dead after exactly the
+number of cells the check had verified. Twice. If you change this, verify it by
+walking the body in the game — `--script` plus `--dump-state` — and not by
+reading the checker's own answer back.
+
+What it buys is 12 cells (60 px) either way, which is room to stand up and pick a
+direction. It does **not** promise an open world; the surface is genuinely broken
+up by slopes steeper than the body's one-cell step, and getting further means
+jumping or digging. What it rules out is starting the run entombed.
+
 ### Driving the game without a person: `--script` and `--dump-state`
 
 ```

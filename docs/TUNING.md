@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 573 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 576 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -560,6 +560,9 @@ only the exported surface is held to the rule.
 | `SPAWN_SEARCH` (private) | `512` | How far either side of the requested column [`spawn_point`] will look. | 455 |
 | `SPAWN_CLEARANCE` (private) | `4` | How far above sea level the ground has to be to count as dry land. | 457 |
 | `SPAWN_COL` | `8` | The column the TypeScript defaulted to. | 459 |
+| `SPAWN_WALK_CELLS` (private) | `12` | Cells of walkable ground a spawn wants either side of the body. | 520 |
+| `SPAWN_STEP_UP` (private) | `1` | How far the ground may RISE between two adjacent columns and still be walked. | 528 |
+| `SPAWN_GROUND_SCAN` (private) | `24` | How far below the spawn row to look for the ground. | 537 |
 
 ### `crates/godgame-core/src/sim/worldgen/features.rs`
 

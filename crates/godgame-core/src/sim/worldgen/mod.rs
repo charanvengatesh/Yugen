@@ -25,6 +25,6 @@ pub mod structs;
 // is what a chunk store calls, and `chunk` is an implementation detail of where
 // it happens to live.
 pub use chunk::{
-    ChunkGen, DECORATORS, SPAWN_COL, SpawnPoint, generate_chunk, material_at, spawn_point,
-    world_noise,
+    ChunkGen, DECORATORS, SPAWN_COL, SpawnPoint, generate_chunk, material_at, spawn_ground_runs,
+    spawn_point, walkable_spawn, world_noise,
 };

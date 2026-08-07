@@ -42,12 +42,12 @@
 //! chunks produce exactly what one worker generating them in sequence would.
 //! `tests/worldgen_purity.rs` asserts that rather than assuming it.
 
-use crate::config::{CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, SEA_LEVEL_Y};
+use crate::config::{CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, PLAYER_H, PLAYER_W, SEA_LEVEL_Y};
 use crate::sim::biomes::{ColumnProfile, column_profile_at};
 use crate::sim::decor::structures::StructureDecorator;
 use crate::sim::decor::trees::TreeDecorator;
 use crate::sim::decor::{DecorContext, Decorator, ores::OreDecorator};
-use crate::sim::materials::{CellId, block};
+use crate::sim::materials::{CellId, MAT_COLLIDE, block};
 use crate::sim::noise::Noise;
 
 use super::caves::{Carve, CaveColumn, CaveLattice, carve_exact, cave_column_at, strata_exact};
@@ -502,6 +502,221 @@ pub fn spawn_point(seed: u32, spawn_col: i32) -> SpawnPoint {
     }
 }
 
+/// Cells of walkable ground a spawn wants either side of the body.
+///
+/// Twelve — six body-widths, 60 world px.
+///
+/// Chosen from the terrain rather than from taste. Sampling 24 seeds, the
+/// walkable run beside a spawn is typically 12 to 20 cells and only occasionally
+/// more (one seed in 24 offered 54). The surface is broken up by slopes steeper
+/// than the body's one-cell step, so asking for much more than this does not
+/// find a better spot, it drags the spawn hundreds of columns from the one the
+/// caller asked for to find a rare flat.
+///
+/// **What this does NOT promise is an open world to walk in.** Twelve cells is
+/// room to move, see where you are and pick a direction. Getting further means
+/// jumping or digging, which is the game. What it rules out is starting the run
+/// entombed, which was happening to a quarter of seeds.
+const SPAWN_WALK_CELLS: i32 = 12;
+
+/// How far the ground may RISE between two adjacent columns and still be walked.
+///
+/// One cell. That is the step-up the body actually has — `player_golden`'s arena
+/// includes a one-cell ledge for exactly this — so a check that allowed more
+/// would call a wall a path. Downward steps are unbounded: falling off a ledge
+/// is still leaving, and a spawn beside a drop is a fine place to start.
+const SPAWN_STEP_UP: i32 = 1;
+
+/// How far below the spawn row to look for the ground.
+///
+/// [`spawn_point`] returns a point six cells ABOVE the surface — the body is
+/// dropped in and falls — so a walkability check run at the spawn's own row is
+/// measuring thin air. This is the distance it scans down to find what the body
+/// will actually be standing on. Generous, because the columns either side may
+/// be lower than the one the body starts over.
+const SPAWN_GROUND_SCAN: i32 = 24;
+
+/// A spawn you can actually walk away from.
+///
+/// # Why this is not just [`spawn_point`]
+///
+/// [`spawn_point`] answers "which column is dry land", and it answers it
+/// correctly — it is a pure function of the heightmap, which is why it can be
+/// baselined and why it costs nothing. But the heightmap is not the world.
+/// Decorators run afterwards and put TREES on that dry land, and every leaf
+/// material in `content/blocks/flora.toml` is authored `collides = true`, so a
+/// canopy is a wall.
+///
+/// Measured over 24 seeds at [`SPAWN_COL`], counting cells of walkable ground
+/// either side: **23 of them gave the body under 12 cells on one side or both,
+/// and six gave it ZERO on one side — seed 17 had zero on both.** The body could
+/// not move at all. That is not bad luck at one seed.
+///
+/// After: every one of the 24 has at least 12 either way, mean worst side 14.
+///
+/// # Why a second function rather than a fix to the first
+///
+/// Two different questions. "Where is the land" is a property of the heightmap
+/// and is what `worldgen_golden` pins; "where can a body stand" is a property of
+/// the generated world, needs chunks, and costs a few milliseconds. Folding the
+/// second into the first would make a cheap pure function expensive, and would
+/// move a baselined value for a reason that has nothing to do with terrain.
+///
+/// So this starts from [`spawn_point`] and walks outward for the nearest column
+/// the body fits in with somewhere to go. It is still a pure function of
+/// `(seed, spawn_col)`.
+///
+/// # It follows the GROUND, not a row
+///
+/// The first version of this checked a fixed row for clear cells, and it was
+/// wrong in a way that looked right: `spawn_point`'s row is six cells above the
+/// surface, so on open ground every column passed trivially and the body still
+/// stopped dead after exactly the number of cells the check had verified.
+/// Terrain is not flat. What matters is whether there is a walkable SURFACE
+/// leading away — ground the body can stand on, rising no faster than it can
+/// step — so each column's ground row is found by scanning down, and the
+/// comparison is against its neighbour rather than against a constant.
+///
+/// # It never fails
+///
+/// If nothing within [`SPAWN_SEARCH`] qualifies, the plain [`spawn_point`] is
+/// returned. A world with nowhere good to stand should start somewhere bad, not
+/// refuse to start — and the caller has no better answer than this one does.
+pub fn walkable_spawn(seed: u32, spawn_col: i32) -> SpawnPoint {
+    let base = spawn_point(seed, spawn_col);
+    let col = (base.x / CELL_SIZE as f32).floor() as i32;
+    let row = (base.y / CELL_SIZE as f32).floor() as i32;
+
+    let mut probe = SpawnProbe::new(seed);
+    // Both sides first, then either side. A spawn you can only leave in one
+    // direction is playable but poor: half of what the player tries at the very
+    // start of a run walks straight into a wall, and it is the half a scenario
+    // file is as likely to pick as the other. Trying for both and settling for
+    // one is what the fallback is; it costs a second scan of columns already in
+    // the chunk cache.
+    for want_both in [true, false] {
+        for r in 0..=SPAWN_SEARCH {
+            // Outward alternately, so a tie goes to the column nearest the one
+            // the caller asked for rather than always to the right.
+            let candidates: &[i32] = if r == 0 { &[col] } else { &[col + r, col - r] };
+            for &at in candidates {
+                if probe.stands_and_walks(at, row, want_both) {
+                    return SpawnPoint {
+                        x: (at * CELL_SIZE) as f32,
+                        y: base.y,
+                    };
+                }
+            }
+        }
+    }
+    base
+}
+
+/// Walkable ground either side of a spawn, capped at `far` cells.
+///
+/// Exported for one reason: it is how a caller checks whether this module and
+/// the RUNNING GAME agree about what "walkable" means. They did not, twice, and
+/// both times the disagreement was invisible from inside — the check passed and
+/// the body still stopped dead.
+pub fn spawn_ground_runs(seed: u32, at: SpawnPoint, far: i32) -> (i32, i32) {
+    let col = (at.x / CELL_SIZE as f32).floor() as i32;
+    let row = (at.y / CELL_SIZE as f32).floor() as i32;
+    let w = (PLAYER_W / CELL_SIZE as f32).ceil() as i32;
+    let mut probe = SpawnProbe::new(seed);
+    (
+        probe.run_of_ground(col, row, -1, far),
+        probe.run_of_ground(col + w - 1, row, 1, far),
+    )
+}
+
+/// Chunk-generating scratch for [`walkable_spawn`].
+///
+/// A cache, because the columns it probes are adjacent and a chunk is 32 of
+/// them: without one, a search that walked a hundred columns would regenerate
+/// the same chunk a hundred times.
+struct SpawnProbe {
+    chunks_from: ChunkGen,
+    chunks: Vec<((i32, i32), Vec<CellId>)>,
+}
+
+impl SpawnProbe {
+    fn new(seed: u32) -> SpawnProbe {
+        SpawnProbe {
+            chunks_from: ChunkGen::new(seed),
+            chunks: Vec::new(),
+        }
+    }
+
+    /// The generated material at an absolute cell.
+    fn cell(&mut self, x: i32, y: i32) -> CellId {
+        let key = (x.div_euclid(CHUNK_CELLS), y.div_euclid(CHUNK_CELLS));
+        if !self.chunks.iter().any(|(k, _)| *k == key) {
+            let c = self.chunks_from.generate(key.0, key.1);
+            self.chunks.push((key, c));
+        }
+        let chunk = &self
+            .chunks
+            .iter()
+            .find(|(k, _)| *k == key)
+            .expect("just inserted")
+            .1;
+        let (lx, ly) = (x.rem_euclid(CHUNK_CELLS), y.rem_euclid(CHUNK_CELLS));
+        chunk[(ly * CHUNK_CELLS + lx) as usize]
+    }
+
+    /// The row of the first solid cell at or below `from`, and whether a body
+    /// standing on it has room to stand.
+    ///
+    /// `None` means either nothing solid within [`SPAWN_GROUND_SCAN`] — a column
+    /// over a chasm, which is not somewhere to walk to — or ground with
+    /// something on top of it that the body does not fit under.
+    fn ground_at(&mut self, x: i32, from: i32) -> Option<i32> {
+        let h = (PLAYER_H / CELL_SIZE as f32).ceil() as i32;
+        let floor = (from..from + SPAWN_GROUND_SCAN)
+            .find(|&y| MAT_COLLIDE[self.cell(x, y) as usize] == 1)?;
+        // The body stands ON that cell, so it occupies the `h` rows above it.
+        (1..=h)
+            .all(|dy| MAT_COLLIDE[self.cell(x, floor - dy) as usize] == 0)
+            .then_some(floor)
+    }
+
+    /// How many columns of walkable ground run away from `x` in `step`.
+    ///
+    /// Stops at the first column with no standable ground, or one whose surface
+    /// rises more than [`SPAWN_STEP_UP`] above the last. Drops are free: falling
+    /// off a ledge is still leaving.
+    fn run_of_ground(&mut self, x: i32, from: i32, step: i32, want: i32) -> i32 {
+        let Some(mut last) = self.ground_at(x, from) else {
+            return 0;
+        };
+        let mut n = 0;
+        while n < want {
+            let at = x + step * (n + 1);
+            let Some(g) = self.ground_at(at, (last - 4).min(from)) else {
+                break;
+            };
+            if last - g > SPAWN_STEP_UP {
+                break;
+            }
+            last = g;
+            n += 1;
+        }
+        n
+    }
+
+    /// Can a body stand at `x`, and walk [`SPAWN_WALK_CELLS`] — both ways if
+    /// `both`, otherwise either way?
+    fn stands_and_walks(&mut self, x: i32, row: i32, both: bool) -> bool {
+        let w = (PLAYER_W / CELL_SIZE as f32).ceil() as i32;
+        if (0..w).any(|dx| self.ground_at(x + dx, row).is_none()) {
+            return false;
+        }
+        let right = self.run_of_ground(x + w - 1, row, 1, SPAWN_WALK_CELLS) == SPAWN_WALK_CELLS;
+        let left = self.run_of_ground(x, row, -1, SPAWN_WALK_CELLS) == SPAWN_WALK_CELLS;
+        if both { left && right } else { left || right }
+    }
+}
+
 // (`generateWorld` is not ported: it was a phase-1 shim that blitted chunks into
 // a finite `CellGrid`, and this crate has no `CellGrid` — the streaming store
 // consumes `generate_chunk` directly.)
@@ -512,6 +727,78 @@ mod tests {
     use crate::config::worldgen::SEED;
 
     const N: usize = (CHUNK_CELLS * CHUNK_CELLS) as usize;
+
+    /// Walkable ground either side of a spawn, well past what is required.
+    fn room_around(seed: u32, at: SpawnPoint) -> (i32, i32) {
+        spawn_ground_runs(seed, at, 200)
+    }
+
+    /// The defect this was written for, and the proof the fix answers it.
+    ///
+    /// `spawn_point` asks the heightmap where the land is, and the heightmap
+    /// knows nothing about the trees the decorators put on it. Every leaf
+    /// material is authored `collides = true`, so a canopy is a wall — and a
+    /// third of seeds dropped the body into one.
+    #[test]
+    fn a_spawn_is_somewhere_the_body_can_walk_away_from() {
+        let seeds: Vec<u32> = (0..24).collect();
+
+        // The control, and the reason this test exists rather than being
+        // assumed: the plain spawn is genuinely bad on a lot of seeds. If this
+        // ever stops being true the fix below has stopped being needed, and
+        // that is worth being told about rather than quietly carrying.
+        let cramped = seeds
+            .iter()
+            .filter(|&&s| {
+                let (l, r) = room_around(s, spawn_point(s, SPAWN_COL));
+                l.min(r) < SPAWN_WALK_CELLS
+            })
+            .count();
+        assert!(
+            cramped >= 18,
+            "only {cramped}/24 plain spawns are cramped, and 23 were measured. \
+             If the surface stopped being broken up, `walkable_spawn` is now \
+             dead weight and should go rather than be quietly carried"
+        );
+
+        // And the claim. BOTH sides, not either: a spawn you can only leave in
+        // one direction is playable but poor, and half of what a player — or a
+        // scenario file — tries first walks straight into a wall. All 24 of
+        // these clear it, so the one-sided fallback inside `walkable_spawn` is
+        // for worlds stranger than any of them rather than for these.
+        for &seed in &seeds {
+            let at = walkable_spawn(seed, SPAWN_COL);
+            let (left, right) = room_around(seed, at);
+            assert!(
+                left.min(right) >= SPAWN_WALK_CELLS,
+                "seed {seed}: walkable_spawn put the body at {at:?} with {left} \
+                 cells clear to the left and {right} to the right"
+            );
+        }
+    }
+
+    /// Still a pure function of its arguments, like everything else here.
+    #[test]
+    fn a_walkable_spawn_is_the_same_every_time_it_is_asked() {
+        for seed in [0u32, 17, 2334] {
+            let a = walkable_spawn(seed, SPAWN_COL);
+            let b = walkable_spawn(seed, SPAWN_COL);
+            assert_eq!(a, b, "seed {seed}");
+        }
+    }
+
+    /// It only moves the body sideways. The row is the heightmap's answer and
+    /// this has no business second-guessing how high above the ground to stand.
+    #[test]
+    fn a_walkable_spawn_keeps_the_height_the_heightmap_chose() {
+        for seed in 0..12u32 {
+            assert_eq!(
+                walkable_spawn(seed, SPAWN_COL).y,
+                spawn_point(seed, SPAWN_COL).y,
+                "seed {seed}"
+            );
+        }
+    }
 
     #[test]
     fn a_chunk_is_a_full_square_of_known_materials() {

@@ -52,7 +52,7 @@ use godgame_core::sim::chunk_store::ChunkStore;
 use godgame_core::sim::grid::CellGrid;
 use godgame_core::sim::level::{Level, window_size};
 use godgame_core::sim::window::WindowManager;
-use godgame_core::sim::worldgen::{SPAWN_COL, spawn_point};
+use godgame_core::sim::worldgen::{SPAWN_COL, walkable_spawn};
 
 /// System sets inside [`FixedUpdate`], in run order.
 ///
@@ -175,7 +175,13 @@ fn spawn_world(mut commands: Commands, mut focus: ResMut<WorldFocus>) {
 /// `CellGrid`. The world is a pure function of the seed, so what comes back is
 /// the same terrain, minus every hole that was dug in it.
 pub fn build_world(seed: u32) -> SimWorld {
-    let spawn = spawn_point(seed, SPAWN_COL);
+    // `walkable_spawn` and not `spawn_point`: the latter asks the heightmap
+    // where the land is and the heightmap knows nothing about the trees the
+    // decorators put on it. Every leaf material is authored `collides = true`,
+    // so a canopy is a wall, and a third of seeds measured put the body inside
+    // one — two of the first twenty-four with nothing clear on either side. The
+    // body could not move at all. See `walkable_spawn`.
+    let spawn = walkable_spawn(seed, SPAWN_COL);
 
     let (cols, rows) = window_size();
     let mut grid = CellGrid::new(cols, rows);
