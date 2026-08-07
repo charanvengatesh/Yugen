@@ -4,6 +4,21 @@
 // pass, over all four channels at once: R/G/B are the coloured light and A is
 // the scalar light the darkness multiply is built from.
 //
+// # NOTHING RENDERS THIS, and that is not an oversight
+//
+// It was written to replace `blur_one` — 97.9 µs, the largest single item in
+// `docs/PERF.md` for three milestones — and it was wired in, looked at and
+// measured. It cost **237 µs of whole-frame time**, about 190 of that the two
+// extra cameras a ping-pong needs, to remove CPU work that the same measurement
+// says is worth **1 µs**: Bevy pipelines the main world against the render app,
+// so the blur was already free. `docs/PERF.md` §8.6 is the table.
+//
+// So this file sits where `scan_emitters` sits — kept, tested, correct, not run.
+// `tests/light_blur_matches_cpu.rs` compiles these exact bytes on a headless
+// adapter every `cargo test`, so it cannot rot silently, and the day a
+// render-graph node makes a GPU blur cheap the arithmetic below is already
+// verified against the CPU to within a quarter of an 8-bit step.
+//
 // # Why this is a nested pair of boxes and not one triangle
 //
 // A triangle blur IS a box convolved with a box, so the obvious shader is nine

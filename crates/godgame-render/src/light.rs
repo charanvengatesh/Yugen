@@ -1456,15 +1456,20 @@ fn add(buf: &mut [f32], lw: i32, lh: i32, x: i32, y: i32, v: f32) {
 /// the vertical window has to carry a running sum per column, and walking the
 /// grid column by column to avoid that would read every cache line `h` times.
 ///
-/// # This is now the ORACLE, not the shipping path
+/// # This is the shipping path AND an oracle, which is unusual and deliberate
 ///
-/// The blur runs on the GPU — `lightblur.wgsl`, two passes at
-/// [`BLUR_CAMERA_ORDER`] — and [`LightGrid::solve`] no longer calls this. It is
-/// kept, exported and still tested for exactly the reason `crate::cells`'
-/// `paint_cells` is kept beside `cells.wgsl`: a shader nothing can diff against
-/// is a shader nobody can change safely.
-/// `tests/light_blur_matches_cpu.rs` compiles the shipping WGSL on a headless
-/// adapter and compares it to this function, texel for texel.
+/// `lightblur.wgsl` is a GPU implementation of exactly this kernel, and
+/// `tests/light_blur_matches_cpu.rs` compiles it on a headless adapter and
+/// compares the two texel for texel — agreement measured at 9.1e-4, under a
+/// quarter of an 8-bit step. **The game does not run the shader.** It was built,
+/// verified, wired in and measured, and wiring it in cost 237 µs of whole-frame
+/// time to remove 97.9 µs of CPU work that a whole-frame measurement says is
+/// worth 1 µs; `docs/PERF.md` §8.6 has the table.
+///
+/// So this function stays where it is, on the frame path, and the shader stays
+/// beside it in the position `scan_emitters` occupies: kept, tested, correct and
+/// not run. `pub` because the harness needs it — the same trade `crate::cells`'
+/// `paint_cells` makes beside `cells.wgsl`, run the other way round.
 pub fn blur_one(a: &mut [f32], scratch: &mut [f32], acc: &mut [f32], lw: i32, lh: i32) {
     let (w, h) = (lw as usize, lh as usize);
     box_rows(a, scratch, w, h, BLUR_BACK, BLUR_FWD);

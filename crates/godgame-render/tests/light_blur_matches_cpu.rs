@@ -1,19 +1,24 @@
 //! The light blur shader must produce what `light::blur_one` produces.
 //!
-//! # What this is, and why it had to exist before the shader shipped
+//! # What this is, and why it exists for a shader nothing renders
 //!
-//! The blur was 55% of the whole per-frame CPU render cost, and moving it to the
-//! GPU was the largest remaining perf item in `docs/PERF.md`. It was also the
+//! The blur was 55% of the whole per-frame CPU render cost and moving it to the
+//! GPU was the largest remaining item in `docs/PERF.md`. It was also the
 //! riskiest, for one reason that had nothing to do with the arithmetic:
-//! `shader_matches_cpu.rs` covers `cells.wgsl` and nothing covers the light
+//! `shader_matches_cpu.rs` covers `cells.wgsl` and nothing covered the light
 //! stack, so a GPU blur would have been a pass with no oracle at all — verified
 //! by looking at a cave and deciding it seemed about right.
 //!
-//! This file is the oracle. `blur_one` stays in `light.rs` as the reference
-//! implementation, exactly as `cells::paint_cells` stays beside `cells.wgsl`,
-//! and this compiles the SHIPPING `lightblur.wgsl` on a headless adapter, runs
-//! both passes over a real solved light field, reads the target back and diffs
-//! it against the CPU.
+//! So this landed first, and it is what let the move be judged rather than
+//! guessed. **The move lost**: wired in, `lightblur.wgsl` cost 237 µs of
+//! whole-frame time to remove CPU work worth 1 µs of it, and the game still runs
+//! `blur_one`. See `PERF.md` §8.6, and `lightblur.wgsl`'s own header.
+//!
+//! That leaves this file testing a shader the frame does not draw, which is the
+//! position `scan_emitters` has held for two milestones and is defensible for
+//! the same reason: the implementation is correct, the day it becomes cheap is a
+//! render-graph node away, and a `.wgsl` nobody compiles is a `.wgsl` that rots.
+//! It runs in 0.6 s.
 //!
 //! # The three claims
 //!
@@ -171,12 +176,13 @@ fn quantised(field: &[f32]) -> (Vec<u8>, Vec<f32>) {
     (bytes, back)
 }
 
-/// `light.rs`'s own float-to-byte, restated because it is private there.
+/// Float to byte, rounding rather than truncating.
 ///
-/// Rounding rather than truncating, which is the one place this path differs
-/// from `bake_shadow`'s: truncation biases a field DOWN by half a byte on
-/// average, and doing it before the blur would spread that bias across the whole
-/// frame instead of landing it on one output texel.
+/// `light.rs`'s own `unit_byte` truncates, and it is right to: those bytes are a
+/// final answer and the error lands on one output texel. These bytes would be
+/// the INPUT to a blur, so truncation's half-step downward bias would be smeared
+/// over every texel the kernel reaches. Any real upload path for this shader
+/// would round, so the harness rounds.
 fn unit_byte(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
 }

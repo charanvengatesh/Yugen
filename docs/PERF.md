@@ -314,6 +314,12 @@ already been made once in this document's history.
 | `cells/update_shimmer` — 9.3 µs | **No** | `cellmap::update_shade_params` replaced it entirely: the shimmer is a `vec4` in a uniform and the wave is evaluated per fragment. The CPU version survives as `cells.rs`'s oracle and has one caller, a test. |
 | `cells/paint_cells` — 24.2 µs at 2560×1440 | **No** | `cells.wgsl` draws the frame. `paint_cells` is the verified CPU reference `shader_matches_cpu` diffs against, and the function `ts_cells_parity` freezes. |
 
+`light/pass/blur` (97.9 µs) is the opposite case and belongs in the frame budget:
+it IS what the frame runs. `crates/godgame-render/src/lightblur.wgsl` is a
+verified GPU implementation of it that the game deliberately does not use — §8.6
+is why, and the short version is that wiring it in cost 237 µs of frame time to
+save CPU work worth 1 µs of it.
+
 `light/pass/census` (3.7 µs) is the same story from the other side: the splat is
 measured, and with no census to splat it does nothing in the frame.
 
@@ -394,10 +400,16 @@ three benches deliberately left out.
 | Particle update (full 2 048-slot pool) | 9.6 µs |
 | **Total** | **178.7 µs = 2.14% of an 8.333 ms frame** |
 
-**The blur alone is 97.9 µs of that — 55% of the whole per-frame CPU render
-cost, and more than everything else in the table put together.** It is already
-the good algorithm: four sliding-window passes, separable, O(1) in the radius.
-Written the obvious way at this resolution it measured 171 µs. There is no CPU
+**This total is a budget, not a critical path.** Deleting the 97.9 µs blur from
+it — the single largest entry, 55% of the table — moved the whole frame by
+**1 µs**, measured by `tests/frame_cost.rs`. Bevy pipelines the main world
+against the render app, so main-world CPU under the render app's cost is free.
+Treat every number here as headroom against the day that stops being true, and
+see §8.6 before spending a milestone on any of it.
+
+The blur is already the good algorithm: four sliding-window passes, separable,
+O(1) in the radius. Written the obvious way at this resolution it measured
+171 µs. There is no CPU
 win left in it, which is why the remaining move is to the GPU — and why that is
 the one item in this document worth a milestone rather than an afternoon.
 
@@ -572,13 +584,19 @@ and a cache keyed on an epsilon over depth and day would skip nearly all of them
 Worth about 0.12% of a frame, which is small — but it is small, contained, and
 does not need a shader.
 
-### 8.6 The blur is 55% of the CPU render cost and the CPU is finished — NOT STARTED
+### 8.6 The blur is 55% of the CPU render cost — MOVED TO THE GPU, MEASURED, AND REVERTED
 
 **97.9 µs.** More than everything else the frame does on the CPU put together,
-and 1.17% of an 8.33 ms frame.
+and 1.17% of an 8.33 ms frame. It was the largest single item in this document
+for three milestones.
 
-**There is no CPU win left, and that was checked rather than assumed.** Three
-things were looked at before concluding it:
+It was built. It works, it is verified, and it is **not wired in**, because when
+the finished thing was finally measured against a whole frame instead of against
+a criterion bench it was **237 µs slower**.
+
+#### What the CPU analysis got right
+
+**There is no CPU win left**, and that was checked rather than assumed:
 
 - *The algorithm.* Already four sliding-window passes — a triangle kernel is a
   box convolved with a box — so it is O(1) in the radius. Written the obvious way
@@ -588,37 +606,75 @@ things were looked at before concluding it:
   striding down columns. The obvious "interleave the channels to amortise the
   column miss" idea has nothing to amortise.
 - *The arithmetic.* Four grids × four passes × 15 416 light cells is ~247 000
-  element updates in 97.9 µs — about 400 ps each, or roughly one cycle. For a
-  loop doing a multiply, a clamp, an add and a subtract, that is already at or
-  near what scalar code can do.
+  element updates in 97.9 µs — about 400 ps each, or roughly one cycle.
 
-Skipping the colour blur when it would not show does not help either: the three
-colour grids are blurred only when `colour_dirty`, and a scene with no emitters
-already has it false.
+All still true. None of it mattered.
 
-**So it has to go to the GPU, and the move is bigger than "blur in a shader".**
-`bake_shadow` and `bake_colour` both consume the BLURRED fields — they are
-per-texel transforms of them — so if the blur output stays on the GPU, those two
-have to follow it. That is 97.9 + 9.4 + 6.3 = **113.6 µs of CPU removed**, in
-exchange for:
+#### What was built
 
-- uploading four `f32` fields per frame instead of two `Rgba8Unorm` ones — 164×94
-  each, so roughly 61 KB → 123 KB packed as `Rgba16Float`, or 246 KB unpacked;
-- two to four extra render passes with a ping-pong target;
-- a composite that samples the blurred texture instead of a baked byte texture.
+Enough to ship, and it is all still in the tree:
 
-On unified memory the transfer is cheap. On a discrete GPU it is less obviously a
-win, and this port has only ever been measured on one machine.
+- `crates/godgame-render/src/lightblur.wgsl` — the same kernel as `blur_one`, one
+  axis per pass. Nested boxes rather than the nine-tap fused triangle, because
+  both implementations clamp reads to the edge texel and the CPU clamps
+  *between* its two boxes; a fused triangle is identical in the interior and
+  wrong by **10.3 8-bit steps** on the border.
+- `crates/godgame-render/tests/light_blur_matches_cpu.rs` — the oracle this
+  section used to say did not exist. `blur_one` is the reference, exactly as
+  `cells.rs` is for `cells.wgsl`. Measured agreement: **9.1e-4**, under a quarter
+  of one 8-bit step.
+- The wiring: two ping-pong `Rgba16Float` targets, two cameras, `bake_raw`
+  packing all four planes into one `Rgba8Unorm` upload (**halving** the upload
+  rather than doubling it, which this section used to predict backwards), and
+  `bake_shadow`/`bake_colour` reduced to a `mix` and a `floor` in `LIGHT_WGSL`.
 
-**And there is no oracle.** `shader_matches_cpu.rs` diffs `cells.wgsl` against
-`cells.rs`; nothing does that for the light stack. `blur_one` would have to become
-the reference the shader is diffed against — which is the same trade `cells.rs`
-makes and the reason that file was kept — and that harness does not exist yet.
+The picture was checked, not eyeballed: the lit-cave capture came out with a mean
+signed difference of **−0.016 bytes per channel** and the daylight capture
+**−0.018**, both symmetric noise, after re-imposing in the shader the 8-bit
+truncation the baked textures used to impose. Without that truncation the frame
+measured **+0.51 bytes brighter everywhere**, because the sRGB encode amplifies a
+sub-LSB linear difference by ~13x in the darkest pixels.
 
-Recorded rather than started. It is the largest single item left in this
-document, and it is also the only one that is a milestone rather than an
-afternoon: a new shader pass, a ping-pong target, three CPU passes deleted, and a
-verification harness built from nothing, for 1.17% of a frame.
+#### The measurement that killed it
+
+`tests/frame_cost.rs`, built for this and kept. Three builds, interleaved on a
+quiet machine, four runs each, medians:
+
+| build | median | vs base |
+|---|---|---|
+| the CPU blur, as shipped | 1313 µs | — |
+| **the CPU blur DELETED entirely** | 1314 µs | **+1** |
+| the blur moved to two GPU passes | 1550 µs | **+237** |
+
+Read the middle row twice. **Deleting 98 µs of main-world CPU work changed the
+frame by nothing at all.** Bands overlap completely across four interleaved runs.
+
+The reason is pipelining: Bevy runs the main world against the render app, so
+main-world CPU that fits under the render app's cost is free. Every number in the
+"Whole-frame CPU total" section above is main-world CPU. **That total is a budget,
+not a critical path**, and optimising it only helps once it exceeds the render
+side.
+
+And the GPU version lost 237 µs, of which ~190 µs is the two extra `Camera2d`s
+on their own — measured by spawning the quads with the cameras removed. At 10 660
+texels the shading is nanoseconds and the framework around it is the entire cost:
+extract, visible-entity queue, phase sort, pipeline lookup and a render pass
+begin/end, twice.
+
+#### What would have to change for this to pay
+
+- **A render-graph node instead of two cameras.** ~190 µs of the 237 is per-camera
+  framework overhead, and a hand-written node inside an existing camera's graph
+  avoids all of it. That is the only version of this that could win, and it wins
+  at most the 0 µs the middle row above says the CPU blur costs.
+- **A much larger grid.** At `LIGHT_DOWNSCALE` 1 and a 640×400 low-res buffer the
+  grid is 130×82. The framework overhead is fixed; the shading is not. Somewhere
+  above ~10x the texels the balance flips.
+- **A main world that is actually the critical path.** It is not today.
+
+None of those is true now, so `lightblur.wgsl` sits beside `scan_emitters` in the
+oracle table below: kept, tested, correct, and not run. If you come back to this,
+start from the middle row of that table — not from the 97.9 µs.
 
 ### 8.5 `place_bloom` mutating up to 120 material assets per frame — not measured
 

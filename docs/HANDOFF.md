@@ -451,27 +451,41 @@ throughput one. The stronger fix is to prefetch the leading edge BEFORE the dead
 zone is crossed, off the critical path entirely. `recenter`'s one-chunk dead zone
 is exactly that lookahead and it is free. Not prototyped.
 
-### 9.3 The light blur is 97.9 µs of CPU that wants to be on the GPU
+### 9.3 The light blur — DONE, MEASURED, AND DELIBERATELY NOT SHIPPED
 
-Re-measured: the solve is 143.6 µs and the blur is **97.9 µs of it** — 55% of the
-whole per-frame CPU render cost, and more than everything else put together.
+This was the largest item in `docs/PERF.md` for three milestones: the blur is
+97.9 µs, 55% of the whole per-frame CPU render cost. It was built, verified,
+measured against a whole frame, and **reverted**.
 
-The CPU side is finished, and that was checked rather than assumed — the
-algorithm is already O(1) in the radius, `box_cols` already avoids the column
-stride, and at ~400 ps per element update the loop is at about one cycle per
-element. `docs/PERF.md` §8.6 has the working.
+**The finding is worth more than the change would have been.** A new instrument,
+`crates/godgame-render/tests/frame_cost.rs`, times whole headless frames. Three
+builds, interleaved on a quiet machine, medians:
 
-**Two things about the move that the original note here understated.** It is not
-just the blur: `bake_shadow` and `bake_colour` consume the blurred fields, so they
-have to follow it to the GPU — 113.6 µs total, in exchange for a larger per-frame
-upload (four `f32` fields rather than two `Rgba8Unorm`) and two to four extra
-passes. And there is **no oracle**: `shader_matches_cpu` covers `cells.wgsl` only,
-so `blur_one` would have to become the reference a new harness diffs the shader
-against.
+| build | median | vs base |
+|---|---|---|
+| the CPU blur, as shipped | 1313 µs | — |
+| **the CPU blur DELETED entirely** | 1314 µs | **+1** |
+| the blur moved to two GPU passes | 1550 µs | **+237** |
 
-Still the largest item left. Still worth doing. But it is a milestone, not an
-afternoon, and it buys 1.17% of a frame — so it should be started deliberately
-rather than squeezed in.
+Deleting 98 µs of main-world CPU moved the frame by nothing. Bevy pipelines the
+main world against the render app, so main-world CPU under the render app's cost
+is free — and every number in `PERF.md`'s whole-frame CPU total is main-world
+CPU. **That total is a budget, not a critical path.** The GPU version lost
+237 µs, ~190 of it the two extra `Camera2d`s alone.
+
+**What is in the tree and is not dead.** `lightblur.wgsl` and
+`tests/light_blur_matches_cpu.rs` stay, in exactly the position `scan_emitters`
+occupies: kept, tested, correct, not run. The harness also closes the gap this
+section used to name — there IS an oracle for the light stack now, `blur_one`,
+and the shader agrees with it to 9.1e-4, under a quarter of an 8-bit step. Its
+fault injection is permanent rather than thrown away: a fused nine-tap triangle,
+the kernel anybody would write first, is measured to be wrong by 10.3 8-bit steps
+on the border, because the CPU clamps between its two boxes.
+
+**If you come back to this**, the only version that could win is a render-graph
+node inside an existing camera rather than two cameras of its own — and it would
+win at most the 1 µs the middle row above says is there. Start from that row, not
+from the 97.9 µs.
 
 ### 9.4 Dynamic dispatch on hot paths
 
