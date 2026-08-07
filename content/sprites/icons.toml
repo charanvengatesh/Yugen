@@ -632,3 +632,40 @@ frames = '''
 .2
 1.
 '''
+
+# The three crafting stations. Three cells each, like every other placeable
+# fixture's icon, and each one built to be told apart at 3x3 rather than to be
+# pretty: a bench is a flat top on two legs, a furnace is an arch with a fire in
+# it, an anvil is a horn and a waist.
+[icon_workbench]
+cellsW = 3
+cellsH = 3
+pal = [".", "#6a4a26", "#9a703e", "#c49a5c"]
+[[icon_workbench.seq]]
+frames = '''
+333
+121
+1.1
+'''
+
+[icon_furnace]
+cellsW = 3
+cellsH = 3
+pal = [".", "#5a5856", "#7a7674", "#e8903a"]
+[[icon_furnace.seq]]
+frames = '''
+222
+232
+111
+'''
+
+[icon_anvil]
+cellsW = 3
+cellsH = 3
+pal = [".", "#3c3e42", "#56585e", "#82868e"]
+[[icon_anvil.seq]]
+frames = '''
+333
+.2.
+111
+'''

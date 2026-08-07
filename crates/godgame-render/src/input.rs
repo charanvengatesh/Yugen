@@ -37,9 +37,11 @@ use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use crate::interact_reach::stations_in_reach;
 use godgame_core::config::{CELL_SIZE, MAX_HEALTH, MAX_RUN_SPEED, PLAYER_H, PLAYER_W};
 use godgame_core::input::{Intent, KEYS, KeyState};
 use godgame_core::interact::{BuildTool, Cursor, Held, PALETTE_SLOTS};
+use godgame_core::items::crafting::Reach;
 use godgame_core::items::registry::{ItemCategory, ItemEffect};
 use godgame_core::items::{HOTBAR, Inventory, craft, item_by_code, next_craftable, recipes};
 use godgame_core::sim::edits::{EditMode, apply_brush};
@@ -254,7 +256,12 @@ const CODES: &[(&str, KeyCode)] = &[
 /// A linear scan of ~30 entries, run a few dozen times a frame. A map would be
 /// faster and would need a `LazyLock` and an allocation to save nanoseconds off
 /// a path that runs once per frame per binding.
-fn key_code(code: &str) -> Option<KeyCode> {
+///
+/// `pub` so a driver that has to SYNTHESISE a keypress can find the key a
+/// binding names. `--script`'s `craft` verb is the caller: crafting is read from
+/// `ButtonInput<KeyCode>` by `tool_keys` and has no representation in `Intent`,
+/// so the only honest way to script it is to press the key the player would.
+pub fn key_code(code: &str) -> Option<KeyCode> {
     CODES
         .iter()
         .find_map(|(name, key)| (*name == code).then_some(*key))
@@ -391,6 +398,10 @@ struct Survival<'w> {
     toast: ResMut<'w, Toast>,
     cursor: ResMut<'w, CraftCursor>,
     body: Option<ResMut<'w, PlayerBody>>,
+    /// For the stations within reach of the body — see
+    /// [`crate::interact_reach`]. Read-only, and `Option` because a host may run
+    /// the HUD without a world.
+    world: Option<Res<'w, SimWorld>>,
 }
 
 /// The keyboard/wheel half of `Game.handleBuildInput`: mode, selection, size.
@@ -472,7 +483,19 @@ fn tool_keys(
         inv.cycle(steps.signum());
 
         if k.any_pressed(KEYS.craft) {
-            try_craft(inv, &mut player.cursor.0, &mut player.toast);
+            // What is in reach RIGHT NOW, computed at the keypress rather than
+            // cached: a player walks away from a bench, and a cached set would
+            // let them keep crafting from it until something else invalidated
+            // it. There is one scan per press and presses are rare.
+            let reach = match (&player.world, &player.body) {
+                (Some(world), Some(body)) => {
+                    stations_in_reach(&world.level.grid, body.0.x, body.0.y)
+                }
+                // No body or no world: nothing to stand next to. Hand recipes
+                // still work, which is what `Reach::HAND` means.
+                _ => Reach::HAND,
+            };
+            try_craft(inv, &mut player.cursor.0, &mut player.toast, reach);
         }
         if k.any_pressed(KEYS.use_item)
             && let Some(body) = &mut player.body
@@ -499,9 +522,18 @@ fn tool_keys(
 /// Both outcomes report. A key that silently does nothing is indistinguishable
 /// from a key that is not bound, which is precisely the defect the HUD's
 /// "C craft" hint had been advertising.
-fn try_craft(inv: &mut Inventory, cursor: &mut usize, toast: &mut Toast) {
-    let Some(i) = next_craftable(inv, *cursor) else {
-        toast.show("nothing craftable");
+fn try_craft(inv: &mut Inventory, cursor: &mut usize, toast: &mut Toast, reach: Reach) {
+    let Some(i) = next_craftable(inv, *cursor, reach) else {
+        // Two different nothings, and telling them apart is the whole reason
+        // stations are worth having in the UI at all. "You cannot afford
+        // anything" and "you are standing in the wrong place" send a player to
+        // opposite ends of the game, and a single message would send them to
+        // the wrong one half the time.
+        toast.show(if next_craftable(inv, *cursor, Reach::ALL).is_some() {
+            "nothing craftable here — you need a station"
+        } else {
+            "nothing craftable"
+        });
         return;
     };
     let r = &recipes()[i];
@@ -509,7 +541,7 @@ fn try_craft(inv: &mut Inventory, cursor: &mut usize, toast: &mut Toast) {
     // have moved the pack in between, so this cannot fail today. Kept as the
     // original had it: the day `craft` grows a second refusal, the cursor must
     // not advance past a craft that did not happen.
-    if !craft(inv, r) {
+    if !craft(inv, r, reach) {
         return;
     }
     *cursor = i + 1;
@@ -1121,10 +1153,23 @@ mod tests {
         }
     }
 
+    /// The first recipe a player can reach with no station: `recipes()[0]` is a
+    /// furnace one, and this test predates stations entirely.
+    fn first_hand_recipe() -> &'static Recipe {
+        recipes()
+            .iter()
+            .find(|r| r.station == godgame_core::items::registry::Station::Hand)
+            .expect("some recipe is made by hand")
+    }
+
     #[test]
     fn the_craft_key_makes_the_first_affordable_recipe_and_says_so() {
         let mut world = pressing(KEYS.craft);
-        let r = &recipes()[0];
+        // A HAND recipe, because this world has no station in it. Before
+        // stations existed this was `recipes()[0]` and passed; that recipe
+        // wants a furnace, so it now correctly refuses, and the test was
+        // asserting the old behaviour rather than the intended one.
+        let r = first_hand_recipe();
         stock(&mut world.resource_mut::<Pack>(), r);
 
         world.run_system_once(tool_keys).unwrap();
@@ -1138,10 +1183,39 @@ mod tests {
             toast_of(&world).contains(name),
             "the toast did not name what was crafted"
         );
+        let at = recipes().iter().position(|x| std::ptr::eq(x, r)).unwrap();
         assert_eq!(
             world.resource::<CraftCursor>().0,
-            1,
+            at + 1,
             "the cursor did not park past the recipe it made"
+        );
+    }
+
+    /// The behaviour stations exist for, at the KEY rather than in the rule:
+    /// pressing craft with the ingredients but no station makes nothing, and
+    /// says which of the two nothings it was.
+    #[test]
+    fn the_craft_key_refuses_a_station_recipe_and_says_why() {
+        let mut world = pressing(KEYS.craft);
+        let r = recipes()
+            .iter()
+            .find(|r| r.station != godgame_core::items::registry::Station::Hand)
+            .expect("some recipe wants a station");
+        stock(&mut world.resource_mut::<Pack>(), r);
+
+        world.run_system_once(tool_keys).unwrap();
+
+        assert_eq!(
+            world.resource::<Pack>().count_of(r.out),
+            0,
+            "a station recipe was crafted with no station in reach"
+        );
+        let said = toast_of(&world);
+        assert!(
+            said.contains("station"),
+            "the player is standing in the wrong place and the message has to \
+             say so rather than 'nothing craftable', which would send them off \
+             to mine something they already have: {said:?}"
         );
     }
 

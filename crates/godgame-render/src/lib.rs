@@ -58,6 +58,7 @@ pub mod dump;
 pub mod effects;
 pub mod glue;
 pub mod input;
+pub mod interact_reach;
 pub mod items;
 pub mod light;
 pub mod lowres;

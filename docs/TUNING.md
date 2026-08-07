@@ -9,18 +9,18 @@ what the sweep can and cannot see.
 
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
-| 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
+| 1 — content | `content/` | 233 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 587 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 588 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
 | Directory | Files | Records | Distinct fields |
 |---|---|---|---|
-| `content/blocks/` | 8 | 53 | 40 |
-| `content/items/` | 8 | 79 | 31 |
+| `content/blocks/` | 8 | 56 | 40 |
+| `content/items/` | 8 | 82 | 31 |
 | `content/mobs/` | 3 | 20 | 51 |
-| `content/sprites/` | 2 | 51 | 12 |
+| `content/sprites/` | 2 | 54 | 12 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
 
@@ -315,8 +315,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 93 |
-| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 100 |
+| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 95 |
+| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 102 |
 
 ### `crates/godgame-core/src/sim/automata.rs`
 
@@ -783,9 +783,15 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CAMERA_SPEED_SCALE` (private) | `4.0` | How much faster the free camera flies than the player runs. | 58 |
-| `CAMERA_BOOST` (private) | `4.0` | Extra multiplier on the free camera while shift is held. | 61 |
-| `PREVIEW_ALPHA` (private) | `0.18` | How solid the brush preview is over the cells it covers. | 68 |
+| `CAMERA_SPEED_SCALE` (private) | `4.0` | How much faster the free camera flies than the player runs. | 60 |
+| `CAMERA_BOOST` (private) | `4.0` | Extra multiplier on the free camera while shift is held. | 63 |
+| `PREVIEW_ALPHA` (private) | `0.18` | How solid the brush preview is over the cells it covers. | 70 |
+
+### `crates/godgame-render/src/interact_reach.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `STATION_REACH_CELLS` | `4` | How far a station may be from the body and still be usable, in cells. | 30 |
 
 ### `crates/godgame-render/src/items.rs`
 
@@ -941,7 +947,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `ARRANGE_FRAMES` | `8` | Frames a caller should allow for [`arrange_the_scene`] to finish. | 154 |
+| `ARRANGE_FRAMES` | `8` | Frames a caller should allow for [`arrange_the_scene`] to finish. | 199 |
 
 ### `crates/godgame-render/src/shear.rs`
 
@@ -1039,5 +1045,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 60 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 61 |
 

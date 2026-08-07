@@ -40,6 +40,8 @@
 //! | `hold punch 1s` | the punch key held down, for auto-repeat |
 //! | `dig 1s` | left mouse held: remove cells under the aim point |
 //! | `place 1s` | right mouse held: place the held item under the aim point |
+//! | `craft` | one press of the craft key |
+//! | `use` | one press of the use key |
 //! | `aim <dx> <dy>` | where to point, in px FROM THE BODY, for every later frame |
 //!
 //! A duration is REQUIRED where the table shows one and FORBIDDEN where it does
@@ -120,6 +122,16 @@ pub struct ScriptFrame {
     pub dig: bool,
     /// The right mouse button: place the held item under the pointer.
     pub place: bool,
+    /// The craft key.
+    ///
+    /// A third half, and it exists for the same reason the pointer one does:
+    /// crafting is read straight out of the keyboard by `input::tool_keys` and
+    /// has NO representation in [`Intent`] at all. A script that could only
+    /// produce intents could walk a body around, dig a hole, and never once
+    /// press the key the HUD advertises.
+    pub craft: bool,
+    /// The use/consume key. Same argument as [`ScriptFrame::craft`].
+    pub use_item: bool,
 }
 
 /// A parsed script: a flat list of frames.
@@ -160,6 +172,10 @@ enum Line {
         first: Intent,
         rest: Intent,
         count: u32,
+        /// The craft key, on the FIRST frame only — it is an edge.
+        craft: bool,
+        /// The use key, likewise.
+        use_item: bool,
         /// Held for every frame of this line, not just the first. Digging is a
         /// button you hold down, and the brush's own cadence decides how often
         /// it bites — see `BuildTool`.
@@ -210,12 +226,21 @@ impl Script {
                     count,
                     dig,
                     place,
+                    craft,
+                    use_item,
                 }) => {
                     for n in 0..count {
                         let mut intent = if n == 0 { first } else { rest };
                         intent.aim_x = aim.0;
                         intent.aim_y = aim.1;
-                        frames.push(ScriptFrame { intent, dig, place });
+                        frames.push(ScriptFrame {
+                            intent,
+                            dig,
+                            place,
+                            // Edges: the first frame of the line only.
+                            craft: craft && n == 0,
+                            use_item: use_item && n == 0,
+                        });
                     }
                 }
                 Err(message) => errors.push(ScriptError { line, message }),
@@ -352,6 +377,27 @@ fn compile(verb: &str, args: &[&str]) -> Result<Line, String> {
                 count,
                 dig: false,
                 place: false,
+                craft: false,
+                use_item: false,
+            })
+        }
+
+        // `craft` and `use` are the two keyboard verbs that are not movement.
+        // One frame each, like every other edge.
+        "craft" | "use" => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "`{verb}` is a keypress and takes no duration; it occupies one frame"
+                ));
+            }
+            Ok(Line::Frames {
+                first: Intent::default(),
+                rest: Intent::default(),
+                count: 1,
+                dig: false,
+                place: false,
+                craft: verb == "craft",
+                use_item: verb == "use",
             })
         }
 
@@ -383,6 +429,8 @@ fn held(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         count,
         dig: false,
         place: false,
+        craft: false,
+        use_item: false,
     })
 }
 
@@ -400,6 +448,8 @@ fn pointer(args: &[&str], verb: &str, dig: bool, place: bool) -> Result<Line, St
         count,
         dig,
         place,
+        craft: false,
+        use_item: false,
     })
 }
 
@@ -416,6 +466,8 @@ fn edge(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         count: 1,
         dig: false,
         place: false,
+        craft: false,
+        use_item: false,
     })
 }
 

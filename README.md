@@ -78,6 +78,7 @@ without a human at the keyboard:
 | `--seed N` | grow the world from N instead of the built-in seed |
 | `--saves DIR` | where the world-select screen looks (default: per-user data dir) |
 | `--at X,Y` | put the body at a world position once the world has streamed there |
+| `--give ID[:N],..` | put items in the pack, e.g. `--give lantern,wood_log:8` |
 | `--time T` | set the clock; 0 midnight, 0.5 noon. Twilight is 0.26 and 0.735, not 0.25/0.75 — see `scenarios/README.md` |
 
 ## Testing

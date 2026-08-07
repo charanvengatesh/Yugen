@@ -30,17 +30,18 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
 
 use godgame_core::config::{PLAYER_H, PLAYER_W};
+use godgame_core::input::KEYS;
 use godgame_core::script::Script;
 use godgame_core::sim::edits::EditMode;
 use godgame_core::sim::materials::{EMPTY, code_of};
 use godgame_render::GodGameRenderPlugin;
 use godgame_render::daynight::{DayNight, WorldClock};
 use godgame_render::dump::{DumpState, dump_when_ready};
-use godgame_render::input::{CursorOverride, PlayerIntent};
+use godgame_render::input::{CursorOverride, PlayerIntent, key_code};
 use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
-use godgame_render::scene::{ScenePlugin, StartAt, StartupEdit};
+use godgame_render::scene::{ScenePlugin, StartAt, StartWith, StartupEdit};
 use godgame_render::scenes::Scene;
 use godgame_render::world::{SimWorld, WorldFocus, WorldSave};
 use godgame_render::worldselect::WorldPicker;
@@ -140,6 +141,8 @@ struct Args {
     start_at: Option<StartAt>,
     /// Set the world clock to this fraction of a day.
     time: Option<f32>,
+    /// Items to put in the pack on top of the starting kit.
+    give: Vec<(godgame_core::items::registry::ItemCode, u32)>,
     /// Where `--dump-state` writes the simulation's state as JSON.
     dump_state: Option<PathBuf>,
     /// A parsed `--script FILE`: the whole run's input, frame by frame.
@@ -239,7 +242,10 @@ fn main() -> AppExit {
     if let Some(edit) = args.edit {
         app.insert_resource(edit);
     }
-    if args.edit.is_some() || args.start_at.is_some() {
+    if !args.give.is_empty() {
+        app.insert_resource(StartWith(args.give.clone()));
+    }
+    if args.edit.is_some() || args.start_at.is_some() || !args.give.is_empty() {
         // The shared path, not a copy. `crate::scene`'s header says why: a
         // scenario proved at a terminal has to be reachable from a test, and
         // the ordering inside it took three attempts to get right.
@@ -325,6 +331,7 @@ fn parse_args() -> Args {
         saves: None,
         start_at: None,
         time: None,
+        give: Vec::new(),
         dump_state: None,
         script: None,
         drive: None,
@@ -362,6 +369,23 @@ fn parse_args() -> Args {
                     Ok(t) if t.is_finite() => t,
                     _ => usage(),
                 });
+            }
+            "--give" => {
+                let Some(spec) = argv.next() else { usage() };
+                for one in spec.split(',') {
+                    let (id, n) = one.split_once(':').unwrap_or((one, "1"));
+                    let Some(code) = godgame_core::items::item_code_of(id.trim()) else {
+                        eprintln!("--give: no item called {:?}", id.trim());
+                        usage()
+                    };
+                    match n.trim().parse::<u32>() {
+                        Ok(n) if n > 0 => args.give.push((code, n)),
+                        _ => {
+                            eprintln!("--give: {n:?} is not a count");
+                            usage()
+                        }
+                    }
+                }
             }
             "--saves" => {
                 let Some(dir) = argv.next() else { usage() };
@@ -502,6 +526,7 @@ fn run_script(
 ) {
     let ScriptHands {
         intent,
+        keys,
         cursor,
         buttons,
         body,
@@ -525,10 +550,10 @@ fn run_script(
             // measures reach from it when there is no body.
             None => (focus.x, focus.y),
         };
-        let mut keys = next.intent;
-        keys.aim_x += bx;
-        keys.aim_y += by;
-        intent.0 = keys;
+        let mut held = next.intent;
+        held.aim_x += bx;
+        held.aim_y += by;
+        intent.0 = held;
 
         // The pointer and the mouse buttons, driven for real rather than by a
         // private shortcut into `apply_brush`. `--edit`'s doc comment makes the
@@ -540,9 +565,16 @@ fn run_script(
         // whole schedule later and would write `None` over a direct write, since
         // a window nobody is pointing at has no physical cursor. That cost one
         // debugging round — the body walked and the brush never bit.
-        cursor.0 = Some(Vec2::new(keys.aim_x, keys.aim_y));
+        cursor.0 = Some(Vec2::new(held.aim_x, held.aim_y));
         set_button(buttons, MouseButton::Left, next.dig);
         set_button(buttons, MouseButton::Right, next.place);
+
+        // The two keyboard verbs, pressed on the REAL keyboard for the reason
+        // the mouse buttons are: `tool_keys` reads them out of
+        // `ButtonInput<KeyCode>`, and a script that reached past it could pass
+        // while the binding, the mode branch and the toast were all broken.
+        set_key(keys, KEYS.craft, next.craft);
+        set_key(keys, KEYS.use_item, next.use_item);
 
         run.frame += 1;
         return;
@@ -553,6 +585,8 @@ fn run_script(
     intent.0 = godgame_core::input::Intent::default();
     set_button(buttons, MouseButton::Left, false);
     set_button(buttons, MouseButton::Right, false);
+    set_key(keys, KEYS.craft, false);
+    set_key(keys, KEYS.use_item, false);
 
     let mut awaited = false;
     if let Some(shot) = shot {
@@ -577,6 +611,7 @@ fn run_script(
 #[derive(SystemParam)]
 struct ScriptHands<'w> {
     intent: ResMut<'w, PlayerIntent>,
+    keys: ResMut<'w, ButtonInput<KeyCode>>,
     cursor: ResMut<'w, CursorOverride>,
     buttons: ResMut<'w, ButtonInput<MouseButton>>,
     /// Absent under `--free-camera`.
@@ -584,6 +619,23 @@ struct ScriptHands<'w> {
     focus: Res<'w, WorldFocus>,
     shot: Option<ResMut<'w, ScreenshotRun>>,
     dump: Option<ResMut<'w, DumpState>>,
+}
+
+/// Hold or release the first key a binding names.
+///
+/// A binding is a LIST of key codes — the game binds jump to up, W and space —
+/// and a synthetic press must choose exactly one of them. The first, because
+/// `any_pressed` will see it and pressing all three would raise three edges for
+/// one keypress.
+fn set_key(keys: &mut ButtonInput<KeyCode>, binding: &[&str], down: bool) {
+    let Some(code) = binding.first().and_then(|name| key_code(name)) else {
+        return;
+    };
+    match (down, keys.pressed(code)) {
+        (true, false) => keys.press(code),
+        (false, true) => keys.release(code),
+        _ => {}
+    }
 }
 
 /// Hold or release a mouse button, without inventing an event that did not

@@ -52,7 +52,10 @@
     "ladder": 49,
     "rope": 50,
     "platform": 51,
-    "chest": 52
+    "chest": 52,
+    "anvil": 53,
+    "furnace": 54,
+    "workbench": 55
   },
   "feature": {
     "floating_island": 0,
@@ -142,7 +145,10 @@
     "sling": 75,
     "bow": 76,
     "arrow": 77,
-    "arrow_iron": 78
+    "arrow_iron": 78,
+    "anvil": 79,
+    "furnace": 80,
+    "workbench": 81
   },
   "mob": {
     "grubling": 0,
@@ -217,7 +223,10 @@
     "icon_dust": 47,
     "icon_sac": 48,
     "icon_meat": 49,
-    "icon_sapling": 50
+    "icon_sapling": 50,
+    "icon_anvil": 51,
+    "icon_furnace": 52,
+    "icon_workbench": 53
   },
   "struct": {
     "surface_cabin": 0,

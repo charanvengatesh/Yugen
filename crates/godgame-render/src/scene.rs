@@ -23,15 +23,21 @@
 //!
 //!   - **one brush stroke, not a list.** A scene needing two materials needs two
 //!     runs sharing a save directory.
-//!   - **no inventory seeding**, so nothing can start holding a lantern — which
-//!     is why `scenarios/README.md` records no scripted route to a lit cave.
 //!   - **no mob placement**, so combat is not reachable this way.
+//!
+//! [`StartWith`] closed the third of these — an inventory could not be seeded,
+//! so nothing could start holding a lantern and `scenarios/README.md` records
+//! there being no scripted route to a lit cave. It is also what makes crafting
+//! testable at all: a recipe needs ingredients, and mining them takes longer
+//! than any scenario wants to run.
 
 use bevy::prelude::*;
 use godgame_core::config::cell_at;
+use godgame_core::items::registry::ItemCode;
 use godgame_core::sim::edits::{EditMode, apply_brush};
 use godgame_core::sim::materials::CellId;
 
+use crate::items::Pack;
 use crate::player::PlayerBody;
 use crate::world::{SimWorld, WorldFocus, place_body};
 
@@ -73,6 +79,45 @@ pub struct StartupEdit {
     pub cy: i32,
     /// Disc radius in cells.
     pub r: i32,
+}
+
+/// Items to put in the pack before anything else happens.
+///
+/// The starting kit is a pick, a sword and three bandages, which is the right
+/// thing for a player and useless for a scenario: every question about crafting
+/// needs INGREDIENTS, and mining them takes longer than any scenario wants to
+/// run. Without this, "does a workbench recipe work" is unanswerable without
+/// writing Rust — which is the whole thing scenarios exist to avoid.
+///
+/// Added on top of the starting kit rather than replacing it, because a scenario
+/// asking for three logs is asking for three logs and not for an empty pack.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct StartWith(pub Vec<(ItemCode, u32)>);
+
+/// Hand the pack what [`StartWith`] asked for, once.
+///
+/// Through `Inventory::add`, which is the game's own placement policy — merge
+/// into an existing stack, then first free slot, respecting stack limits. NOT
+/// `put_at`, which the save loader uses: a scenario says *what* the player has
+/// and has no business deciding *where*, and going through `add` means a
+/// scenario cannot express an inventory the game could not itself produce.
+fn give_at_start(mut commands: Commands, want: Res<StartWith>, pack: Option<ResMut<Pack>>) {
+    let Some(mut pack) = pack else {
+        // No inventory in this app at all. Not an error — `UiPlugin` and the
+        // scene machine run without one — but worth saying, because a scenario
+        // that silently got nothing would look like a broken recipe.
+        warn!("scene: --give had nothing to give to; this app has no inventory");
+        commands.remove_resource::<StartWith>();
+        return;
+    };
+    for (code, n) in &want.0 {
+        let left = pack.0.add(*code, *n);
+        if left > 0 {
+            warn!("scene: --give could not fit {left} of item code {code}");
+        }
+    }
+    info!("scene: gave {} stack(s)", want.0.len());
+    commands.remove_resource::<StartWith>();
 }
 
 /// Put the scene in the state [`StartAt`] and [`StartupEdit`] asked for.
@@ -164,7 +209,13 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            arrange_the_scene.run_if(resource_exists::<SimWorld>),
+            (
+                arrange_the_scene.run_if(resource_exists::<SimWorld>),
+                // After `glue::start_a_run` has handed out the starting kit,
+                // which `Update` already is: the kit goes out on the state
+                // transition into `Playing`, a schedule earlier.
+                give_at_start.run_if(resource_exists::<StartWith>),
+            ),
         );
     }
 }

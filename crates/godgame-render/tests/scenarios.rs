@@ -39,11 +39,12 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
+use godgame_core::sim::coords::WorldCell;
 use godgame_core::sim::edits::EditMode;
 use godgame_core::sim::materials::{CellId, code_of};
 use godgame_render::daynight::{DayNight, WorldClock};
 use godgame_render::player::{NoPlayer, PlayerBody};
-use godgame_render::scene::{ARRANGE_FRAMES, ScenePlugin, StartAt, StartupEdit};
+use godgame_render::scene::{ARRANGE_FRAMES, ScenePlugin, StartAt, StartWith, StartupEdit};
 use godgame_render::scenes::Scene;
 use godgame_render::world::SimWorld;
 
@@ -60,6 +61,8 @@ const SAMPLE: usize = ((2 * RADIUS + 1) * (2 * RADIUS + 1)) as usize;
 /// One scenario, as the command line would express it.
 #[derive(Default)]
 struct Scenario {
+    /// Items to add on top of the starting kit — `--give`.
+    give: Vec<(godgame_core::items::registry::ItemCode, u32)>,
     at: Option<StartAt>,
     edit: Option<StartupEdit>,
     /// Clock as a fraction of a day.
@@ -68,6 +71,26 @@ struct Scenario {
     free_camera: bool,
     /// Frames after the scene is arranged, for the automata to settle.
     settle: u32,
+    /// A block written straight into the grid beside the body, as
+    /// `(id, dx, dy)` in cells from the body's centre.
+    ///
+    /// NOT `edit`, and the difference matters. `apply_brush` in `Place` mode
+    /// only fills EMPTY cells — deliberately, so a player cannot paint over
+    /// their own footing — and it aims from the VIEW CENTRE, which chases the
+    /// body. Between those two a stroke meant to put a workbench beside the
+    /// player lands on solid ground and is silently refused, which is exactly
+    /// what happened here and looked for an hour like a broken station rule.
+    ///
+    /// The brush has its own tests. This one is about stations, so it writes
+    /// the cell and moves on.
+    place_block: Option<(&'static str, i32, i32)>,
+    /// Presses of the craft key, once the scene is arranged.
+    ///
+    /// Through `ButtonInput<KeyCode>` rather than by calling `try_craft`, for
+    /// the reason `--script` presses the real button: a test that reached past
+    /// the binding could pass while the binding, the mode branch and the toast
+    /// were all broken.
+    craft_presses: u32,
 }
 
 /// What a run leaves behind: the two cell planes around the sample centre, and
@@ -78,6 +101,11 @@ struct Observed {
     day: f32,
     health: Option<f32>,
     body: Option<(f32, f32)>,
+    pack: Vec<(godgame_core::items::registry::ItemCode, u16)>,
+    /// Workbench cells anywhere in the streaming window, not just the sample.
+    benches: usize,
+    /// Stations the body can reach, as the game computes it.
+    reach: String,
 }
 
 impl Observed {
@@ -100,6 +128,16 @@ impl Observed {
             .zip(&self.wall)
             .filter(|(f, w)| **f == 0 && **w != 0)
             .count()
+    }
+
+    /// How many of an item the pack holds.
+    fn holds(&self, id: &str) -> u32 {
+        let code = godgame_core::items::item_code_of(id).expect("no such item");
+        self.pack
+            .iter()
+            .filter(|(c, _)| *c == code)
+            .map(|(_, n)| u32::from(*n))
+            .sum()
     }
 
     /// The front plane by material name, commonest first — for a failure
@@ -149,6 +187,9 @@ fn run(scenario: &Scenario) -> Option<Observed> {
     if let Some(edit) = scenario.edit {
         app.insert_resource(edit);
     }
+    if !scenario.give.is_empty() {
+        app.insert_resource(StartWith(scenario.give.clone()));
+    }
     if let Some(t) = scenario.time {
         app.insert_resource(WorldClock(DayNight::new(t)));
     }
@@ -158,7 +199,64 @@ fn run(scenario: &Scenario) -> Option<Observed> {
         .resource_mut::<NextState<Scene>>()
         .set(Scene::Playing);
 
-    for _ in 0..ARRANGE_FRAMES + scenario.settle {
+    // The craft key is pressed from a SYSTEM in `RunFixedMainLoop`, not from
+    // outside the schedule, and that is not ceremony. `bevy_input` clears
+    // `just_pressed` in `PreUpdate`, so a press written between `update()` calls
+    // is gone before `input::tool_keys` reads it in `Update` — the key is down
+    // and no edge ever arrives. The binary's `--script` driver presses in this
+    // same slot for the same reason; anywhere earlier is a keypress the game
+    // cannot see.
+    if scenario.craft_presses > 0 {
+        app.add_systems(
+            RunFixedMainLoop,
+            press_craft
+                .in_set(bevy::app::RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                // Not until the scene is BUILT. `arrange_the_scene` removes both
+                // resources when it is done, and it waits for the world to
+                // stream — so a press before that lands in a world with no
+                // workbench in it yet, and the test measures the wrong frame.
+                // This cost a debugging round.
+                // Only once the harness says the scene is ready. Inserting
+                // `PressCraft` up front pressed the key on frame 1 — before the
+                // block below was written — so the craft happened in a world
+                // with no workbench in it and the test measured the wrong
+                // frame. Twice.
+                .run_if(resource_exists::<PressCraft>),
+        );
+    }
+    for _ in 0..ARRANGE_FRAMES {
+        app.update();
+    }
+
+    // After the scene is arranged and the body has come to rest, so the offset
+    // is measured from where the player actually IS.
+    if let Some((id, dx, dy)) = scenario.place_block {
+        let (bx, by) = app
+            .world()
+            .get_resource::<PlayerBody>()
+            .map(|b| (b.0.x, b.0.y))
+            .expect("place_block needs a body to measure from");
+        let cx = ((bx + godgame_core::config::PLAYER_W * 0.5)
+            / godgame_core::config::CELL_SIZE as f32)
+            .floor() as i32;
+        let cy = ((by + godgame_core::config::PLAYER_H * 0.5)
+            / godgame_core::config::CELL_SIZE as f32)
+            .floor() as i32;
+        let code = godgame_core::sim::materials::code_of(id);
+        assert_ne!(code, 0, "no block called {id:?}");
+        app.world_mut()
+            .resource_mut::<SimWorld>()
+            .level
+            .grid
+            .set_world(WorldCell::new(cx + dx, cy + dy), code);
+    }
+
+    // Everything the scenario asked for is now in the world, so the key may
+    // fire.
+    if scenario.craft_presses > 0 {
+        app.insert_resource(PressCraft(scenario.craft_presses));
+    }
+    for _ in 0..scenario.craft_presses * 2 + scenario.settle {
         app.update();
     }
 
@@ -198,13 +296,65 @@ fn run(scenario: &Scenario) -> Option<Observed> {
 
     let day = app.world().resource::<WorldClock>().0.phase().day;
     let health = app.world().get_resource::<PlayerBody>().map(|b| b.0.health);
+    let pack = app
+        .world()
+        .get_resource::<godgame_render::items::Pack>()
+        .map(|p| {
+            (0..godgame_core::items::inventory::SLOT_COUNT)
+                .filter_map(|i| p.0.stack_at(i))
+                .collect()
+        })
+        .unwrap_or_default();
+    let reach = match (app.world().get_resource::<PlayerBody>(), ()) {
+        (Some(b), ()) => format!(
+            "{:?}",
+            godgame_render::interact_reach::stations_in_reach(
+                &app.world().resource::<SimWorld>().level.grid,
+                b.0.x,
+                b.0.y
+            )
+        ),
+        _ => "no body".to_string(),
+    };
+    let bench = godgame_core::sim::materials::code_of("workbench");
+    let benches = world
+        .level
+        .grid
+        .material
+        .iter()
+        .filter(|&&c| c == bench)
+        .count();
     Some(Observed {
         front,
         wall,
         day,
         health,
         body,
+        pack,
+        benches,
+        reach,
     })
+}
+
+/// Craft-key presses still owed.
+#[derive(Resource)]
+struct PressCraft(u32);
+
+/// Tap the real craft key once per frame while any are owed.
+///
+/// Down for one frame and up the next, which is what a keypress is: held for
+/// two would raise one edge and then look like a key nobody let go of.
+fn press_craft(mut owed: ResMut<PressCraft>, mut keys: ResMut<ButtonInput<KeyCode>>) {
+    let code = godgame_render::input::key_code(godgame_core::input::KEYS.craft[0])
+        .expect("the craft binding names a real key");
+    if keys.pressed(code) {
+        keys.release(code);
+        return;
+    }
+    if owed.0 > 0 {
+        owed.0 -= 1;
+        keys.press(code);
+    }
 }
 
 /// Run, or say why not and hand back `None`.
@@ -410,5 +560,81 @@ fn lava_kills_a_body_and_a_carved_chamber_does_not() {
         "a body standing in a carved chamber should be untouched: {:?}. If this \
          fell, the chamber did not open and the body is in rock",
         safe.health
+    );
+}
+
+/// The station rule, end to end through the real key.
+///
+/// This is `items::crafting`'s `Reach` and `interact_reach`'s scan and
+/// `input::try_craft`'s branch, all at once, driven by the same `C` a player
+/// presses — not one of them called directly. Each has its own unit test; none
+/// of them can say the three are wired to each other.
+///
+/// The two runs differ by ONE thing: whether a workbench is standing next to
+/// the body. Same seed, same ingredients, same script.
+#[test]
+fn an_anvil_needs_a_workbench_and_says_so_when_there_is_none() {
+    let parts = || {
+        vec![
+            (
+                godgame_core::items::item_code_of("iron_bar").expect("iron_bar"),
+                3u32,
+            ),
+            (
+                godgame_core::items::item_code_of("stone_chunk").expect("stone_chunk"),
+                6,
+            ),
+        ]
+    };
+
+    let without = Scenario {
+        give: parts(),
+        craft_presses: 1,
+        settle: 30,
+        ..Scenario::default()
+    };
+    let Some(alone) = run_or_skip("anvil with no bench", &without) else {
+        return;
+    };
+
+    let with = Scenario {
+        give: parts(),
+        craft_presses: 1,
+        settle: 30,
+        place_block: Some(("workbench", 2, 0)),
+        ..Scenario::default()
+    };
+    let Some(beside) = run_or_skip("anvil beside a bench", &with) else {
+        return;
+    };
+
+    println!(
+        "  reach with bench: {} ({} benches); pack {:?}",
+        beside.reach, beside.benches, beside.pack
+    );
+    println!(
+        "anvil: without a bench {} (iron left {}), with one {} (iron left {})",
+        alone.holds("anvil"),
+        alone.holds("iron_bar"),
+        beside.holds("anvil"),
+        beside.holds("iron_bar")
+    );
+    assert_eq!(
+        alone.holds("anvil"),
+        0,
+        "an anvil was crafted with no workbench in reach — the station field is \
+         being ignored again, which is the state this tree was in for four \
+         milestones"
+    );
+    assert_eq!(
+        alone.holds("iron_bar"),
+        3,
+        "the ingredients were spent on a craft that did not happen"
+    );
+    assert_eq!(
+        beside.holds("anvil"),
+        1,
+        "a workbench one cell away should be in reach: it is not, or the craft \
+         key is not reaching `try_craft`"
     );
 }

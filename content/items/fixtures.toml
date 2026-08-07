@@ -123,3 +123,55 @@ value = 26
 desc = "Eight logs and a lid. The first thing you build that is not for today."
 tags = ["buildable"]
 craft = [{ in = ["wood_log"], n = [8], out = 1, station = "workbench" }]
+
+# ---- CRAFTING STATIONS ------------------------------------------------------
+# The recipes that make the things every OTHER recipe names. Their own `station`
+# is deliberately `hand`, and that is the whole design of the tier: a player who
+# cannot craft a workbench without a workbench has no way in.
+#
+# Prices are set against the fixtures above rather than against each other. A
+# chest is 8 logs; a workbench is fewer logs and some stone, because it is the
+# thing you build FIRST and pricing the entry to the crafting tree above a box
+# to keep things in would have the order backwards.
+
+[workbench]
+name = "Workbench"
+category = "placeable"
+color = [154, 112, 62]
+places = "workbench"
+icon = "icon_workbench"
+stack = 20
+tier = 1
+value = 18
+desc = "A flat top and four legs. Everything else starts here."
+tags = ["buildable"]
+craft = [{ in = ["wood_log", "stone_chunk"], n = [4, 2], out = 1, station = "hand" }]
+
+[furnace]
+name = "Furnace"
+category = "placeable"
+color = [122, 118, 116]
+places = "furnace"
+icon = "icon_furnace"
+stack = 20
+tier = 1
+value = 30
+desc = "Stone stacked around a hole. What goes in changes."
+tags = ["buildable"]
+craft = [{ in = ["stone_chunk", "coal"], n = [12, 2], out = 1, station = "hand" }]
+
+[anvil]
+name = "Anvil"
+category = "placeable"
+color = [86, 88, 94]
+places = "anvil"
+icon = "icon_anvil"
+stack = 5
+tier = 2
+value = 90
+desc = "Heavy enough that you build where it lands."
+tags = ["buildable"]
+# Iron, and therefore a furnace first: the anvil is the third station and the
+# only one that costs a smelted bar, which is what makes the three an order
+# rather than a shopping list.
+craft = [{ in = ["iron_bar", "stone_chunk"], n = [3, 6], out = 1, station = "workbench" }]
