@@ -328,6 +328,22 @@ judged on its own, and `registry_golden`'s diff stays readable.
 4. **E1/E2** — last, because their job is to sit in the headroom the first three
    steps create. Judging them before that headroom exists gives the wrong answer.
 
+   **`lava`'s `colorVar` 22 -> 30 belongs to THIS step and was deliberately left
+   out of step 1.** It breaks `shader_matches_cpu`, and understanding why matters
+   because the same trap is waiting for every other amplitude increase on an
+   animated material. That test asserts the GPU and CPU shimmer paths agree
+   EXACTLY for any clock under 1800 s. `colorVar` scales the whole pattern term,
+   so a larger amplitude multiplies f32's representation error: a difference that
+   sat below half a least-significant bit is pushed above it, and one cell in
+   38 183 disagreed by 1. Nothing was wrong with the arithmetic. The test's
+   "under half an hour is exact" claim is implicitly conditioned on the
+   amplitudes the content carried when it was written, and raising one
+   invalidates it honestly.
+
+   Verified by bisection: `edge` 20 -> 44 alone keeps the test green; `colorVar`
+   30 alone breaks it. So when step 4 raises it, expect to argue the exactness
+   bound rather than to hunt a bug.
+
 Every step: `cargo run -p contentc`, then bless `registry_golden` and read that
 diff — it is the human-readable record — then bless `cells_golden` and paste its
 report. No step may touch `crates/godgame-render/src/`.
