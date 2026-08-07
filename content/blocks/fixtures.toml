@@ -100,7 +100,7 @@ heat.cool = 0
 [ladder]
 name = "Ladder"
 state = "solid"
-color = [162, 120, 64]
+color = [120, 81, 52]
 colorVar = 14
 # `layered` for the rungs: the same look sandstone and strata use, which at one
 # cell per pixel is what a repeating horizontal element reads as.
@@ -123,7 +123,7 @@ heat.igniteAt = 45
 [rope]
 name = "Rope"
 state = "solid"
-color = [190, 168, 120]
+color = [138, 120, 83]
 colorVar = 14
 texture = "fibrous"
 edge = 120
@@ -146,7 +146,7 @@ heat.igniteAt = 40
 [platform]
 name = "Platform"
 state = "solid"
-color = [172, 130, 78]
+color = [122, 84, 54]
 colorVar = 16
 texture = "layered"
 edge = 135
@@ -172,7 +172,7 @@ heat.igniteAt = 42
 [chest]
 name = "Chest"
 state = "solid"
-color = [142, 98, 54]
+color = [71, 47, 30]
 colorVar = 12
 texture = "layered"
 edge = 150
@@ -210,7 +210,7 @@ heat.conduct = 20
 [workbench]
 name = "Workbench"
 state = "solid"
-color = [154, 112, 62]
+color = [99, 69, 44]
 colorVar = 14
 texture = "layered"
 edge = 145
@@ -224,7 +224,7 @@ name = "Furnace"
 state = "solid"
 # Stone rather than the warm grey of `basalt`: a furnace is masonry, and it has
 # to read as built rather than as a boulder somebody left indoors.
-color = [122, 118, 116]
+color = [67, 73, 82]
 colorVar = 14
 texture = "layered"
 edge = 175
@@ -240,7 +240,7 @@ heat.conduct = 60
 [anvil]
 name = "Anvil"
 state = "solid"
-color = [86, 88, 94]
+color = [46, 51, 60]
 colorVar = 12
 texture = "layered"
 edge = 195

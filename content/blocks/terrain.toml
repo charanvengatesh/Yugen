@@ -16,7 +16,7 @@ heat.cool = 2
 [stone]
 name = "Stone"
 state = "solid"
-color = [96, 92, 84]
+color = [51, 56, 65]
 colorVar = 16
 texture = "layered"
 edge = 96
@@ -29,7 +29,7 @@ drop = [{ item = "stone_chunk", count = 1 }]
 [dirt]
 name = "Dirt"
 state = "solid"
-color = [120, 82, 48]
+color = [52, 40, 26]
 colorVar = 20
 texture = "grain"
 edge = 60
@@ -41,7 +41,7 @@ heat.conduct = 34
 [sand]
 name = "Sand"
 state = "powder"
-color = [222, 196, 120]
+color = [138, 120, 83]
 colorVar = 20
 texture = "grain"
 edge = 64
@@ -57,7 +57,7 @@ heat.meltInto = "glass"
 [wetSand]
 name = "Wet Sand"
 state = "powder"
-color = [168, 140, 92]
+color = [105, 92, 62]
 colorVar = 18
 texture = "grain"
 edge = 72
@@ -73,7 +73,7 @@ heat.meltInto = "sand"
 [sandstone]
 name = "Sandstone"
 state = "solid"
-color = [200, 175, 120]
+color = [142, 125, 94]
 colorVar = 14
 texture = "layered"
 edge = 118
@@ -99,7 +99,7 @@ heat.conduct = 34
 [basalt]
 name = "Basalt"
 state = "solid"
-color = [56, 52, 60]
+color = [34, 36, 43]
 colorVar = 14
 texture = "layered"
 edge = 150
@@ -111,7 +111,7 @@ heat.conduct = 56
 [obsidian]
 name = "Obsidian"
 state = "solid"
-color = [38, 30, 52]
+color = [23, 18, 31]
 colorVar = 14
 texture = "glassy"
 edge = 210
@@ -123,7 +123,7 @@ heat.conduct = 60
 [ash]
 name = "Ash"
 state = "powder"
-color = [92, 88, 86]
+color = [47, 44, 40]
 colorVar = 18
 texture = "grain"
 edge = 48
@@ -202,7 +202,7 @@ drop = [{ item = "crystal_shard", count = [2, 4] }]
 [wood]
 name = "Wood"
 state = "solid"
-color = [150, 100, 55]
+color = [94, 63, 40]
 colorVar = 20
 texture = "fibrous"
 edge = 120

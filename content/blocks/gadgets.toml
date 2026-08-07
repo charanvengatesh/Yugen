@@ -55,7 +55,7 @@ tags = ["buildable"]
 [sticky]
 name = "Sticky Mud"
 state = "solid"
-color = [110, 80, 50]
+color = [74, 53, 32]
 colorVar = 16
 texture = "grain"
 edge = 56

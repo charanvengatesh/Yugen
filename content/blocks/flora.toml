@@ -10,7 +10,7 @@
 [moss]
 name = "Moss"
 state = "solid"
-color = [72, 122, 56]
+color = [49, 68, 29]
 colorVar = 20
 texture = "fibrous"
 edge = 56
@@ -39,7 +39,7 @@ growth.maxGen = 4
 [vine]
 name = "Vine"
 state = "solid"
-color = [58, 132, 62]
+color = [44, 70, 32]
 colorVar = 18
 texture = "fibrous"
 edge = 50
@@ -61,7 +61,7 @@ growth.maxGen = 12
 [leaves]
 name = "Leaves"
 state = "solid"
-color = [74, 132, 58]
+color = [66, 90, 38]
 colorVar = 30
 texture = "fibrous"
 edge = 60
@@ -80,7 +80,7 @@ drop = [{ item = "sapling", count = 1, chance = 0.05 }]
 [leavesPine]
 name = "Pine Needles"
 state = "solid"
-color = [42, 92, 66]
+color = [34, 58, 42]
 colorVar = 24
 texture = "fibrous"
 edge = 60
@@ -99,7 +99,7 @@ drop = [{ item = "pine_cone", count = 1, chance = 0.05 }]
 [leavesJungle]
 name = "Jungle Canopy"
 state = "solid"
-color = [58, 150, 62]
+color = [74, 122, 46]
 colorVar = 32
 texture = "fibrous"
 edge = 60
@@ -117,7 +117,7 @@ heat.igniteAt = 88
 [leavesAutumn]
 name = "Autumn Leaves"
 state = "solid"
-color = [176, 108, 44]
+color = [111, 72, 35]
 colorVar = 32
 texture = "fibrous"
 edge = 60
@@ -137,7 +137,7 @@ heat.igniteAt = 70
 [cactus]
 name = "Cactus"
 state = "solid"
-color = [76, 132, 82]
+color = [63, 90, 52]
 colorVar = 18
 texture = "fibrous"
 edge = 84
@@ -156,7 +156,7 @@ heat.igniteAt = 96
 [mushroomStem]
 name = "Mushroom Stem"
 state = "solid"
-color = [198, 186, 158]
+color = [140, 129, 104]
 colorVar = 16
 texture = "fibrous"
 edge = 72

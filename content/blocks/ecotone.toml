@@ -18,7 +18,7 @@
 [gravel]
 name = "Gravel"
 state = "powder"
-color = [138, 130, 118]
+color = [86, 93, 104]
 colorVar = 26
 texture = "grain"
 edge = 84
@@ -37,7 +37,7 @@ drop = [{ item = "flint", count = 1, chance = 0.1 }]
 [clay]
 name = "Clay"
 state = "solid"
-color = [156, 96, 74]
+color = [85, 55, 42]
 colorVar = 14
 texture = "grain"
 edge = 78
@@ -57,7 +57,7 @@ heat.meltInto = "sandstone"
 [permafrost]
 name = "Permafrost"
 state = "solid"
-color = [104, 116, 124]
+color = [59, 73, 86]
 colorVar = 16
 texture = "grain"
 edge = 110
@@ -77,7 +77,7 @@ heat.meltInto = "mud"
 [mud]
 name = "Mud"
 state = "solid"
-color = [68, 54, 40]
+color = [37, 28, 17]
 colorVar = 20
 texture = "grain"
 edge = 44

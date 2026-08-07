@@ -36,7 +36,7 @@ heat.cool = 0
 [smoke]
 name = "Smoke"
 state = "gas"
-color = [70, 70, 76]
+color = [42, 43, 48]
 colorVar = 24
 density = 0.05
 hardness = inf
