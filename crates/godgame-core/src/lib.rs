@@ -9,5 +9,7 @@ pub mod entities;
 pub mod input;
 pub mod interact;
 pub mod items;
+pub mod json;
 pub mod physics;
+pub mod script;
 pub mod sim;
