@@ -16,7 +16,17 @@ bitflags.workspace = true
 # TypeScript original. Test-only, exactly as in `godgame-core`.
 [dev-dependencies]
 criterion.workspace = true
-serde_json = "1"
+# `preserve_order` so `cells_golden`'s blesser writes keys back in the order the
+# fixture already uses. Without it `serde_json::Map` is a `BTreeMap`, which
+# reorders `meta` (`source, producedBy, howProduced, seed, matCount, pa, pb,
+# shadeStride` — not alphabetical) and every `grids` object, turning a bless that
+# changed four values into a diff of the whole 164 KB file.
+#
+# Declared HERE and not left to feature unification, which is the subtler half:
+# `godgame-core` enables it too, so `cargo test --workspace` would switch it on
+# for this crate while `cargo test -p godgame-render` left it off, and the bless
+# would write a different file depending on how it was invoked.
+serde_json = { version = "1", features = ["preserve_order"] }
 
 # `tests/shader_matches_cpu.rs` drives the cell shader on a HEADLESS adapter and
 # reads the framebuffer back, so it needs wgpu directly rather than through

@@ -61,7 +61,7 @@ use std::collections::BTreeMap;
 
 use godgame_core::config::CHUNK_CELLS;
 use godgame_core::sim::grid::CellGrid;
-use godgame_core::sim::materials::CellId;
+use godgame_core::sim::materials::{CellId, MAT_COUNT};
 use godgame_core::sim::worldgen::ChunkGen;
 use godgame_render::cells::{CellShades, TEX_A, TEX_B, paint_cells};
 use serde_json::Value as J;
@@ -69,6 +69,268 @@ use serde_json::Value as J;
 fn fixture() -> J {
     serde_json::from_str(include_str!("cells.golden.json"))
         .expect("cells.golden.json is not valid JSON")
+}
+
+/// Where the baseline lives, for the blesser to write back to.
+fn fixture_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("cells.golden.json")
+}
+
+/// Whether this run should rewrite the baseline instead of comparing.
+///
+/// `GODGAME_BLESS=1`, the same switch `registry_golden.rs` and
+/// `worldgen_golden.rs` use.
+fn blessing() -> bool {
+    std::env::var_os("GODGAME_BLESS").is_some_and(|v| v != "0" && !v.is_empty())
+}
+
+/// Rewrite the palette-derived fields of the baseline from the live build.
+///
+/// # Why this exists, and what it costs
+///
+/// Before it, the appearance of every material below the baselined prefix could
+/// not be changed at all: an art edit reddened two tests here with no supported
+/// way to move them, and hand-editing 164 KB of minified JSON is not a way.
+///
+/// The cost is real and permanent. The shade table and the twelve painted
+/// viewports were pinned to an INDEPENDENT implementation — the TypeScript, via a
+/// `tools/dump-cells-fixture.mjs` that no longer exists and cannot be rebuilt.
+/// After a bless they are re-derived from `godgame_render::cells` itself and
+/// assert only "unchanged since the last bless"; `paint_cells` becomes pinned
+/// against itself. **The last commit at which the pixel baseline was TypeScript-
+/// authoritative is the one before this function landed.** `git log` it if you
+/// ever need to know what the original actually painted.
+///
+/// What survives undiminished, and is why this file is still worth its size:
+///
+///   - `TEX_A` and `TEX_B`. Never blessed, still TypeScript-authored, and every
+///     pixel in the game is a lookup into two of them.
+///   - Both worldgen windows: `materialHash`, `distinctMaterials`, `histogram`.
+///   - **The emitter census.** Order-sensitive, 512-capped in the depths, empty
+///     at the surface. That is the blit's CONTROL FLOW, and no palette change can
+///     reach it — which is also the strongest argument for leaving `lightEmit`
+///     alone through an art pass.
+///   - `cover`, the per-case coverage mask: see the guard list below.
+///   - The sweep shape — negative origins on both axes, the fully-outside
+///     viewport, 848 sample points, six shimmer clock samples.
+///
+/// # It is a CHECKED bless
+///
+/// It regenerates exactly what a palette can move and refuses to write if
+/// anything else did. A bless that quietly absorbed a worldgen drift, a pattern
+/// tile change or a moved emitter would launder the very failures the file
+/// exists to report.
+///
+/// # The fixture is one line, and that decides the writer
+///
+/// 163 996 bytes, no newlines. `worldgen.golden.json` is pretty-printed at one
+/// space and its blesser matches that; doing the same here would reformat all
+/// 164 KB on the first bless and bury the handful of values that moved. So:
+/// compact, and no trailing newline. Confirmed by round-tripping the file
+/// through a compact serialiser and diffing it against itself, byte for byte.
+///
+/// Because the diff is therefore unreadable by construction, this prints a
+/// REPORT instead, and that is what belongs in the commit message. The
+/// human-readable record of an art change is `registry_golden`'s diff, which is
+/// pretty-printed with one table value per line.
+fn bless() {
+    let mut root = fixture();
+    let stride = i(&root["meta"]["shadeStride"]) as usize;
+    let mut refuse: Vec<String> = Vec::new();
+    let mut report: Vec<String> = Vec::new();
+
+    // ---- Guards. Everything a palette CANNOT move, re-checked before writing.
+    //
+    // `build_grid` already asserts both origins and the material hash, so calling
+    // `grids` is itself the worldgen guard; it panics rather than returning here.
+    let grids = grids(&root);
+    if MAT_COUNT < i(&root["meta"]["matCount"]) as usize {
+        refuse.push(format!(
+            "the registry SHRANK to {MAT_COUNT} materials, below the baselined \
+             prefix of {} — that is not something a bless may absorb",
+            i(&root["meta"]["matCount"]),
+        ));
+    }
+    for (name, spec) in root["grids"].as_object().unwrap() {
+        let distinct = grids[name]
+            .material
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        if distinct != i(&spec["distinctMaterials"]) as usize {
+            refuse.push(format!(
+                "grid {name}: {distinct} distinct materials, baseline says {}",
+                i(&spec["distinctMaterials"]),
+            ));
+        }
+    }
+    for (key, tile) in [("a", &**TEX_A), ("b", &**TEX_B)] {
+        if fnv(tile) != root["tex"][key]["all"].as_str().unwrap() {
+            refuse.push(format!(
+                "TEX_{}: the pattern tile moved. The tiles are not a function of \
+                 the registry, so this is a change to the tile generator and this \
+                 bless has no business hiding it",
+                key.to_uppercase(),
+            ));
+        }
+    }
+
+    // ---- Regenerate. Three families, mutated IN PLACE.
+    //
+    // In place, and never by rebuilding the root, so that every field this
+    // function does not name is not merely written back identically — it is not
+    // re-serialised from live data at all, and cannot drift through the blesser.
+
+    // The at-rest table, then the six shimmer snapshots against the same table in
+    // the fixture's own order, exactly as `the_shade_table_...` walks them.
+    let mut shades = CellShades::new();
+    let moved = rewrite_shade_record(&mut root["shadeAtRest"], shades.table(), stride);
+    report.push(format!("shadeAtRest: {moved} material slices moved"));
+    for k in 0..root["shimmer"].as_array().unwrap().len() {
+        let t = f64_bits(&root["shimmer"][k]["t"]);
+        shades.update_shimmer(t);
+        let moved = rewrite_shade_record(&mut root["shimmer"][k], shades.table(), stride);
+        report.push(format!("shimmer t={t}: {moved} material slices moved"));
+    }
+
+    // The twelve viewports, from a FRESH table — the painting test builds its own
+    // `CellShades` and the at-rest cases are painted before any shimmer call.
+    let mut shades = CellShades::new();
+    for k in 0..root["cases"].as_array().unwrap().len() {
+        let case = &root["cases"][k];
+        let name = case["name"].as_str().unwrap().to_string();
+        let grid = &grids[case["grid"].as_str().unwrap()];
+        let (w, h) = (i(&case["w"]) as i32, i(&case["h"]) as i32);
+        let (ox, oy) = (i(&case["ox"]) as i32, i(&case["oy"]) as i32);
+        let want_n = i(&case["emit"]["n"]) as usize;
+        let want_x: Vec<i32> = case["emit"]["x"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| i(v) as i32)
+            .collect();
+        let want_y: Vec<i32> = case["emit"]["y"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| i(v) as i32)
+            .collect();
+        let had_raw = case["raw"].is_string();
+        if !case["shimmer"].is_null() {
+            shades.update_shimmer(f64_bits(&case["shimmer"]));
+        }
+
+        let mut px = vec![0u32; (w * h) as usize];
+        let emit = paint_cells(&mut px, w, h, grid, ox, oy, &shades);
+
+        // The census is a guard, not an output: it is a function of WHICH cells
+        // emit light, which no colour can change.
+        if emit.len() != want_n || emit.x() != want_x || emit.y() != want_y {
+            refuse.push(format!(
+                "{name}: the emitter census moved ({} emitters, baseline {want_n}). \
+                 A palette cannot do that — check `lightEmit` and `emissive`",
+                emit.len(),
+            ));
+        }
+        if let Some(want) = root["cases"][k]["cover"].as_str()
+            && cover_hash(&px) != want
+        {
+            refuse.push(format!(
+                "{name}: the coverage mask moved. That is window geometry, not \
+                 colour — see `cover`"
+            ));
+        }
+
+        let mut changed_rows = 0;
+        let mut rows: Vec<J> = Vec::with_capacity(h as usize);
+        for y in 0..h as usize {
+            let got = fnv_u32(&px[y * w as usize..(y + 1) * w as usize]);
+            if got != root["cases"][k]["rows"][y].as_str().unwrap() {
+                changed_rows += 1;
+            }
+            rows.push(J::from(got));
+        }
+        let all = fnv_u32(&px);
+        let all_moved = all != root["cases"][k]["all"].as_str().unwrap();
+        root["cases"][k]["rows"] = J::Array(rows);
+        root["cases"][k]["all"] = J::from(all);
+        if had_raw {
+            let mut bytes = Vec::with_capacity(px.len() * 4);
+            for v in &px {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+            root["cases"][k]["raw"] = J::from(hex(&bytes));
+        }
+        report.push(format!(
+            "{name}: {changed_rows}/{h} rows moved, whole-buffer {}",
+            if all_moved { "moved" } else { "unchanged" },
+        ));
+    }
+
+    assert!(
+        refuse.is_empty(),
+        "REFUSING TO BLESS — {} thing(s) moved that a palette cannot move:\n  {}",
+        refuse.len(),
+        refuse.join("\n  "),
+    );
+
+    // Compact, and no trailing newline. See the header.
+    let out = serde_json::to_string(&root).expect("serialises");
+    std::fs::write(fixture_path(), out.as_bytes()).expect("the baseline is writable");
+
+    // The count of coverage masks is reported rather than assumed, because the
+    // guard SKIPS a case that has no `cover` field. Claiming "every coverage mask
+    // held" when the fixture carries none would be the report lying about the
+    // strongest invariant in the file.
+    let cases = root["cases"].as_array().unwrap();
+    let covers = cases.iter().filter(|c| c["cover"].is_string()).count();
+    println!(
+        "BLESSED {}\n  {}",
+        fixture_path().display(),
+        report.join("\n  ")
+    );
+    println!(
+        "  invariants HELD: emitter census in all {} cases, both pattern tiles, \
+         both grid hashes, {covers} of {} coverage masks",
+        cases.len(),
+        cases.len(),
+    );
+}
+
+/// Overwrite one shade record's `perMaterial`, `samples` and `all` from a live
+/// table. Returns how many material slices actually moved, for the report.
+///
+/// The prefix length comes from the FIXTURE, never from `MAT_COUNT`. A bless that
+/// derived it from the live registry would silently widen the baseline from 53
+/// materials to 56 the first time it ran — changing what the file claims without
+/// changing a word of the prose that says what it claims.
+///
+/// Deliberately NOT `check_shade_table` with a flag. That function is the thing
+/// under test; a blesser sharing it could only ever agree with itself, and the
+/// one bug neither would catch is the one they share.
+fn rewrite_shade_record(rec: &mut J, table: &[u32], stride: usize) -> usize {
+    let n = rec["perMaterial"].as_array().unwrap().len();
+    let mut moved = 0;
+    let mut per: Vec<J> = Vec::with_capacity(n);
+    for id in 0..n {
+        let got = fnv_u32(&table[id * stride..(id + 1) * stride]);
+        if got != rec["perMaterial"][id].as_str().unwrap() {
+            moved += 1;
+        }
+        per.push(J::from(got));
+    }
+    rec["perMaterial"] = J::Array(per);
+
+    for s in rec["samples"].as_array_mut().unwrap() {
+        let a = s.as_array().unwrap();
+        let (id, e, p) = (i(&a[0]) as usize, i(&a[1]) as usize, i(&a[2]) as usize);
+        s[3] = J::from(table[(id << 9) | (e << 6) | p]);
+    }
+
+    rec["all"] = J::from(fnv_u32(&table[..n * stride]));
+    moved
 }
 
 /// FNV-1a, 32 bit, over the little-endian bytes of the values.
@@ -98,6 +360,32 @@ fn fnv_u16(vals: &[u16]) -> String {
         bytes.extend_from_slice(&v.to_le_bytes());
     }
     fnv(&bytes)
+}
+
+/// FNV over one bit per pixel: is it opaque?
+///
+/// A pixel is opaque exactly when its cell is not air, so this value is a pure
+/// function of the material distribution and the window geometry — clipping, the
+/// row spans, the negative-origin subtractions, the fully-outside case — and is
+/// INVARIANT UNDER ANY PALETTE CHANGE. That is what makes it the one thing here
+/// that a bless is not allowed to touch, and why it was frozen while the row
+/// hashes still matched the TypeScript: the buffers it was derived from were
+/// provably the TypeScript's, so it inherits that authority for the blit's
+/// geometry and keeps it after the palette-derived fields have lost theirs.
+fn cover_hash(px: &[u32]) -> String {
+    let mut bits: Vec<u8> = Vec::with_capacity(px.len().div_ceil(8));
+    let mut acc = 0u8;
+    for (n, v) in px.iter().enumerate() {
+        acc = (acc << 1) | u8::from(v >> 24 != 0);
+        if n % 8 == 7 {
+            bits.push(acc);
+            acc = 0;
+        }
+    }
+    if !px.len().is_multiple_of(8) {
+        bits.push(acc << (8 - px.len() % 8));
+    }
+    fnv(&bits)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -240,6 +528,9 @@ fn check_shade_table(
 /// to one `match` arm; row 0 verbatim gives that arm something to diff.
 #[test]
 fn both_pattern_tiles_match_the_typescript_original() {
+    if blessing() {
+        return;
+    }
     let f = fixture();
     let mut problems: Vec<String> = Vec::new();
 
@@ -296,6 +587,9 @@ fn both_pattern_tiles_match_the_typescript_original() {
 /// not, this test would find that too.
 #[test]
 fn the_shade_table_matches_the_typescript_at_rest_and_animated() {
+    if blessing() {
+        return bless();
+    }
     let f = fixture();
     let stride = i(&f["meta"]["shadeStride"]) as usize;
     let mut problems: Vec<String> = Vec::new();
@@ -337,6 +631,9 @@ fn the_shade_table_matches_the_typescript_at_rest_and_animated() {
 /// has no way back to the resting palette, so the order is part of the fixture.
 #[test]
 fn every_painted_viewport_matches_the_typescript_pixel_for_pixel() {
+    if blessing() {
+        return;
+    }
     let f = fixture();
     let grids = grids(&f);
     let mut shades = CellShades::new();
