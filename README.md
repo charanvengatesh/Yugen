@@ -70,6 +70,7 @@ without a human at the keyboard:
 | `--edit <mode> <cx> <cy> <r>` | stamp one brush stroke before capturing |
 | `--free-camera` | start with no player at all |
 | `--drive` | run the body by itself, so the figure moves |
+| `--debug-overlay` | start with the F3 panel up (a capture has no keyboard) |
 
 ## Testing
 

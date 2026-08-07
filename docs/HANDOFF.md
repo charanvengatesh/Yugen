@@ -148,7 +148,33 @@ at an older milestone while every test passed, because the tests build their own
 `cargo run` avoids it entirely.
 
 In game: `G` toggles creative, `1`–`0` and the wheel drive the hotbar (survival)
-or the palette (creative), `C` crafts, `F` consumes, Enter/Space leaves the menu.
+or the palette (creative), `C` crafts, `F` consumes, Enter/Space leaves the menu,
+**`F3` shows the debug panel.**
+
+### The F3 panel — read this before adding a `println!`
+
+`crates/godgame-render/src/debug.rs`. Frame time, seed, focus, cell, chunk,
+depth, the resolved biome and underground layer with their weights, the mob
+count, banked XP, and the material / wall plane / solved light under the pointer
+— or under the CAMERA FOCUS when there is no pointer, which is what makes it
+useful in a capture nobody is watching.
+
+```
+cargo run --release -- --debug-overlay --screenshot out.png --warmup 400
+```
+
+`--debug-overlay` starts it up, because a `--screenshot` run has no keyboard.
+
+Two properties worth knowing. It samples **nothing the frame did not already
+compute** — the biome weights are the mood `ambience` published this frame, the
+light is the grid `light` already solved — so it cannot agree with itself and
+disagree with the game. And its layout is a pure function of a plain
+`DebugReadout` struct, so it is unit-tested with no GPU, no window and no world;
+if you add a row, add it to those tests rather than to a screenshot.
+
+It exists because of `§7.1`: three bugs whose shape was *a resource is declared,
+read, and written by nothing*, one of which lit every biome identically for two
+milestones. The panel is the cheapest instrument that would have shown all three.
 
 ### Debug
 
