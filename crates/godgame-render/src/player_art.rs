@@ -693,15 +693,28 @@ mod tests {
     // --- The art grid -------------------------------------------------------
 
     #[test]
-    fn the_shipped_art_grid_exactly_fills_the_collision_box() {
-        // The authored 2x3 against the 2x3 box. Both pads are zero and the art
-        // rect IS the hitbox, which is the state the game currently ships in —
-        // and the state every geometry test below is written against.
+    fn the_shipped_art_grid_overhangs_a_collision_box_that_did_not_move() {
+        // The authored 4x5 against the unchanged 2x3 box.
+        //
+        // This asserted both pads were ZERO for as long as the art was 2x3, and
+        // it was the only test that went red when the character was redrawn —
+        // which is exactly the job it was doing. The claim it makes now is
+        // strictly stronger than the old one: not "the art happens to be the
+        // size of the box", but "the art is bigger BY A KNOWN AMOUNT and the box
+        // is exactly where it was". A redraw that quietly moved the hitbox would
+        // have passed the old assertion by shrinking back to 2x3; it cannot pass
+        // this one.
+        let cell = CELL_SIZE as f32;
         let grid = ArtGrid::player();
-        assert_eq!(grid.w_px, PLAYER_W);
-        assert_eq!(grid.h_px, PLAYER_H);
-        assert_eq!(grid.pad_x_px, 0.0);
-        assert_eq!(grid.pad_top_px, 0.0);
+        assert_eq!(grid.w_px, 4.0 * cell, "art rect is 4 cells wide");
+        assert_eq!(grid.h_px, 5.0 * cell, "art rect is 5 cells tall");
+        assert_eq!(grid.pad_x_px, cell, "half the 2-cell horizontal surplus");
+        assert_eq!(grid.pad_top_px, 2.0 * cell, "ALL of the vertical surplus");
+
+        // The body is untouched, which is the whole point of the seam: content
+        // owns what a pixel looks like, code owns what the body does.
+        assert_eq!(PLAYER_W, 2.0 * cell);
+        assert_eq!(PLAYER_H, 3.0 * cell);
     }
 
     #[test]

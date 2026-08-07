@@ -2467,9 +2467,13 @@ mod tests {
         let player = atlases
             .get("player")
             .expect("the player sprite is in the table");
-        assert_eq!(player.baked.cells_w, 2);
+        // 4, not 2: the character was redrawn at 4x5. The number is asserted
+        // rather than derived so that a bake reading the WRONG record still
+        // fails here — `by_code` and `get` are two different lookups and this is
+        // the one place both are checked against the same expectation.
+        assert_eq!(player.baked.cells_w, 4);
         assert!(player.baked.state_id(Pose::WallSlide).is_some());
-        assert_eq!(atlases.by_code(sprite::PLAYER).unwrap().baked.cells_w, 2);
+        assert_eq!(atlases.by_code(sprite::PLAYER).unwrap().baked.cells_w, 4);
 
         // The images really landed in the store, one per sprite and no more.
         assert_eq!(app.world().resource::<Assets<Image>>().len(), SPRITE_COUNT);
