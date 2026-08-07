@@ -50,6 +50,107 @@ use godgame_core::sim::worldgen::heightmap::Heightmap;
 use godgame_core::sim::worldgen::{ChunkGen, SPAWN_COL, material_at, spawn_point, world_noise};
 use serde_json::Value as J;
 
+/// Whether this run should rewrite the baseline instead of comparing.
+///
+/// `GODGAME_BLESS=1`, the same switch `registry_golden.rs` uses. The comparisons
+/// below return early in that mode rather than checking a file they are about to
+/// overwrite.
+fn blessing() -> bool {
+    std::env::var_os("GODGAME_BLESS").is_some_and(|v| v != "0" && !v.is_empty())
+}
+
+/// Rewrite the baseline from the live generator.
+///
+/// The header above says this day would come and what to do when it does: bless
+/// in its own commit, with nothing else in it, and read the diff for chunks you
+/// did not expect to touch. A new deep layer that quietly changed the beaches is
+/// exactly the bug this catches, and it can only catch it if the bless is small
+/// enough to read.
+fn bless() {
+    let f = fixture();
+    let seed = f["seed"].as_u64().unwrap() as u32;
+    let cys = ints(&f["cy"]);
+    let cxs = ints(&f["cx"]);
+
+    let mut cg = ChunkGen::new(seed);
+    let mut chunks = serde_json::Map::new();
+    for cx in cxs[0] as i32..=cxs[1] as i32 {
+        for &cy in &cys {
+            let cy = cy as i32;
+            chunks.insert(format!("{cx},{cy}"), J::from(fnv(&cg.generate(cx, cy))));
+        }
+    }
+
+    // The probes and the spawns move with the terrain and are regenerated the
+    // same way. `cy`/`cx`/`seed` are the SHAPE of the sweep and are carried
+    // across untouched: a bless that could change which chunks are compared
+    // would be a bless that could quietly compare fewer.
+    //
+    // The lattice below is duplicated from
+    // [`the_arbitrary_coordinate_probe_matches_the_typescript`] and must stay
+    // identical to it, `Some(&col)` included. It is not shared, because a bless
+    // that called the same helper the check calls could only ever agree with
+    // itself; writing it out twice is what makes the two able to disagree.
+    let noise = world_noise(seed);
+    let mut hm = Heightmap::new();
+    let mut cells: Vec<CellId> = Vec::new();
+    let mut wcx = -400;
+    while wcx <= 400 {
+        let col = column_profile_at(&noise, wcx);
+        let surf = hm.surface_row_at(&noise, wcx, Some(&col));
+        let mut wcy = -40;
+        while wcy <= 700 {
+            cells.push(material_at(&noise, wcx, wcy, &col, surf));
+            wcy += 11;
+        }
+        wcx += 7;
+    }
+    // `hash` before `count`, which is the order the file already has. With
+    // `preserve_order` on, insertion order IS file order, so this is not
+    // cosmetic bookkeeping — it is what keeps a bless that changed nothing from
+    // producing a diff.
+    let mut probes = serde_json::Map::new();
+    probes.insert("hash".into(), J::from(fnv(&cells)));
+    probes.insert("count".into(), J::from(cells.len()));
+
+    let mut root = serde_json::Map::new();
+    root.insert("seed".into(), f["seed"].clone());
+    root.insert("cy".into(), f["cy"].clone());
+    root.insert("cx".into(), f["cx"].clone());
+    root.insert("chunks".into(), J::Object(chunks));
+    root.insert("probes".into(), J::Object(probes));
+    for (key, col) in [("spawn", SPAWN_COL), ("spawn100", 100)] {
+        let at = spawn_point(seed, col);
+        // As integers, which is what the file holds and what the check compares
+        // (`got.x as i64`). Writing the f32 straight through serialises `40.0`
+        // for `40` and puts two lines of pure noise in every future diff.
+        root.insert(
+            key.into(),
+            J::Array(vec![J::from(at.x as i64), J::from(at.y as i64)]),
+        );
+    }
+
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("worldgen.golden.json");
+    // ONE SPACE of indent, which is what the file already uses. `to_string_pretty`
+    // emits two, and a bless that reindents every line rewrites all 395 of them
+    // and buries the four that mean something. The no-op property is the whole
+    // reason this is readable: blessing an unchanged tree must produce an empty
+    // `git diff`, and it is worth re-checking whenever this writer changes.
+    let mut buf = Vec::new();
+    let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+    let mut ser = serde_json::Serializer::with_formatter(&mut buf, fmt);
+    use serde::Serialize;
+    J::Object(root).serialize(&mut ser).expect("serialises");
+    buf.push(b'\n');
+    std::fs::write(&path, &buf).expect("the baseline is writable");
+    println!(
+        "BLESSED {} — read the diff before committing it",
+        path.display()
+    );
+}
+
 fn fixture() -> J {
     serde_json::from_str(include_str!("worldgen.golden.json"))
         .expect("worldgen.golden.json is not valid JSON")
@@ -79,6 +180,9 @@ fn ints(v: &J) -> Vec<i64> {
 
 #[test]
 fn every_chunk_matches_the_typescript_cell_for_cell() {
+    if blessing() {
+        return bless();
+    }
     let f = fixture();
     let seed = f["seed"].as_u64().unwrap() as u32;
     let cys = ints(&f["cy"]);
@@ -123,6 +227,9 @@ fn every_chunk_matches_the_typescript_cell_for_cell() {
 
 #[test]
 fn the_arbitrary_coordinate_probe_matches_the_typescript() {
+    if blessing() {
+        return;
+    }
     let f = fixture();
     let seed = f["seed"].as_u64().unwrap() as u32;
     let noise = world_noise(seed);
@@ -154,6 +261,9 @@ fn the_arbitrary_coordinate_probe_matches_the_typescript() {
 
 #[test]
 fn spawn_lands_where_the_typescript_put_it() {
+    if blessing() {
+        return;
+    }
     let f = fixture();
     let seed = f["seed"].as_u64().unwrap() as u32;
     for (key, col) in [("spawn", SPAWN_COL), ("spawn100", 100)] {

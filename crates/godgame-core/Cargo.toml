@@ -13,7 +13,14 @@ rayon.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-serde_json = "1"
+# `preserve_order` so the golden blessers write keys back in the order the
+# fixtures already use. Without it serde_json sorts them and a bless reorders
+# every chunk key, which hides the handful of lines that actually moved.
+serde_json = { version = "1", features = ["preserve_order"] }
+# Test-only, for the `Serialize` trait the golden-baseline blesser needs to drive
+# a `PrettyFormatter` at the fixtures' own one-space indent. The runtime
+# dependency list above is deliberately short and this does not touch it.
+serde = "1"
 
 # The worldgen microbench is a criterion binary, not a libtest one: chunk
 # generation is measured in microseconds and libtest's timer cannot see it.
