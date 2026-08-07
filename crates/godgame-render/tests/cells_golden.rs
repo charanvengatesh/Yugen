@@ -234,13 +234,28 @@ fn bless() {
                 emit.len(),
             ));
         }
-        if let Some(want) = root["cases"][k]["cover"].as_str()
-            && cover_hash(&px) != want
-        {
-            refuse.push(format!(
-                "{name}: the coverage mask moved. That is window geometry, not \
-                 colour — see `cover`"
-            ));
+        // The coverage mask is SEEDED ONCE and is a guard forever after.
+        //
+        // Not "regenerated when it changes" — written only when the field is
+        // absent. That asymmetry is the whole value of it: once a `cover` exists
+        // in the fixture, no bless can ever overwrite it, so the one invariant
+        // that survives a palette change cannot be laundered by the machine that
+        // launders the others. Seeding it while the row hashes still matched the
+        // TypeScript is what gives it its authority — the buffers it was derived
+        // from were provably the TypeScript's.
+        let cover = cover_hash(&px);
+        match root["cases"][k]["cover"].as_str() {
+            None => {
+                root["cases"][k]["cover"] = J::from(cover);
+                report.push(format!("{name}: cover SEEDED"));
+            }
+            Some(want) if cover != want => refuse.push(format!(
+                "{name}: the coverage mask moved. That is window GEOMETRY — \
+                 clipping, row spans, the negative-origin subtractions — and no \
+                 palette can reach it, so this is a blit change and the bless has \
+                 no business hiding it"
+            )),
+            Some(_) => {}
         }
 
         let mut changed_rows = 0;
@@ -705,6 +720,29 @@ fn every_painted_viewport_matches_the_typescript_pixel_for_pixel() {
                     &raw[at.saturating_sub(16)..(at + 16).min(raw.len())],
                 ));
             }
+        }
+
+        // The coverage mask: which pixels are opaque, one bit each.
+        //
+        // The ONLY thing in this test that a repaint cannot move, and therefore
+        // the only pixel-level claim here that a bless has never touched. It is a
+        // pure function of `material == 0` and the window geometry, so it still
+        // asserts — against the TypeScript, not against ourselves — that the
+        // clipping, the row spans, the negative-origin subtractions and the
+        // fully-outside case all resolve exactly where they used to.
+        //
+        // Which makes it the check that catches the class of bug the rest of this
+        // test went blind to the day it gained a blesser: a blit that paints the
+        // right colours into the wrong rectangle.
+        let want_cover = case["cover"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: fixture has no cover mask"));
+        let got_cover = cover_hash(&px);
+        if got_cover != want_cover {
+            problems.push(format!(
+                "{name}: coverage mask {got_cover} != {want_cover} — the opaque \
+                 pixels moved, which is geometry, not palette"
+            ));
         }
 
         // The census. Order matters: it is produced by the scan order of the
