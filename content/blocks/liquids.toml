@@ -6,7 +6,7 @@
 [water]
 name = "Water"
 state = "liquid"
-color = [55, 110, 220]
+color = [35, 82, 143]
 colorVar = 16
 edge = 55
 density = 1.0
@@ -56,7 +56,7 @@ heat.igniteAt = 30
 [acid]
 name = "Acid"
 state = "liquid"
-color = [132, 240, 82]
+color = [79, 148, 34]
 colorVar = 16
 edge = 60
 density = 0.9

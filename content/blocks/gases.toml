@@ -47,7 +47,7 @@ heat.cool = 3
 [steam]
 name = "Steam"
 state = "gas"
-color = [200, 210, 220]
+color = [125, 138, 150]
 colorVar = 22
 density = 0.05
 hardness = inf

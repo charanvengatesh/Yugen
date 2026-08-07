@@ -5,7 +5,7 @@
 [spike]
 name = "Spike"
 state = "solid"
-color = [210, 70, 70]
+color = [200, 50, 60]
 colorVar = 12
 texture = "crystalline"
 edge = 205
@@ -18,7 +18,7 @@ heat.conduct = 56
 [bounce]
 name = "Bounce"
 state = "solid"
-color = [80, 220, 120]
+color = [47, 158, 82]
 colorVar = 14
 texture = "glassy"
 edge = 145
@@ -29,7 +29,7 @@ tags = ["buildable"]
 [conveyorRight]
 name = "Conveyor →"
 state = "solid"
-color = [200, 160, 60]
+color = [168, 124, 30]
 colorVar = 12
 texture = "layered"
 edge = 145
@@ -40,7 +40,7 @@ tags = ["buildable"]
 [conveyorLeft]
 name = "Conveyor ←"
 state = "solid"
-color = [200, 160, 60]
+color = [168, 124, 30]
 colorVar = 12
 texture = "layered"
 edge = 145

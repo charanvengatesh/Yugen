@@ -87,7 +87,7 @@ heat.meltInto = "glass"
 [glass]
 name = "Glass"
 state = "solid"
-color = [180, 212, 226]
+color = [120, 140, 150]
 colorVar = 12
 texture = "glassy"
 edge = 185
@@ -136,7 +136,7 @@ heat.conduct = 22
 [snow]
 name = "Snow"
 state = "powder"
-color = [236, 240, 250]
+color = [128, 141, 153]
 colorVar = 14
 texture = "grain"
 edge = 96
@@ -152,7 +152,7 @@ heat.meltInto = "water"
 [ice]
 name = "Ice"
 state = "solid"
-color = [120, 170, 240]
+color = [93, 125, 148]
 colorVar = 16
 texture = "crystalline"
 edge = 175
@@ -168,7 +168,7 @@ heat.meltInto = "water"
 [packedIce]
 name = "Packed Ice"
 state = "solid"
-color = [150, 196, 236]
+color = [106, 139, 163]
 colorVar = 12
 texture = "crystalline"
 edge = 160

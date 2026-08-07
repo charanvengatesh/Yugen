@@ -10,7 +10,7 @@
 [coalOre]
 name = "Coal Ore"
 state = "solid"
-color = [52, 48, 52]
+color = [26, 26, 30]
 colorVar = 24
 texture = "speckle"
 edge = 120
@@ -28,7 +28,7 @@ drop = [{ item = "coal", count = [1, 2] }]
 [copperOre]
 name = "Copper Ore"
 state = "solid"
-color = [156, 104, 66]
+color = [130, 80, 47]
 colorVar = 26
 texture = "speckle"
 edge = 120
@@ -42,7 +42,7 @@ drop = [{ item = "copper_ore", count = 1 }]
 [ironOre]
 name = "Iron Ore"
 state = "solid"
-color = [146, 128, 118]
+color = [107, 111, 120]
 colorVar = 26
 texture = "speckle"
 edge = 120
@@ -58,7 +58,7 @@ drop = [{ item = "iron_ore", count = 1 }]
 [goldOre]
 name = "Gold Ore"
 state = "solid"
-color = [206, 170, 66]
+color = [178, 135, 42]
 colorVar = 22
 texture = "speckle"
 edge = 130
@@ -73,7 +73,7 @@ drop = [{ item = "gold_ore", count = 1 }]
 [gemOre]
 name = "Gem Ore"
 state = "solid"
-color = [190, 72, 132]
+color = [192, 74, 134]
 colorVar = 26
 texture = "speckle"
 shimmer = 120
