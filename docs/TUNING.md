@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 565 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 570 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -718,6 +718,16 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `DAY_LENGTH_S` | `300.0` | Real seconds in one in-game day. | 41 |
 | `DEFAULT_START` | `0.34` | Where the cycle starts a fresh world. | 48 |
+
+### `crates/godgame-render/src/debug.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 67 |
+| `X` (private) | `8` | Panel inset from the top-left, clear of `ui::hud`'s health bar. | 137 |
+| `Y` (private) | `46` | Top of the first line. | 139 |
+| `LINE` (private) | `13` | Line pitch. | 141 |
+| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 143 |
 
 ### `crates/godgame-render/src/effects.rs`
 

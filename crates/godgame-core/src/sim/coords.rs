@@ -57,7 +57,11 @@ pub const fn world_cell_to_chunk(wc: i32) -> i32 {
 ///
 /// Both components may be negative: the world extends infinitely in every
 /// direction and the origin is just where the first window happened to start.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+///
+/// `Default` is `(0, 0)`, which is a real cell rather than a sentinel — the
+/// world has no invalid coordinate. Anything that needs "no cell" wants an
+/// `Option<WorldCell>` and should say so.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WorldCell {
     pub x: i32,
     pub y: i32,

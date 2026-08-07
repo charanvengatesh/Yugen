@@ -638,7 +638,7 @@ const SMALL_TOFU: [u8; CELL_H as usize] = [0b111, 0b111, 0b111, 0b111, 0b111, 0,
 /// Every colour in the three ported files is written that way and every one of
 /// them is transcribed literally below, so that a constant here can be diffed
 /// against its line in the original without arithmetic in between.
-const fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
+pub(crate) const fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
     Color::Srgba(Srgba {
         red: r as f32 / 255.0,
         green: g as f32 / 255.0,
@@ -648,7 +648,7 @@ const fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 }
 
 /// A CSS `#rrggbb`.
-const fn rgb(r: u8, g: u8, b: u8) -> Color {
+pub(crate) const fn rgb(r: u8, g: u8, b: u8) -> Color {
     rgba(r, g, b, 1.0)
 }
 
@@ -728,7 +728,7 @@ pub enum UiPrim {
 impl UiPrim {
     /// A rectangle, clamped to non-negative extents.
     #[inline]
-    fn rect(x: i32, y: i32, w: i32, h: i32, color: Color) -> UiPrim {
+    pub(crate) fn rect(x: i32, y: i32, w: i32, h: i32, color: Color) -> UiPrim {
         UiPrim::Rect {
             x,
             y,
@@ -743,7 +743,7 @@ impl UiPrim {
     /// Resolving at BUILD time and not at paint time is what makes the
     /// whole-pixel guarantee testable: by the time a `Text` exists its left edge
     /// is an `i32`, and there is no alignment left to get wrong.
-    fn text(
+    pub(crate) fn text(
         text: impl Into<Cow<'static, str>>,
         x: i32,
         baseline: i32,
@@ -1957,6 +1957,10 @@ struct HudSources<'w> {
     screen: Res<'w, UiScreen>,
     /// Where item art comes from.
     icons: Res<'w, Icons>,
+    /// Whether the F3 panel is up.
+    debug_shown: Res<'w, crate::debug::DebugOverlay>,
+    /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
+    debug: Res<'w, crate::debug::DebugReadout>,
 }
 
 /// Everything [`paint`] writes through. Bundled for [`HudSources`]'s reason.
@@ -2079,6 +2083,14 @@ fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiF
                 prims.extend(toast(text, alpha, view));
             }
         }
+    }
+
+    // Last, and outside the `match`, because the panel is an instrument rather
+    // than part of any screen: it is as useful over the death card as over the
+    // world, and the one thing it must never do is be hidden by the state you
+    // were trying to diagnose.
+    if sources.debug_shown.0 {
+        prims.extend(crate::debug::overlay(&sources.debug, view));
     }
 }
 

@@ -111,6 +111,8 @@ struct Args {
     edit: Option<StartupEdit>,
     /// Start with no player, so WASD flies the view instead of moving a body.
     free_camera: bool,
+    /// Start with the F3 panel up. A `--screenshot` run has no keyboard.
+    debug_overlay: bool,
     /// Run right by itself, jumping every this many seconds.
     drive: Option<f32>,
     /// Frames to render before `--screenshot` captures.
@@ -174,6 +176,12 @@ fn main() -> AppExit {
         );
     }
 
+    // Started ON rather than toggled, because a headless `--screenshot` run has
+    // nobody to press F3 and the panel is most useful in exactly those captures.
+    if args.debug_overlay {
+        app.insert_resource(godgame_render::debug::DebugOverlay(true));
+    }
+
     if let Some(path) = args.screenshot {
         app.insert_resource(ScreenshotRun {
             path,
@@ -196,12 +204,14 @@ fn parse_args() -> Args {
         screenshot: None,
         edit: None,
         free_camera: false,
+        debug_overlay: false,
         drive: None,
         warmup: SCREENSHOT_WARMUP_FRAMES,
     };
     while let Some(flag) = argv.next() {
         match flag.as_str() {
             "--free-camera" => args.free_camera = true,
+            "--debug-overlay" => args.debug_overlay = true,
             "--warmup" => args.warmup = next_int(&mut argv).max(1) as u32,
             "--drive" => {
                 let secs = argv.next().unwrap_or_else(|| usage());
@@ -258,8 +268,9 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--drive SECS]"
+        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--drive SECS]"
     );
+    eprintln!("  --debug-overlay  start with the F3 panel up (it has no keyboard in a capture)");
     eprintln!("  --edit         one brush stroke at load; CX/CY are cells from the view centre");
     eprintln!("  --free-camera  no player; WASD flies the view and streams the world");
     eprintln!("  --drive SECS   run right by itself, jumping every SECS (0 = never)");

@@ -2305,6 +2305,27 @@ pub struct LightPass {
     colour_visible: bool,
 }
 
+impl LightPass {
+    /// Solved light at a point in world px, or `None` if it is off the grid.
+    ///
+    /// The grid's origin is private and should stay that way — it is recomputed
+    /// every frame from the focus and nothing outside this module has any
+    /// business doing that arithmetic. This is the one question anybody actually
+    /// wants to ask of it, and answering it here means the caller cannot get the
+    /// stride or the margin wrong. `crate::debug`'s F3 panel is the only caller.
+    ///
+    /// `None` rather than 0 for off-grid, because "no light here" and "outside
+    /// what was solved" are different answers and a panel that printed 0.000 for
+    /// the second would be quietly wrong.
+    pub fn light_at_world(&self, x: f32, y: f32) -> Option<f32> {
+        let stride = light_stride_px() as f32;
+        let lx = ((x - self.origin.x) / stride).floor() as i32;
+        let ly = ((y - self.origin.y) / stride).floor() as i32;
+        (lx >= 0 && ly >= 0 && lx < self.grid.cols() && ly < self.grid.rows())
+            .then(|| self.grid.light_at(lx, ly))
+    }
+}
+
 /// Which composite quad an entity is.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LightQuad {

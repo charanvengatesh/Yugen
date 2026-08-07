@@ -53,6 +53,7 @@ pub mod ambience;
 pub mod cellmap;
 pub mod cells;
 pub mod daynight;
+pub mod debug;
 pub mod effects;
 pub mod glue;
 pub mod input;
@@ -102,6 +103,11 @@ impl PluginGroup for GodGameRenderPlugin {
             .add(light::LightPlugin)
             // The overlay sits above the composite: the HUD is not in the world
             // and must not be dimmed by the world's darkness.
+            //
+            // The F3 panel gathers in `PreUpdate` and is DRAWN by `ui::compose`,
+            // so it has to be installed before the plugin that reads its
+            // readout. It draws nothing until somebody presses the key.
+            .add(debug::DebugPlugin)
             .add(ui::UiPlugin)
             // Last of all — every seam it joins must exist before it reaches
             // across one. See `glue`.
