@@ -73,13 +73,24 @@ without a human at the keyboard:
 
 ## Testing
 
-This is a port, and the suite is built around that fact. Four frozen fixtures —
-produced by running the *original* TypeScript under node — pin the content
-compiler, the noise primitives, the whole worldgen pipeline and the cell
-rasteriser against it. They are never regenerated from the Rust side; that would
-turn the proof into a tautology. On top of them sit a worldgen purity suite, a
-player-locomotion replay, a GPU-against-CPU shader diff and a headless
-end-to-end frame capture.
+Five golden baselines pin the content compiler, the noise primitives, the whole
+worldgen pipeline, the player's locomotion and the cell rasteriser. They were
+produced by running the *original* TypeScript under node, and while the port was
+in progress they proved it faithful. **The port is over**, so they are now this
+project's own regression net: they answer "has any of this moved" rather than
+"does this match the original". On top of them sit a worldgen purity suite, a
+GPU-against-CPU shader diff for two shaders, and a headless end-to-end frame
+capture.
+
+Two rules:
+
+- **A baseline is a prefix, and a prefix cannot move.** New blocks, items and
+  mobs are appended above the boundary; they cannot renumber or overwrite what is
+  below. This is what makes new content possible — the suites used to assert an
+  exact record count, and one new block failed three of them.
+- **Blessing is deliberate.** `GODGAME_BLESS=1 cargo test -p godgame-data --test
+  registry_golden` rewrites a baseline and leaves the diff to read. It is never
+  how a red test is made green: if one goes red and you did not mean to move
+  anything, the code is wrong.
 
 `docs/ARCHITECTURE.md` §6 explains what each one catches that the others cannot.
-If a parity suite fails, the port is wrong, not the test.

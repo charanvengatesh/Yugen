@@ -571,7 +571,7 @@ fn container_recovery() {
 /// plane — an evaluation order changed, a value computed where it was previously
 /// skipped and then written to the wrong array — the world would silently move.
 ///
-/// `ts_worldgen_parity` would catch that, and would report it as 357 opaque hash
+/// `worldgen_golden` would catch that, and would report it as 357 opaque hash
 /// mismatches. This reports it as one cell, with its coordinate. The two are
 /// worth having separately for exactly that reason: one says the port is wrong,
 /// this one says where.

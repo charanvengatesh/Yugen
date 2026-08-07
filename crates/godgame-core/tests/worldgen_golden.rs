@@ -1,14 +1,29 @@
-//! Worldgen parity: the Rust generator must reproduce the TypeScript one cell
-//! for cell.
+//! Worldgen's golden baseline: the generator must still produce, cell for cell,
+//! what it produced the day it was locked down.
 //!
-//! `tests/ts-worldgen.json` was produced by running the original
+//! `tests/worldgen.golden.json` was produced by running the original
 //! `src/sim/worldgen.ts` under node and hashing 357 whole chunks — every band
 //! from two chunks above the surface anchor down past `UNDERWORLD_FLOOR`, across
-//! 21 chunk columns — plus 7 820 `materialAt` probes and both spawn points. Like
-//! `ts-noise.json` it is a frozen artefact of the original implementation and is
-//! never regenerated from the Rust side.
+//! 21 chunk columns — plus 7 820 `materialAt` probes and both spawn points.
+//! **That provenance is history now**: the port is over and this is no longer an
+//! authority on TypeScript, it is this project's own baseline. See
+//! `registry_golden.rs` for the full argument and the rule.
 //!
-//! This is the check `ts_noise_parity` cannot be. Noise parity says the
+//! # This one WILL have to be blessed one day, and that is the interesting case
+//!
+//! The other four baselines are indifferent to new content. This is not: the
+//! moment a new underground layer or surface biome lands, 357 chunks legitimately
+//! change and every hash here goes red at once. That is not a failure, it is the
+//! whole point of the file — it is telling you the world moved, and you have to
+//! be the one to decide the world was *supposed* to move.
+//!
+//! When that day comes: bless it in its own commit, with nothing else in it, and
+//! read the diff for chunks you did not expect to touch. A new deep layer that
+//! quietly changed the beaches is exactly the bug this catches, and it can only
+//! catch it if the bless is small enough to read. `registry_golden.rs` has the
+//! `GODGAME_BLESS` pattern to copy.
+//!
+//! This is the check `noise_golden` cannot be. Noise parity says the
 //! primitives agree; this says the whole pipeline does — heightmap, biome blend,
 //! cave lattice, depth bands, cap and shore, veins and strata, and all four
 //! decorator passes composed in order. Nothing else in the suite would notice a
@@ -36,8 +51,8 @@ use godgame_core::sim::worldgen::{ChunkGen, SPAWN_COL, material_at, spawn_point,
 use serde_json::Value as J;
 
 fn fixture() -> J {
-    serde_json::from_str(include_str!("ts-worldgen.json"))
-        .expect("ts-worldgen.json is not valid JSON")
+    serde_json::from_str(include_str!("worldgen.golden.json"))
+        .expect("worldgen.golden.json is not valid JSON")
 }
 
 /// FNV-1a, 32 bit, over the little-endian bytes of the cell codes.

@@ -1,9 +1,21 @@
-//! Noise parity: the Rust generator must reproduce the TypeScript one exactly.
+//! The noise field's golden baseline: every entry point must still return what
+//! it returned the day it was locked down.
 //!
-//! `tests/ts-noise.json` was produced by running the original `src/sim/noise.ts`
-//! under node and dumping every entry point at 40 sample points for four seeds.
-//! It is a frozen artefact of the original implementation and is never
-//! regenerated from the Rust side.
+//! `tests/noise.golden.json` was produced by running the original
+//! `src/sim/noise.ts` under node and dumping every entry point at 40 sample
+//! points for four seeds. **That provenance is history now** — the port is over,
+//! the original is not coming back, and this file is no longer an authority on
+//! TypeScript. It is this project's own baseline, and the question it answers has
+//! changed from *"does this match the original"* to **"has any of this moved"*.
+//!
+//! Nothing here needs to change for new content: noise is a function of a seed
+//! and a coordinate and knows nothing about the registry. It is renamed for
+//! consistency with the other four baselines and for one substantive reason —
+//! `registry_golden.rs`'s rule now applies to all of them. **A baseline is
+//! changed by blessing it deliberately and reading the diff, never by editing it
+//! to make a red test go green.** There is no bless path in this file because
+//! nothing has ever needed one; `registry_golden.rs` is the pattern if that
+//! changes.
 //!
 //! Worldgen was ported at behavioral parity, not bit-exactness, so nothing
 //! *requires* the two to agree. They agree anyway, because every integer step
@@ -17,7 +29,8 @@ use godgame_core::sim::noise::Noise;
 use serde_json::Value as J;
 
 fn samples() -> J {
-    serde_json::from_str(include_str!("ts-noise.json")).expect("ts-noise.json is not valid JSON")
+    serde_json::from_str(include_str!("noise.golden.json"))
+        .expect("noise.golden.json is not valid JSON")
 }
 
 /// Decode one hex-encoded IEEE754 double.

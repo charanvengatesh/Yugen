@@ -639,7 +639,7 @@ mod tests {
     /// The wall pass REUSES the verified shading; it does not fork it.
     ///
     /// This is the assertion that keeps the back plane honest, and no other test
-    /// in the tree can make it. `ts_cells_parity` freezes `paint_cells` and
+    /// in the tree can make it. `cells_golden` freezes `paint_cells` and
     /// `shader_matches_cpu` diffs `cells.wgsl` against it — both would stay
     /// perfectly green if someone copied the shading arithmetic into
     /// `backcell.wgsl` and then let the copy drift, because neither of them looks

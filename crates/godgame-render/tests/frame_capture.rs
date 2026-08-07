@@ -3,7 +3,7 @@
 //! # What this is
 //!
 //! Every other test in this tree asserts about a NUMBER on its way to the
-//! screen: `ts_cells_parity.rs` freezes the rasteriser's output, and
+//! screen: `cells_golden.rs` freezes the rasteriser's output, and
 //! `shader_matches_cpu.rs` proves the shader agrees with it. None of them
 //! assert anything about the IMAGE. The whole stack can be arithmetically
 //! perfect and still composite a black rectangle over it, and until this file

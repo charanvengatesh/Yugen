@@ -221,7 +221,7 @@ impl ChunkGen {
     /// Signature is fixed: (chunk_x, chunk_y) in, materials out, no neighbour
     /// reads, no hidden state.
     ///
-    /// This is the function `ts_worldgen_parity` hashes 357 chunks of, so it is
+    /// This is the function `worldgen_golden` hashes 357 chunks of, so it is
     /// deliberately a thin wrapper: everything happens in [`ChunkGen::generate_into`]
     /// and this passes `None`, which is the code path that existed before the back
     /// plane and emits exactly the same arithmetic.

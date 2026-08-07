@@ -29,18 +29,33 @@ cargo fmt --all --check
 output, so `--check` is idempotent. Never hand-edit anything under
 `crates/godgame-data/src/` — edit `content/` and recompile.
 
-### The parity suites are the point
+### The golden baselines are the point
 
-This is a port. Three test files compare against frozen artefacts of the
-TypeScript original and must never be weakened to make a change pass:
+Five test files compare the build against a committed baseline. They were the
+port's parity suites, frozen against the TypeScript original; **the port is over
+and they are now this project's own regression net.** They answer "has any of
+this moved", not "does this match the original".
 
-- `crates/godgame-data/tests/ts_parity.rs` — 79 flat tables, 2629 slots, the
-  pair matrix, 224 id->code mappings.
-- `crates/godgame-core/tests/ts_noise_parity.rs` — every noise entry point.
-- `crates/godgame-core/tests/ts_worldgen_parity.rs` — 357 chunks, cell for cell.
+- `crates/godgame-data/tests/registry_golden.rs` — 79 flat tables, 2629 slots,
+  the pair matrix, 224 id->code mappings.
+- `crates/godgame-core/tests/noise_golden.rs` — every noise entry point.
+- `crates/godgame-core/tests/worldgen_golden.rs` — 357 chunks, cell for cell.
+- `crates/godgame-core/tests/player_golden.rs` — 22 cases, 4048 fixed steps.
+- `crates/godgame-render/tests/cells_golden.rs` — the blit, pixel for pixel.
 
-If one fails, the port is wrong, not the test. `crates/godgame-core/tests/worldgen_purity.rs`
-is the other half: a chunk must be a pure function of `(chunk_x, chunk_y, seed)`.
+**The baseline is a PREFIX and a prefix cannot move.** New blocks, items, mobs,
+sprites and structures are APPENDED: they take codes above the boundary, are not
+compared against anything, and cannot renumber or overwrite what is below. That
+is what makes adding content possible at all — the old rule asserted an exact
+record count and a workbench failed three suites.
+
+**Changing a baseline is a deliberate act, never a way to fix a red test.**
+`GODGAME_BLESS=1 cargo test -p godgame-data --test registry_golden` rewrites one
+and leaves the diff in the tree; read it, and put it in its own commit. If a
+baseline goes red and you did not mean to move anything, the code is wrong.
+
+`crates/godgame-core/tests/worldgen_purity.rs` is the other half and has no
+baseline at all: a chunk must be a pure function of `(chunk_x, chunk_y, seed)`.
 
 ## graphify
 

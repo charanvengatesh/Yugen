@@ -312,7 +312,7 @@ already been made once in this document's history.
 |---|---|---|
 | `light/scans/scan_emitters` — 10.7 µs | **No** | Runs only under `CENSUS_NEEDED`, which is `LIGHT_DOWNSCALE > 1`. The downscale is 1. The pass is kept, tested and correct because it is what any coarser downscale needs. |
 | `cells/update_shimmer` — 9.3 µs | **No** | `cellmap::update_shade_params` replaced it entirely: the shimmer is a `vec4` in a uniform and the wave is evaluated per fragment. The CPU version survives as `cells.rs`'s oracle and has one caller, a test. |
-| `cells/paint_cells` — 24.2 µs at 2560×1440 | **No** | `cells.wgsl` draws the frame. `paint_cells` is the verified CPU reference `shader_matches_cpu` diffs against, and the function `ts_cells_parity` freezes. |
+| `cells/paint_cells` — 24.2 µs at 2560×1440 | **No** | `cells.wgsl` draws the frame. `paint_cells` is the verified CPU reference `shader_matches_cpu` diffs against, and the function `cells_golden` freezes. |
 
 `light/pass/blur` (97.9 µs) is the opposite case and belongs in the frame budget:
 it IS what the frame runs. `crates/godgame-render/src/lightblur.wgsl` is a

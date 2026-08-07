@@ -1,23 +1,32 @@
-//! Player parity: the Rust `Player` must move the way the TypeScript one did.
+//! The player's golden baseline: the body must still move the way it moved the
+//! day it was locked down.
 //!
-//! `tests/ts-player.json` was produced by `tools/dump-player-fixture.mjs` in the
+//! `tests/player.golden.json` was produced by `tools/dump-player-fixture.mjs` in the
 //! TypeScript repository: `src/entities/Player.ts` imported UNMODIFIED, bundled
 //! with esbuild, run under node against a 288x224 `CellGrid` window filled by
 //! the TypeScript worldgen at seed 2334 and then stamped with an authored arena
 //! — ice, a pool, a shallow puddle, a one-way platform, a ladder threaded
 //! through one, a one-cell step-up ledge, a sheer wall, conveyor / sticky /
-//! bounce surfaces and a lava pit. 22 scripted cases, 4 048 fixed steps. Like
-//! `ts-noise.json` and `ts-worldgen.json` it is a frozen artefact of the
-//! original implementation and is never regenerated from the Rust side.
+//! bounce surfaces and a lava pit. 22 scripted cases, 4 048 fixed steps.
+//! **That provenance is history now**: the port is over and this is no longer an
+//! authority on TypeScript, it is this project's own baseline. See
+//! `registry_golden.rs` for the full argument and the rule.
+//!
+//! Indifferent to new content — a body is pushed around by physics, not by the
+//! registry — with one exception worth naming, because it is the one that will
+//! catch somebody: this arena is stamped with `sticky`, `bounce`, `conveyor` and
+//! ladder cells by NAME. Give an existing surface material new physics and 4 048
+//! steps go red, correctly. Add armour, and if it ever touches movement rather
+//! than only damage, the same thing happens.
 //!
 //! Floats in the fixture are IEEE754 DOUBLE bit patterns, never decimals, for
-//! the reason `ts_noise_parity` gives: a decimal round-trip only preserves a
+//! the reason `noise_golden` gives: a decimal round-trip only preserves a
 //! value if both parsers are correctly rounded to the last bit, and
 //! `serde_json`'s is not.
 //!
 //! # What this proves that the other suites cannot
 //!
-//! `ts_worldgen_parity` proves the two builds agree about the WORLD.
+//! `worldgen_golden` proves the two builds agree about the WORLD.
 //! `physics::collision`'s own tests prove a box is pushed out of a wall
 //! correctly. Neither notices that coyote time is read one phase too late, that
 //! `wall_dir` is cleared after the collide instead of before, that the jump cut
@@ -67,7 +76,8 @@ use godgame_core::sim::worldgen::{SpawnPoint, generate_chunk};
 use serde_json::Value as J;
 
 fn fixture() -> J {
-    serde_json::from_str(include_str!("ts-player.json")).expect("ts-player.json is not valid JSON")
+    serde_json::from_str(include_str!("player.golden.json"))
+        .expect("player.golden.json is not valid JSON")
 }
 
 /// Decode one hex-encoded IEEE754 double. See the module header.
@@ -88,7 +98,7 @@ fn ints(v: &J) -> Vec<i64> {
 }
 
 /// FNV-1a, 32 bit, over the little-endian bytes of the cell codes. The same
-/// three lines the fixture used, for the reason `ts_worldgen_parity` gives: a
+/// three lines the fixture used, for the reason `worldgen_golden` gives: a
 /// checksum whose implementation could itself differ between the two languages
 /// would turn a parity failure into a debugging session about the checksum.
 fn fnv(cells: &[CellId]) -> String {

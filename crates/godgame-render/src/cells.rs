@@ -45,7 +45,7 @@
 //!   - `ViewBuffer` is not ported. It is the canvas/ImageData wrapper — the
 //!     platform half — and this module is the pure half: grid in, one `u32` per
 //!     cell out. That split is what lets the whole thing be diffed against the
-//!     TypeScript byte for byte in `tests/ts_cells_parity.rs`.
+//!     TypeScript byte for byte in `tests/cells_golden.rs`.
 //!
 //! # Bevy-free source, in a crate that is not
 //!
@@ -54,7 +54,7 @@
 //! no window, no GPU, and nothing that would stop it living in `godgame-core`
 //! today.
 //!
-//! IT DOES NOT, AND THAT COSTS SOMETHING. `tests/ts_cells_parity.rs` is a test
+//! IT DOES NOT, AND THAT COSTS SOMETHING. `tests/cells_golden.rs` is a test
 //! target of `godgame-render`, and `godgame-render` depends on `bevy` — so the
 //! parity suite links the whole engine in order to check a colour table. This is
 //! exactly the arrangement the crate boundary exists to prevent, and which
@@ -63,7 +63,7 @@
 //! The fix is to move this module into `godgame-core`, and it HAS NOT BEEN DONE.
 //! It is not a rename. The shader surface at the bottom of this file names
 //! [`crate::cellmap`] and would have to point the other way across the crate
-//! boundary; `ts_cells_parity.rs` and its fixture move with the module, while
+//! boundary; `cells_golden.rs` and its fixture move with the module, while
 //! `shader_matches_cpu.rs` cannot follow it — that one wants a GPU and belongs
 //! where the renderer is. That is a change made on its own, not one made in
 //! passing. Until it happens, read "does not touch Bevy" as a property of the

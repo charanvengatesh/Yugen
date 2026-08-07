@@ -41,8 +41,10 @@ sub-agents, one file or module each. Practical consequences for a reviewer:
 | `#[allow]` | 10, all pre-existing in `sim/worldgen`, `sim/decor`, `contentc`, generated data. `godgame-render` and `xtask` have none |
 | Source | ~84k lines across six crates |
 
-The original is at `../GodGame` (TypeScript). It is **read-only reference** and
-several test suites depend on frozen artefacts dumped from it.
+The original was at `../GodGame` (TypeScript). **It is no longer a reference for
+anything.** Five test suites still carry fixtures dumped from it; they have been
+renamed to `*_golden` and are now baselines of this project against itself. See
+§6.
 
 ## 2. Layout, and the one boundary that matters
 
@@ -203,18 +205,32 @@ Test kinds, and what only each one can see:
 
 | Suite | Catches |
 |---|---|
-| `ts_parity` (data) | 79 tables, 2629 slots, id->code mappings |
-| `ts_noise_parity` | every noise entry point |
-| `ts_worldgen_parity` | 357 chunks, cell for cell |
-| `ts_player_parity` | **ordering** bugs — 22 scripted cases, 4048 fixed steps. Coyote time read one phase late, `wall_dir` cleared after the collide. Invisible except in a long replay |
-| `ts_cells_parity` | the CPU rasteriser, pixel for pixel |
+| `registry_golden` (data) | 79 tables, 2629 slots, id->code mappings |
+| `noise_golden` | every noise entry point |
+| `worldgen_golden` | 357 chunks, cell for cell |
+| `player_golden` | **ordering** bugs — 22 scripted cases, 4048 fixed steps. Coyote time read one phase late, `wall_dir` cleared after the collide. Invisible except in a long replay |
+| `cells_golden` | the CPU rasteriser, pixel for pixel |
 | `worldgen_purity` | a chunk is a pure function of `(chunk_x, chunk_y, seed)` |
 | `shader_matches_cpu` | the WGSL agrees with the CPU oracle |
 | `mob_regression` | 8 creatures x 25 fields, exact equality |
 | `frame_capture` | the composite produces a varied, correctly-oriented image |
 
-**The five frozen TypeScript fixtures must never be weakened to make a change
-pass.** If one fails, the port is wrong.
+**The five golden baselines were the port's TypeScript parity suites. The port
+is over; they are now this project's own regression net** and answer "has any of
+this moved", not "does this match the original". Two rules survive the rename and
+one is new:
+
+- A baseline going red when you did not mean to move anything means the CODE is
+  wrong. That has not changed.
+- Changing a baseline is a deliberate act with a diff to read
+  (`GODGAME_BLESS=1 cargo test -p godgame-data --test registry_golden`), in its
+  own commit. It is never how a red test is made green.
+- **New:** the baseline is a PREFIX. New blocks, items, mobs, sprites and
+  structures are appended above the boundary and are not compared; they cannot
+  renumber or overwrite anything below it. Before this, the suites asserted an
+  exact record count and a single new block failed three of them, which is why
+  the game could not grow. `crates/godgame-data/tests/registry_golden.rs` has the
+  argument in full.
 
 ## 7. Findings
 

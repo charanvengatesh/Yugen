@@ -348,10 +348,10 @@ port is wrong, not the test.
 
 | Suite | Fixture | What only it can see |
 |---|---|---|
-| `godgame-data/tests/ts_parity.rs` | `ts-snapshot.json` | the compiler agrees: 224 id->code maps, 79 flat tables, 1 pair matrix |
-| `godgame-core/tests/ts_noise_parity.rs` | `ts-noise.json` | the noise *primitives* agree, at every entry point, for four seeds |
-| `godgame-core/tests/ts_worldgen_parity.rs` | `ts-worldgen.json` | the whole *pipeline* agrees — 357 chunks hashed, cell for cell |
-| `godgame-render/tests/ts_cells_parity.rs` | `ts-cells.json` | the *rasteriser* agrees, pixel for pixel, over two real windows |
+| `godgame-data/tests/registry_golden.rs` | `registry.golden.json` | the compiler agrees: 224 id->code maps, 79 flat tables, 1 pair matrix |
+| `godgame-core/tests/noise_golden.rs` | `noise.golden.json` | the noise *primitives* agree, at every entry point, for four seeds |
+| `godgame-core/tests/worldgen_golden.rs` | `worldgen.golden.json` | the whole *pipeline* agrees — 357 chunks hashed, cell for cell |
+| `godgame-render/tests/cells_golden.rs` | `cells.golden.json` | the *rasteriser* agrees, pixel for pixel, over two real windows |
 
 Noise parity says the primitives agree; worldgen parity says heightmap, biome
 blend, cave lattice, depth bands, cap, shore, veins, strata and all four
@@ -360,7 +360,7 @@ draft that floored the fractional band depth passed everything else and was
 caught by the 67 cells out of 226 304 where the underworld crust ramp reads it
 continuously.
 
-`ts_player_parity.rs` (fixture `ts-player.json`, 22 scripted cases, 4 048 fixed
+`player_golden.rs` (fixture `player.golden.json`, 22 scripted cases, 4 048 fixed
 steps against an authored arena) is the same idea for locomotion, and its header
 says precisely what it is for: coyote time read one phase too late, `wall_dir`
 cleared after the collide instead of before, a jump cut applied to an
@@ -421,7 +421,7 @@ Every one of these is a real trade with a visible consequence.
   serial now.
 - **The player is `f32` where the original was `f64`.** JavaScript has one
   number type. Bit equality with the fixture is therefore impossible by
-  construction, so `ts_player_parity.rs` runs two tiers: continuous quantities
+  construction, so `player_golden.rs` runs two tiers: continuous quantities
   bounded (measured worst case 4.8e-4 px over 4 048 steps), discrete state
   exact.
 - **The UI type is not the same type.** There was no bitmap font to port — all

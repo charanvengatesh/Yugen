@@ -3,7 +3,7 @@
 //! # What this is
 //!
 //! `cells.rs` is a byte-for-byte port of the TypeScript rasteriser, frozen
-//! against it by `ts_cells_parity.rs`. `cells.wgsl` is that same pass on the GPU.
+//! against it by `cells_golden.rs`. `cells.wgsl` is that same pass on the GPU.
 //! This file closes the chain: it compiles the SHIPPING shader source, runs it on
 //! a headless adapter over a real worldgen window, reads the framebuffer back and
 //! diffs it against `paint_cells` over the same grid.
@@ -70,7 +70,7 @@ use godgame_render::cells::{
 const SHADING_WGSL: &str = include_str!("../src/cells.wgsl");
 
 /// The seed the TypeScript fixture was dumped at. Reused so the windows below
-/// are the ones `ts_cells_parity.rs` has already frozen pixel for pixel.
+/// are the ones `cells_golden.rs` has already frozen pixel for pixel.
 const SEED: u32 = 2334;
 
 /// The two windows, as chunk coordinates of their top-left chunk.

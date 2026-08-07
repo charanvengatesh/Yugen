@@ -1,7 +1,7 @@
-//! Cell-rasteriser parity: the Rust blit must reproduce the TypeScript one
-//! pixel for pixel.
+//! The cell rasteriser's golden baseline: the blit must still produce, pixel for
+//! pixel, what it produced the day it was locked down.
 //!
-//! # How `tests/ts-cells.json` was produced
+//! # How `tests/cells.golden.json` was produced
 //!
 //! `tools/dump-cells-fixture.mjs` in the TypeScript repo copies
 //! `src/render/ChunkCanvas.ts` verbatim, turns `const TEX_A` / `const TEX_B` /
@@ -18,9 +18,24 @@
 //!   - twelve `paintCells` results, hashed per row and whole, with the emitter
 //!     census each one published, and two small ones dumped verbatim.
 //!
-//! It is a frozen artefact of the original implementation and is NEVER
-//! regenerated from the Rust side. If it disagrees with the port, the port is
-//! wrong.
+//! **That provenance is history now**: the port is over and this is no longer an
+//! authority on TypeScript, it is this project's own baseline. See
+//! `registry_golden.rs` for the full argument and the rule.
+//!
+//! # What had to change here so the game could grow a block
+//!
+//! The shade table is `MAT_COUNT * 512` words, so it lengthens every time a
+//! material is authored. `perMaterial` walks only the materials the baseline
+//! names, so it became a prefix walk for free — but the whole-table hash beside
+//! it did not, and that single line was one of the three things that made adding
+//! a workbench impossible. It now hashes the baselined slice.
+//!
+//! Everything else is untouched, and that is not luck: the pattern tiles are not
+//! a function of the registry, and the twelve `paint_cells` results are a
+//! function of what WORLDGEN placed, not of what exists. A new block that nothing
+//! generates changes nothing here. A new block that worldgen starts placing
+//! changes these AND `worldgen_golden`, in agreement, which is the pair of
+//! failures that means "the world moved" rather than "the rasteriser broke".
 //!
 //! # Why the tables are checked separately from the pixels
 //!
@@ -52,7 +67,8 @@ use godgame_render::cells::{CellShades, TEX_A, TEX_B, paint_cells};
 use serde_json::Value as J;
 
 fn fixture() -> J {
-    serde_json::from_str(include_str!("ts-cells.json")).expect("ts-cells.json is not valid JSON")
+    serde_json::from_str(include_str!("cells.golden.json"))
+        .expect("cells.golden.json is not valid JSON")
 }
 
 /// FNV-1a, 32 bit, over the little-endian bytes of the values.
@@ -95,7 +111,7 @@ fn hex(bytes: &[u8]) -> String {
 /// Decode one hex-encoded IEEE754 double.
 ///
 /// The fixture carries bit patterns rather than decimal literals for the same
-/// reason `ts-noise.json` does: a decimal round-trip only preserves a value if
+/// reason `noise.golden.json` does: a decimal round-trip only preserves a value if
 /// both parsers are correctly rounded to the last bit, and `serde_json`'s is
 /// not. The shimmer clock `t` is multiplied by 325.9 and then truncated to a
 /// table index, so a last-bit difference in `t` is a visible difference in the
@@ -196,10 +212,20 @@ fn check_shade_table(
             ));
         }
     }
-    let all = fnv_u32(table);
+    // The BASELINED slice, not the whole table.
+    //
+    // `perMaterial` above already walks only the materials the baseline knows
+    // about, so it grew a prefix for free; this line did not, and it was the one
+    // thing in this file that made adding a block impossible. A new material
+    // appends `stride` words past `per.len() * stride` and cannot move anything
+    // below it — the per-material hashes are what prove that, one material at a
+    // time. This hash is the whole-slice version of the same claim and has to be
+    // cut to the same length or it is a different claim.
+    let pinned = per.len() * stride;
+    let all = fnv_u32(&table[..pinned]);
     if all != rec["all"].as_str().unwrap() {
         problems.push(format!(
-            "{what}: whole table {all} != ts {}",
+            "{what}: the baselined {pinned} words hash {all} != {}",
             rec["all"].as_str().unwrap()
         ));
     }

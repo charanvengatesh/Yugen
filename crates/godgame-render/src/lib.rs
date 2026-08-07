@@ -38,7 +38,7 @@
 //! # The cell rasteriser, twice
 //!
 //! [`cells`] is the CPU rasteriser, ported byte-for-byte from the TypeScript and
-//! verified against it by `tests/ts_cells_parity.rs`. [`cellmap`] is the same
+//! verified against it by `tests/cells_golden.rs`. [`cellmap`] is the same
 //! pass in WGSL, and it is the one the frame actually runs.
 //!
 //! The CPU one stays, and not as dead weight. It is the ORACLE:

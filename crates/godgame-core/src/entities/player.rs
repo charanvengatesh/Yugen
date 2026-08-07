@@ -9,7 +9,7 @@
 //!
 //! **Nothing about the movement.** [`Player::step`] runs the same phases in the
 //! same order, every constant is the same number, and every branch is the same
-//! branch. `tests/ts_player_parity.rs` replays 4 048 scripted steps against a
+//! branch. `tests/player_golden.rs` replays 4 048 scripted steps against a
 //! frozen dump of the TypeScript original to keep it that way.
 //!
 //! What did change is Rust-shaped:
@@ -57,7 +57,7 @@
 //! arithmetic in `f64` — JavaScript has no other number — so the parity suite
 //! compares an `f32` port against `f64` references and finds a bounded,
 //! documented drift rather than bit equality. See the head of
-//! `tests/ts_player_parity.rs` for the measured size of it. Widening this file
+//! `tests/player_golden.rs` for the measured size of it. Widening this file
 //! to `f64` to chase exactness would have made the player the one `f64` consumer
 //! of an `f32` config and would have forked the width rule for a difference far
 //! below a pixel.
