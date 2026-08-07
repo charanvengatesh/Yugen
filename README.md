@@ -71,6 +71,9 @@ without a human at the keyboard:
 | `--free-camera` | start with no player at all |
 | `--drive` | run the body by itself, so the figure moves |
 | `--debug-overlay` | start with the F3 panel up (a capture has no keyboard) |
+| `--play` | leave the title card at once; without it a capture photographs the menu |
+| `--script FILE` | drive the whole run from a verb-per-line file, on a pinned 60 Hz clock |
+| `--dump-state PATH` | write the simulation's state as JSON, for a diff rather than an eye |
 
 ## Testing
 

@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 224 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 572 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 573 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -315,8 +315,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 74 |
-| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 81 |
+| `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 93 |
+| `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 100 |
 
 ### `crates/godgame-core/src/sim/automata.rs`
 
@@ -736,6 +736,12 @@ only the exported surface is held to the rule.
 | `LINE` (private) | `13` | Line pitch. | 147 |
 | `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 149 |
 
+### `crates/godgame-render/src/dump.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `CELL_WINDOW` (private) | `10` | Half-width, in cells, of the square of terrain the dump carries. | 58 |
+
 ### `crates/godgame-render/src/effects.rs`
 
 | Constant | Value | Meaning | Line |
@@ -999,5 +1005,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 52 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 57 |
 

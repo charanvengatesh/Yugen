@@ -75,6 +75,7 @@ impl Plugin for InputPlugin {
         app.init_resource::<PlayerIntent>()
             .init_resource::<FixedSubstep>()
             .init_resource::<CursorWorld>()
+            .init_resource::<CursorOverride>()
             .init_resource::<FocusDriver>()
             .init_resource::<Tool>()
             .init_resource::<CraftCursor>()
@@ -116,6 +117,24 @@ pub struct FixedSubstep(pub u32);
 /// The pointer in world px (+y DOWN), or `None` when it is off the window.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct CursorWorld(pub Option<Vec2>);
+
+/// A pointer position supplied by something that is not a mouse.
+///
+/// `--script` needs one: the binary drives the whole run from a file, and a
+/// headless or unfocused window reports no physical cursor at all, so
+/// [`track_cursor`] would write `None` over anything the script had aimed and
+/// [`swing_brush`] would return before digging a single cell.
+///
+/// An override consulted by [`track_cursor`] rather than a write that races it,
+/// because there must stay exactly ONE place that decides where the pointer is.
+/// A second writer ordered after this one would be a bug nobody could see:
+/// whichever ran last would win, and both would look correct in isolation.
+///
+/// `None` — the default — means "there is no override", which is not the same as
+/// `Some(None)`. Nothing sets that, and the distinction is why this is not just
+/// another `CursorWorld`.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct CursorOverride(pub Option<Vec2>);
 
 /// The dig/place tool. Bevy-side wrapper; all the behaviour is in the core type.
 #[derive(Resource, Default, Deref, DerefMut)]
@@ -288,8 +307,15 @@ fn track_cursor(
     window: Single<&Window, With<PrimaryWindow>>,
     target: Res<LowResTarget>,
     camera: Single<&Transform, With<crate::lowres::WorldCamera>>,
+    scripted: Res<CursorOverride>,
     mut cursor: ResMut<CursorWorld>,
 ) {
+    // A driven pointer wins outright — see [`CursorOverride`]. It is already in
+    // world px, so none of the three coordinate hops below apply to it.
+    if let Some(at) = scripted.0 {
+        cursor.0 = Some(at);
+        return;
+    }
     let Some(p) = window.physical_cursor_position() else {
         cursor.0 = None;
         return;

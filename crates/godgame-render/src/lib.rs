@@ -54,6 +54,7 @@ pub mod cellmap;
 pub mod cells;
 pub mod daynight;
 pub mod debug;
+pub mod dump;
 pub mod effects;
 pub mod glue;
 pub mod input;

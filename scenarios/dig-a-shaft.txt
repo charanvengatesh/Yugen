@@ -1,0 +1,19 @@
+# Stand still and dig straight down.
+#
+# What it demonstrates end to end: the pointer, the reach check, the tool's
+# cadence, the brush, and the falling-sand automata settling what is left.
+# Nothing here reaches into `apply_brush` directly — the script presses the
+# actual left mouse button, so a run that passes proves the real path works.
+#
+#   cargo run --release -- --play --script scenarios/dig-a-shaft.txt \
+#       --warmup 300 --dump-state out.json --screenshot out.png
+#
+# Read `cells.front` in the dump: the column under the body should be air.
+
+# `aim` is an offset from the body's CENTRE, in px. The starting pick reaches
+# 4 cells — 20px — so this is just inside it.
+aim 0 20
+dig 3s
+
+# Let the sand and gravel above the hole finish falling before anything looks.
+wait 90f

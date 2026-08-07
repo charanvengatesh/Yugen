@@ -38,7 +38,9 @@
 //! | `dash` | one rising edge, one frame |
 //! | `punch` | one rising edge, one frame (dig / swing / shoot) |
 //! | `hold punch 1s` | the punch key held down, for auto-repeat |
-//! | `aim <x> <y>` | world-space aim point for every later frame |
+//! | `dig 1s` | left mouse held: remove cells under the aim point |
+//! | `place 1s` | right mouse held: place the held item under the aim point |
+//! | `aim <dx> <dy>` | where to point, in px FROM THE BODY, for every later frame |
 //!
 //! A duration is REQUIRED where the table shows one and FORBIDDEN where it does
 //! not. `jump 2s` is an error rather than a two-second jump, because jump is an
@@ -57,6 +59,23 @@
 //! [`aim`](Script::parse) is the one exception, and it is an exception because it
 //! is not an input event at all — it is where the cursor is pointing, which has
 //! to persist across the lines that act on it.
+//!
+//! # `aim` is relative to the body, and that is not a convenience
+//!
+//! [`Intent::aim_x`] is a WORLD point, and an early draft of this language took
+//! one. It was unusable, for a reason that only shows up when a script is run:
+//! the author does not know where the body will be. A script's whole job is to
+//! move it, so the position at the moment `aim` takes effect is the output of
+//! everything above that line — gravity, terrain, a jump that clipped a ledge.
+//! `aim 0 40` is a sentence anybody can write and means "forty pixels below my
+//! feet"; the world point that turns into is not knowable when the file is
+//! written.
+//!
+//! So `aim` is an OFFSET from the body's centre, resolved by the driver on the
+//! frame it is used. [`ScriptFrame::intent`]'s `aim_x`/`aim_y` carry the offset,
+//! not the point, and a driver that forgot to resolve them would aim at the
+//! world origin — which `Intent::aim_x` documents as the "no aim point"
+//! sentinel, so the failure is a shot along the facing rather than a wild one.
 
 use crate::input::Intent;
 use std::fmt;
@@ -80,7 +99,30 @@ pub const SCRIPT_HZ: f32 = 60.0;
 /// a typo into an error message instead of an out-of-memory kill.
 const MAX_DURATION_FRAMES: u32 = 60 * 60 * 60;
 
-/// A parsed script: a flat list of frames' worth of intent.
+/// One frame of a script: what the keyboard says, and what the pointer is doing.
+///
+/// Two halves rather than one, because the game reads them through two different
+/// paths and neither can express the other. Movement, jumping, dashing and
+/// swinging arrive as an [`Intent`] sampled from the keyboard. DIGGING AND
+/// PLACING DO NOT — they go through the pointer and the mouse buttons, and
+/// `Intent` has no field for either. A script that only produced `Intent`s could
+/// walk a body around a world it was unable to touch, which was the first thing
+/// this module could not do and the reason this struct exists.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScriptFrame {
+    /// The keyboard half.
+    ///
+    /// `aim_x` / `aim_y` are an OFFSET FROM THE BODY, not a world point — see
+    /// [`Script::parse`]. The driver resolves them; a parser has no idea where
+    /// the body is and could not resolve them if it tried.
+    pub intent: Intent,
+    /// The left mouse button: remove cells under the pointer.
+    pub dig: bool,
+    /// The right mouse button: place the held item under the pointer.
+    pub place: bool,
+}
+
+/// A parsed script: a flat list of frames.
 ///
 /// Frames are stored EXPANDED rather than as steps plus a cursor. A scenario is
 /// at most a few thousand frames — under a hundred kilobytes of `Intent` — so
@@ -89,7 +131,7 @@ const MAX_DURATION_FRAMES: u32 = 60 * 60 * 60;
 /// get subtly wrong and trivially replayable from any frame.
 #[derive(Clone, Debug, Default)]
 pub struct Script {
-    frames: Vec<Intent>,
+    frames: Vec<ScriptFrame>,
 }
 
 /// One problem with one line of a script, with the line number a text editor
@@ -118,6 +160,12 @@ enum Line {
         first: Intent,
         rest: Intent,
         count: u32,
+        /// Held for every frame of this line, not just the first. Digging is a
+        /// button you hold down, and the brush's own cadence decides how often
+        /// it bites — see `BuildTool`.
+        dig: bool,
+        /// As `dig`, for the right button.
+        place: bool,
     },
     /// Move the aim point. Produces no frames of its own.
     SetAim(f32, f32),
@@ -133,12 +181,13 @@ impl Script {
     /// any error is not returned at all, because a partially-applied scenario is
     /// worse than no scenario.
     ///
-    /// `aim` is the only verb that outlives its own line: it sets the world-space
-    /// aim point for every frame emitted after it, until another `aim` replaces
-    /// it. `aim 0 0` restores the "no cursor" sentinel that [`Intent::aim_x`]
-    /// documents, which is also the state a script starts in.
+    /// `aim` is the only verb that outlives its own line: it sets the aim offset
+    /// for every frame emitted after it, until another `aim` replaces it. The
+    /// offset is measured from the body's centre and resolved by the driver —
+    /// see the module header for why it cannot be a world point. `aim 0 0` aims
+    /// at the body itself, which is also the state a script starts in.
     pub fn parse(text: &str) -> Result<Script, Vec<ScriptError>> {
-        let mut frames: Vec<Intent> = Vec::new();
+        let mut frames: Vec<ScriptFrame> = Vec::new();
         let mut errors: Vec<ScriptError> = Vec::new();
         let mut aim = (0.0f32, 0.0f32);
 
@@ -155,12 +204,18 @@ impl Script {
 
             match compile(verb, &args) {
                 Ok(Line::SetAim(x, y)) => aim = (x, y),
-                Ok(Line::Frames { first, rest, count }) => {
+                Ok(Line::Frames {
+                    first,
+                    rest,
+                    count,
+                    dig,
+                    place,
+                }) => {
                     for n in 0..count {
                         let mut intent = if n == 0 { first } else { rest };
                         intent.aim_x = aim.0;
                         intent.aim_y = aim.1;
-                        frames.push(intent);
+                        frames.push(ScriptFrame { intent, dig, place });
                     }
                 }
                 Err(message) => errors.push(ScriptError { line, message }),
@@ -179,15 +234,24 @@ impl Script {
         self.frames.len() as u32
     }
 
-    /// The intent for frame `n`, or `None` once the script has run out.
+    /// Frame `n`, or `None` once the script has run out.
     ///
     /// Running out is reported rather than saturated at the last frame. Holding
     /// the final intent forever would mean a script ending in `right 2s` walks
     /// off into the world indefinitely, and the caller could never tell the
     /// difference between "still driving" and "finished". `None` is the signal
     /// to take the screenshot, dump the state, or hand control back.
-    pub fn intent(&self, n: u32) -> Option<Intent> {
+    pub fn frame(&self, n: u32) -> Option<ScriptFrame> {
         self.frames.get(n as usize).copied()
+    }
+
+    /// Frame `n`'s keyboard half.
+    ///
+    /// Shorthand for `frame(n).map(|f| f.intent)`. Most questions about a script
+    /// are about the keys, and a caller that only drives movement should not
+    /// have to know the pointer half exists.
+    pub fn intent(&self, n: u32) -> Option<Intent> {
+        self.frame(n).map(|f| f.intent)
     }
 }
 
@@ -286,13 +350,18 @@ fn compile(verb: &str, args: &[&str]) -> Result<Line, String> {
                     ..Intent::default()
                 },
                 count,
+                dig: false,
+                place: false,
             })
         }
+
+        "dig" => pointer(args, verb, true, false),
+        "place" => pointer(args, verb, false, true),
 
         "aim" => {
             if args.len() != 2 {
                 return Err(format!(
-                    "`aim` takes a world x and y: `aim 120 -64`, not {} argument(s)",
+                    "`aim` takes an x and y offset from the body: `aim 0 40`, not {} argument(s)",
                     args.len()
                 ));
             }
@@ -312,6 +381,25 @@ fn held(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         first: state,
         rest: state,
         count,
+        dig: false,
+        place: false,
+    })
+}
+
+/// `dig 1s` / `place 1s`: a mouse button held down over the aim point.
+///
+/// Held rather than an edge, unlike [`edge`]'s verbs, because that is what the
+/// buttons are: `swing_brush` reads `buttons.pressed(..)` every frame and the
+/// tool's own cadence decides how often the brush actually bites. A one-frame
+/// dig would usually remove nothing at all.
+fn pointer(args: &[&str], verb: &str, dig: bool, place: bool) -> Result<Line, String> {
+    let count = duration(args, verb)?;
+    Ok(Line::Frames {
+        first: Intent::default(),
+        rest: Intent::default(),
+        count,
+        dig,
+        place,
     })
 }
 
@@ -326,6 +414,8 @@ fn edge(args: &[&str], verb: &str, state: Intent) -> Result<Line, String> {
         first: state,
         rest: state,
         count: 1,
+        dig: false,
+        place: false,
     })
 }
 
@@ -378,11 +468,11 @@ fn frames_of(token: &str) -> Result<u32, String> {
     Ok(count)
 }
 
-/// One world-space coordinate of an `aim` line.
+/// One component of an `aim` offset, in px from the body's centre.
 fn coordinate(token: &str) -> Result<f32, String> {
     match token.parse::<f32>() {
         Ok(v) if v.is_finite() => Ok(v),
-        _ => Err(format!("`{token}` is not a world coordinate")),
+        _ => Err(format!("`{token}` is not an aim offset in px")),
     }
 }
 
@@ -562,6 +652,48 @@ mod tests {
     fn a_duration_past_the_ceiling_is_refused_rather_than_allocated() {
         let e = errors("wait 100000s");
         assert!(e[0].message.contains("ceiling"), "{}", e[0].message);
+    }
+
+    #[test]
+    fn digging_and_placing_are_held_buttons_rather_than_edges() {
+        // `swing_brush` reads `buttons.pressed(..)` every frame and the tool's
+        // own cadence decides when the brush bites, so a one-frame dig would
+        // usually remove nothing at all.
+        let s = parsed("dig 3f\nplace 2f");
+        for n in 0..3 {
+            let f = s.frame(n).expect("a dig frame");
+            assert!(f.dig && !f.place, "frame {n}: {f:?}");
+        }
+        for n in 3..5 {
+            let f = s.frame(n).expect("a place frame");
+            assert!(f.place && !f.dig, "frame {n}: {f:?}");
+        }
+        assert_eq!(s.frames(), 5);
+    }
+
+    #[test]
+    fn the_pointer_half_is_clear_on_every_frame_that_did_not_ask_for_it() {
+        // The half nobody set must be OFF, not left over from a line above.
+        // A script that dug for a second and then walked away still holding the
+        // button would carve a trench nobody wrote.
+        let s = parsed("dig 2f\nright 2f\njump");
+        assert!(s.frame(1).unwrap().dig);
+        for n in 2..5 {
+            let f = s.frame(n).expect("a frame");
+            assert!(!f.dig && !f.place, "frame {n} still holds a button: {f:?}");
+        }
+    }
+
+    #[test]
+    fn an_aim_offset_rides_on_every_later_frame_including_a_dig() {
+        // The offset is resolved against the body by the driver; the parser's
+        // job is only to make sure it is still attached when the driver sees it.
+        let s = parsed("aim 0 40\ndig 2f");
+        for n in 0..2 {
+            let f = s.frame(n).expect("a dig frame");
+            assert!(f.dig);
+            assert_eq!((f.intent.aim_x, f.intent.aim_y), (0.0, 40.0));
+        }
     }
 
     #[test]

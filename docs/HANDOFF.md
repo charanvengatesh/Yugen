@@ -176,6 +176,40 @@ It exists because of `§7.1`: three bugs whose shape was *a resource is declared
 read, and written by nothing*, one of which lit every biome identically for two
 milestones. The panel is the cheapest instrument that would have shown all three.
 
+### Driving the game without a person: `--script` and `--dump-state`
+
+```
+cargo run --release -- --play --script scenarios/dig-a-shaft.txt \
+    --warmup 300 --dump-state out.json --screenshot out.png
+```
+
+`--script` is a verb-per-line file (`right 2s`, `jump`, `aim 0 20`, `dig 3s`,
+`hold punch 1s`, `wait 90f`) parsed by `godgame_core::script`. `--dump-state`
+writes what the simulation believes — player, inventory, creatures, clock, and a
+21x21 block of both cell planes around the body — as JSON.
+
+Four things about them are load-bearing:
+
+- **A scripted run is pinned to a fixed 60 Hz delta.** Without it the sim's
+  accumulator clamps at `MAX_STEPS_PER_FRAME` and `right 2s` covers a different
+  distance on a busy machine than an idle one. With it, three runs of the same
+  script produced **byte-identical dumps**. `tests/common::FRAME_DT` pins the
+  same thing for the capture rigs.
+- **`--warmup` is the settle before the first verb, not padding.** Chunks stream
+  over hundreds of frames and the body falls into whatever has arrived. Scripts
+  starting at frame 0 finished in the wrong places.
+- **`aim` is an offset from the BODY**, not a world point. A script's job is to
+  move the body, so where it will be when a line runs is the output of every line
+  above it and is not knowable when the file is written.
+- **The script presses the real mouse buttons and the real pointer**, through
+  `input::CursorOverride`. Nothing reaches into `apply_brush` behind the game's
+  back, so a scenario that digs proves the reach check, the tool cadence and the
+  hardness gate all work — the same argument `--edit` makes.
+
+`scenarios/` holds committed scenario files. To check one did what it claims,
+diff its dump against a control run with the verb removed; that is how the dig
+above was confirmed to have removed exactly the two cells it aimed at.
+
 ### Debug
 
 Three rigs, in increasing order of how much they tell you:

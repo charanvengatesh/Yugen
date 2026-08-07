@@ -23,14 +23,19 @@
 use std::path::PathBuf;
 
 use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystems};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
 
+use godgame_core::config::{PLAYER_H, PLAYER_W};
+use godgame_core::script::Script;
 use godgame_core::sim::edits::{EditMode, apply_brush};
 use godgame_core::sim::materials::{CellId, EMPTY, code_of};
 use godgame_render::GodGameRenderPlugin;
-use godgame_render::input::PlayerIntent;
+use godgame_render::dump::{DumpState, dump_when_ready};
+use godgame_render::input::{CursorOverride, PlayerIntent};
 use godgame_render::items::GroundItems;
 use godgame_render::mobs::Creatures;
 use godgame_render::player::{NoPlayer, PlayerBody};
@@ -106,6 +111,36 @@ struct Autodrive {
     since: f32,
 }
 
+/// The frame delta a scripted run is pinned to.
+///
+/// 60 Hz, matching `godgame_core::script::SCRIPT_HZ` — the language measures
+/// `2s` as 120 frames, and a run whose frames were not 1/60 of a second would
+/// make that sentence false.
+const SCRIPT_FRAME_DT: std::time::Duration = std::time::Duration::from_nanos(16_666_667);
+
+/// A `--script` run in progress: the whole input, and how far through it we are.
+///
+/// The script is the ONLY input source while it lasts. It overwrites
+/// [`PlayerIntent`] wholesale rather than merging with the keyboard, because a
+/// scenario whose result depended on whether somebody leant on the arrow keys
+/// while it ran would not be a scenario.
+#[derive(Resource)]
+struct ScriptRun {
+    /// Every frame's intent, already expanded by the parser.
+    script: Script,
+    /// The next frame to play.
+    frame: u32,
+    /// Frames to let the world settle before the first verb runs.
+    ///
+    /// Not optional padding. Chunks stream in over hundreds of frames and the
+    /// body falls into whatever has arrived so far, so a script that starts
+    /// walking on frame 0 walks through a world that is still being built — and
+    /// lands somewhere different depending on how fast the machine loaded it.
+    /// Two runs of `left 3s` and `right 3s` finished 35 px apart in the WRONG
+    /// directions before this existed.
+    settle: u32,
+}
+
 /// What the command line asked for, parsed once.
 struct Args {
     screenshot: Option<PathBuf>,
@@ -116,6 +151,10 @@ struct Args {
     debug_overlay: bool,
     /// Leave the title card immediately instead of waiting for a confirm key.
     play: bool,
+    /// Where `--dump-state` writes the simulation's state as JSON.
+    dump_state: Option<PathBuf>,
+    /// A parsed `--script FILE`: the whole run's input, frame by frame.
+    script: Option<Script>,
     /// Run right by itself, jumping every this many seconds.
     drive: Option<f32>,
     /// Frames to render before `--screenshot` captures.
@@ -203,10 +242,54 @@ fn main() -> AppExit {
         app.insert_resource(godgame_render::debug::DebugOverlay(true));
     }
 
+    // A script decides for itself when the run is over, so it also decides when
+    // a capture fires. `--warmup` is a stand-in for "long enough for the world
+    // to settle" and a script's own length is a better answer than a guess; the
+    // countdowns below are parked out of reach and zeroed by `run_script` on the
+    // frame the last verb finishes.
+    let scripted = args.script.is_some();
+    let warmup = if scripted { u32::MAX } else { args.warmup };
+
+    if let Some(script) = args.script {
+        info!(
+            "--script: {} frames, after {} settling",
+            script.frames(),
+            args.warmup
+        );
+        app.insert_resource(ScriptRun {
+            script,
+            frame: 0,
+            settle: args.warmup,
+        })
+        // A FIXED frame delta, for the whole run.
+        //
+        // Without it a script is not reproducible and barely means anything: the
+        // sim's accumulator clamps at `MAX_STEPS_PER_FRAME`, so how many physics
+        // steps a frame gets depends on how fast the machine drew the last one,
+        // and `right 2s` covers a different distance on a busy laptop than on an
+        // idle one. `tests/common::FRAME_DT` pins the same thing for the capture
+        // rigs and it is what took them from 0.13% pixel noise to bit-identical.
+        //
+        // Only under `--script`. An interactive session wants the real clock.
+        .insert_resource(TimeUpdateStrategy::ManualDuration(SCRIPT_FRAME_DT))
+        .add_systems(
+            RunFixedMainLoop,
+            run_script.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+        );
+    }
+
+    if let Some(path) = args.dump_state {
+        app.insert_resource(DumpState {
+            path,
+            frames_left: warmup,
+        })
+        .add_systems(Update, dump_when_ready.run_if(resource_exists::<DumpState>));
+    }
+
     if let Some(path) = args.screenshot {
         app.insert_resource(ScreenshotRun {
             path,
-            frames_left: args.warmup,
+            frames_left: warmup,
             taken: false,
         })
         .add_systems(Update, screenshot_then_exit);
@@ -227,6 +310,8 @@ fn parse_args() -> Args {
         free_camera: false,
         debug_overlay: false,
         play: false,
+        dump_state: None,
+        script: None,
         drive: None,
         warmup: SCREENSHOT_WARMUP_FRAMES,
     };
@@ -246,6 +331,14 @@ fn parse_args() -> Args {
             "--screenshot" => {
                 let Some(path) = argv.next() else { usage() };
                 args.screenshot = Some(PathBuf::from(path));
+            }
+            "--dump-state" => {
+                let Some(path) = argv.next() else { usage() };
+                args.dump_state = Some(PathBuf::from(path));
+            }
+            "--script" => {
+                let Some(path) = argv.next() else { usage() };
+                args.script = Some(load_script(&PathBuf::from(path)));
             }
             "--edit" => {
                 let mode = argv.next().unwrap_or_else(|| usage());
@@ -291,8 +384,12 @@ fn next_int(argv: &mut impl Iterator<Item = String>) -> i32 {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: godgame [--screenshot PATH] [--warmup FRAMES] [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
+        "usage: godgame [--screenshot PATH] [--dump-state PATH] [--script FILE] [--warmup FRAMES]\n\
+         \x20              [--edit dig|BLOCK_ID CX CY R] [--free-camera] [--debug-overlay] [--play] [--drive SECS]"
     );
+    eprintln!("  --dump-state P   write the simulation's state to P as JSON, then carry on");
+    eprintln!("  --script FILE    drive the run from a verb-per-line file; it ends the run");
+    eprintln!("  --warmup N       with --script, frames to settle the world BEFORE the first verb");
     eprintln!(
         "  --play           start the run at once; without it a capture photographs the menu"
     );
@@ -323,6 +420,154 @@ fn stamp_startup_edit(
     info!("--edit {:?} at cell ({cx}, {cy}) r={}", edit.mode, edit.r);
     // Once is the whole contract; removing the resource stops the system.
     commands.remove_resource::<StartupEdit>();
+}
+
+/// Play one frame of a `--script`, and end the run when it runs out.
+///
+/// Same slot as [`autodrive`] and for its reason: after the keyboard has been
+/// read and before the body has been stepped. Anywhere in `Update` would be a
+/// frame stale and would be overwritten before any fixed step saw it.
+///
+/// When the script ends it does not simply stop. Stopping would leave the body
+/// standing there while `--warmup` counted down to a capture of a scene the
+/// script had already finished arranging, which is the same "photograph of the
+/// wrong moment" trap `--play` exists to close. Instead the pending capture and
+/// dump countdowns are zeroed so they fire on the very next frame — and if
+/// neither was asked for, the app exits, because a script with no output is a
+/// script that has said everything it has to say.
+fn run_script(
+    mut run: ResMut<ScriptRun>,
+    mut hands: ScriptHands,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let ScriptHands {
+        intent,
+        cursor,
+        buttons,
+        body,
+        focus,
+        shot,
+        dump,
+    } = &mut hands;
+    // Let the world arrive before the first verb.
+    if run.settle > 0 {
+        run.settle -= 1;
+        return;
+    }
+
+    if let Some(next) = run.script.frame(run.frame) {
+        // Where the body is NOW, which is the whole reason `aim` is an offset
+        // rather than a world point: the position at this line is the output of
+        // every line above it, and the author cannot know it.
+        let (bx, by) = match body {
+            Some(b) => (b.0.x + PLAYER_W * 0.5, b.0.y + PLAYER_H * 0.5),
+            // `--free-camera`. Aim from the view, exactly as `swing_brush`
+            // measures reach from it when there is no body.
+            None => (focus.x, focus.y),
+        };
+        let mut keys = next.intent;
+        keys.aim_x += bx;
+        keys.aim_y += by;
+        intent.0 = keys;
+
+        // The pointer and the mouse buttons, driven for real rather than by a
+        // private shortcut into `apply_brush`. `--edit`'s doc comment makes the
+        // same argument and it matters more here: a script that dug through a
+        // back door could pass while the reach check, the tool cadence, the
+        // hardness gate and the hotbar were all broken.
+        //
+        // Through `CursorOverride` and not `CursorWorld`: `track_cursor` runs a
+        // whole schedule later and would write `None` over a direct write, since
+        // a window nobody is pointing at has no physical cursor. That cost one
+        // debugging round — the body walked and the brush never bit.
+        cursor.0 = Some(Vec2::new(keys.aim_x, keys.aim_y));
+        set_button(buttons, MouseButton::Left, next.dig);
+        set_button(buttons, MouseButton::Right, next.place);
+
+        run.frame += 1;
+        return;
+    }
+
+    // Out of script. Release everything first: whatever the last verb was, the
+    // frames after it are not holding it.
+    intent.0 = godgame_core::input::Intent::default();
+    set_button(buttons, MouseButton::Left, false);
+    set_button(buttons, MouseButton::Right, false);
+
+    let mut awaited = false;
+    if let Some(shot) = shot {
+        if !shot.taken {
+            shot.frames_left = 1;
+        }
+        awaited = true;
+    }
+    if let Some(dump) = dump {
+        dump.frames_left = 0;
+        awaited = true;
+    }
+    if !awaited {
+        info!("--script finished at frame {}", run.frame);
+        exit.write(AppExit::Success);
+    }
+}
+
+/// Everything a script writes through, and the two things it reads to resolve an
+/// aim offset. Bundled because a script drives the keyboard, the pointer and two
+/// mouse buttons, and that is more parameters than one system may take.
+#[derive(SystemParam)]
+struct ScriptHands<'w> {
+    intent: ResMut<'w, PlayerIntent>,
+    cursor: ResMut<'w, CursorOverride>,
+    buttons: ResMut<'w, ButtonInput<MouseButton>>,
+    /// Absent under `--free-camera`.
+    body: Option<Res<'w, PlayerBody>>,
+    focus: Res<'w, WorldFocus>,
+    shot: Option<ResMut<'w, ScreenshotRun>>,
+    dump: Option<ResMut<'w, DumpState>>,
+}
+
+/// Hold or release a mouse button, without inventing an event that did not
+/// happen.
+///
+/// `ButtonInput::press` is idempotent for `pressed`, but it also records a
+/// `just_pressed` edge, and `swing_brush` is not the only reader of these
+/// buttons. Pressing an already-held button every frame would raise an edge
+/// every frame, which is a thing no mouse does.
+fn set_button(buttons: &mut ButtonInput<MouseButton>, button: MouseButton, down: bool) {
+    match (down, buttons.pressed(button)) {
+        (true, false) => buttons.press(button),
+        (false, true) => buttons.release(button),
+        _ => {}
+    }
+}
+
+/// Read and parse a `--script` file, or explain why it will not run.
+///
+/// Exits rather than returning an error, and prints EVERY problem the parser
+/// found rather than the first: a scenario file is written in one go, and one
+/// message per run turns five typos into five launches.
+fn load_script(path: &PathBuf) -> Script {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("--script: cannot read {}: {e}", path.display());
+            std::process::exit(2);
+        }
+    };
+    match Script::parse(&text) {
+        Ok(s) => s,
+        Err(errors) => {
+            eprintln!(
+                "--script: {} problem(s) in {}",
+                errors.len(),
+                path.display()
+            );
+            for e in &errors {
+                eprintln!("  {e}");
+            }
+            std::process::exit(2);
+        }
+    }
 }
 
 /// Hold right, and raise a jump edge every [`Autodrive::jump_every`] seconds.
