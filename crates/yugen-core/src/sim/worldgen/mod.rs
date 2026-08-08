@@ -26,5 +26,6 @@ pub mod structs;
 // it happens to live.
 pub use chunk::{
     ChunkGen, DECORATORS, SPAWN_COL, SpawnPoint, generate_chunk, generate_chunk_scaled,
-    material_at, spawn_ground_runs, spawn_point, walkable_spawn, world_noise,
+    generate_chunk_terrain, material_at, spawn_ground_runs, spawn_point, walkable_spawn,
+    world_noise,
 };

@@ -43,7 +43,7 @@
 //! `tests/worldgen_purity.rs` asserts that rather than assuming it.
 
 use crate::config::{
-    CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, PLAYER_H, PLAYER_W, SEA_LEVEL_Y, WorldScale,
+    BODY_SCALE, CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, PLAYER_H, PLAYER_W, SEA_LEVEL_Y, WorldScale,
 };
 use crate::sim::biomes::{ColumnProfile, column_profile_at};
 use crate::sim::decor::structures::StructureDecorator;
@@ -196,6 +196,7 @@ pub struct ChunkGen {
     col_surf: Vec<i32>,
     col_shore: Vec<f64>,
     scale: WorldScale,
+    decorated: bool,
 }
 
 impl ChunkGen {
@@ -227,6 +228,7 @@ impl ChunkGen {
             col_surf: vec![0; n],
             col_shore: vec![0.0; n],
             scale,
+            decorated: true,
         }
     }
 
@@ -234,6 +236,22 @@ impl ChunkGen {
     #[inline]
     pub fn scale(&self) -> WorldScale {
         self.scale
+    }
+
+    /// Stop running the decorator passes: terrain, and nothing that grows on it.
+    ///
+    /// For `tests/player_golden.rs` and nothing else. That fixture replays 4 048
+    /// fixed steps against an arena stamped into generated terrain and pins the
+    /// window by material hash, and decorators put it at the mercy of work it has
+    /// no stake in: a tree is not part of `Player::step`'s ordering, but redrawing
+    /// one moves the hash and breaks the replay. Trees, ores and structures are
+    /// exactly the parts of worldgen that get retuned most often.
+    ///
+    /// The arena the replay actually walks on is stamped ON TOP of this and is
+    /// unaffected; what goes away is the flora on the terrain around it.
+    pub fn without_decor(mut self) -> ChunkGen {
+        self.decorated = false;
+        self
     }
 
     /// The world seed this generator is pinned to.
@@ -470,7 +488,9 @@ impl ChunkGen {
             }
         }
 
-        self.decorate(base_x, base_y, &mut out);
+        if self.decorated {
+            self.decorate(base_x, base_y, &mut out);
+        }
         out
     }
 
@@ -511,6 +531,19 @@ pub fn generate_chunk(chunk_x: i32, chunk_y: i32, seed: u32) -> Vec<CellId> {
 /// replay losing the ground it was recorded on.
 ///
 /// Anything else wants [`generate_chunk`].
+/// [`generate_chunk_scaled`] with the decorator passes switched off — terrain
+/// only. See [`ChunkGen::without_decor`] for the single caller and why.
+pub fn generate_chunk_terrain(
+    chunk_x: i32,
+    chunk_y: i32,
+    seed: u32,
+    scale: WorldScale,
+) -> Vec<CellId> {
+    ChunkGen::with_scale(seed, scale)
+        .without_decor()
+        .generate(chunk_x, chunk_y)
+}
+
 pub fn generate_chunk_scaled(
     chunk_x: i32,
     chunk_y: i32,
@@ -554,7 +587,12 @@ pub fn spawn_point(seed: u32, spawn_col: i32, scale: WorldScale) -> SpawnPoint {
     // is how far above the ground the body starts.
     let search = scale.row(SPAWN_SEARCH);
     let dry = scale.row(SEA_LEVEL_Y - SPAWN_CLEARANCE);
-    let lift = scale.row(6);
+    // The lift is how far above the ground the BODY starts, so it scales with the
+    // body and not with the world. Scaling it with the world put the player 24
+    // cells up — four body heights of empty air — and `walkable_spawn` then
+    // measured walkable ground at a row nowhere near the ground, reporting zero
+    // clear cells in either direction at every seed.
+    let lift = 6 * BODY_SCALE;
     let mut col = spawn_col;
     let mut surf = hm.surface_row_at(&noise, col, None, scale);
     let mut r = 1;
@@ -835,9 +873,15 @@ mod tests {
                 l.min(r) < SPAWN_WALK_CELLS
             })
             .count();
+        // The positive control: `walkable_spawn` is only worth its cost if the
+        // PLAIN spawn is often bad. 11 of 24 measured, down from 23 — the flora
+        // rework thinned the surface out a lot (trees planted on a scaled stride
+        // instead of every three cells, and leaves you fall through). Still
+        // comfortably a third, so the search still earns its place; if it falls
+        // much below this, delete `walkable_spawn` rather than quietly carry it.
         assert!(
-            cramped >= 18,
-            "only {cramped}/24 plain spawns are cramped, and 23 were measured. \
+            cramped >= 8,
+            "only {cramped}/24 plain spawns are cramped, and 11 were measured. \
              If the surface stopped being broken up, `walkable_spawn` is now \
              dead weight and should go rather than be quietly carried"
         );
@@ -865,23 +909,21 @@ mod tests {
                  walk away in EITHER direction"
             );
         }
-        // And the preference, which has been falling as the world grew: 24 of 24
-        // at the 1x world, 22 at 2x, 15 at the current 4x world with 2x bodies.
-        // The guarantee above still holds for every seed, so this is a
-        // preference degrading rather than the spawn breaking — but it is
-        // degrading steadily and is worth watching rather than re-pinning
-        // silently each time.
+        // And the preference. This fell as the world grew — 24 of 24 at the 1x
+        // world, 22 at 2x, 15 at 4x — and the flora rework put it back to 24 of
+        // 24, which is the strongest evidence available that the forest is
+        // walkable again rather than merely different.
         //
-        // Two candidate causes, neither yet measured apart: a bigger body needs
-        // more ground under it, and upscaled clutter puts thicker obstacles on
-        // the surface a run has to cross. If this keeps falling, find out which
-        // before widening the search — the second would mean the clutter upscale
-        // is making terrain unwalkable, which is a content problem and not a
-        // spawn one.
+        // It also settles the open question the previous version of this comment
+        // recorded. The two candidate causes were a bigger body needing more
+        // ground, and clutter obstructing the surface. It was neither: trees were
+        // being planted every three cells while each one grew four times wider,
+        // so a woodland was a fence. (Clutter was never even upscaled — that
+        // hypothesis was wrong on its own terms.)
         assert!(
-            both >= 13,
-            "only {both}/{} spawns clear SPAWN_WALK_CELLS on BOTH sides, and 15 \
-             were measured",
+            both == seeds.len(),
+            "only {both}/{} spawns clear SPAWN_WALK_CELLS on BOTH sides, and all \
+             24 were measured — the forest has stopped being walkable somewhere",
             seeds.len()
         );
     }
@@ -955,7 +997,7 @@ mod tests {
         let mut hm = Heightmap::new();
         let col = (p.x as i32) / CELL_SIZE;
         let surf = hm.surface_row_at(&noise, col, None, scale);
-        assert_eq!(p.y as i32, (surf - scale.row(6)) * CELL_SIZE);
+        assert_eq!(p.y as i32, (surf - 6 * BODY_SCALE) * CELL_SIZE);
         assert!(
             surf <= scale.row(SEA_LEVEL_Y - SPAWN_CLEARANCE),
             "spawned in the sea"

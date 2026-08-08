@@ -91,7 +91,7 @@ use yugen_core::input::Intent;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::grid::CellGrid;
 use yugen_core::sim::materials::CellId;
-use yugen_core::sim::worldgen::{SpawnPoint, generate_chunk_scaled};
+use yugen_core::sim::worldgen::{SpawnPoint, generate_chunk_terrain};
 
 fn fixture() -> J {
     serde_json::from_str(include_str!("player.golden.json"))
@@ -177,10 +177,17 @@ fn build_grid(meta: &J, edits: &J) -> CellGrid {
 
     for j in 0..chunk_rows {
         for i in 0..chunk_cols {
-            // LEGACY, permanently. This fixture pins its world by material hash
-            // and has no bless path — see `WorldScale` and the module header. The
-            // generator is free to move; this replay's ground is not.
-            let chunk = generate_chunk_scaled(cx0 + i, cy0 + j, seed, WorldScale::LEGACY);
+            // LEGACY and TERRAIN ONLY, permanently — two separate defences of
+            // the same thing, which is that this fixture's ground must not move
+            // when unrelated work does.
+            //
+            // LEGACY holds the world scale still. Terrain-only holds the
+            // DECORATORS still, and that second one had to be learned: tree
+            // shapes are not scale-gated, so redrawing a canopy moved this
+            // window's hash even at LEGACY. A tree has no stake in whether
+            // `Player::step` reads coyote time one phase too late, and it should
+            // not be able to break the only test that can see it.
+            let chunk = generate_chunk_terrain(cx0 + i, cy0 + j, seed, WorldScale::LEGACY);
             let (base_x, base_y) = (i * CHUNK_CELLS, j * CHUNK_CELLS);
             for ly in 0..CHUNK_CELLS {
                 for lx in 0..CHUNK_CELLS {
@@ -199,12 +206,18 @@ fn build_grid(meta: &J, edits: &J) -> CellGrid {
         );
     }
 
-    assert_eq!(
-        fnv(&grid.material),
-        g["materialHash"].as_str().unwrap(),
-        "the replayed window is not the one the fixture was recorded against — \
-         that is a worldgen or edit-replay difference, not a player difference"
-    );
+    // Skipped while blessing, because the whole point of a re-record is that this
+    // hash is about to be rewritten. Outside a bless it stays the FIRST thing
+    // checked: a grid disagreement and a player disagreement look identical from
+    // a diff of positions and have nothing to do with each other.
+    if !blessing() {
+        assert_eq!(
+            fnv(&grid.material),
+            g["materialHash"].as_str().unwrap(),
+            "the replayed window is not the one the fixture was recorded against — \
+             that is a worldgen or edit-replay difference, not a player difference"
+        );
+    }
     grid
 }
 
