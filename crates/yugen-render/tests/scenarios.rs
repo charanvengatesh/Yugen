@@ -39,6 +39,7 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
+use yugen_core::config::WorldScale;
 use yugen_core::input::KEYS;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::edits::EditMode;
@@ -534,10 +535,28 @@ fn underground_air_has_a_wall_behind_it_and_open_sky_does_not() {
     );
 }
 
+/// Depth of the lava sea, in px, in the LEGACY world geometry these scenarios
+/// were authored against — scaled at use.
+///
+/// The underworld begins at `UNDERWORLD_DEPTH` cells below the local surface and
+/// that is a legacy depth, so a fixed px coordinate stops naming the underworld
+/// the moment the world scales. At `WorldScale::LIVE` the unscaled 3000 px lands
+/// in ordinary deep stone, which is what these two tests reported: 0 lava of 441,
+/// and a body that stood in it at full health.
+const LAVA_SEA_PX: f64 = 3000.0;
+
+/// [`LAVA_SEA_PX`] in the world the game actually generates.
+fn lava_sea_y() -> f32 {
+    (LAVA_SEA_PX * WorldScale::LIVE.factor()) as f32
+}
+
 #[test]
 fn the_lava_sea_is_where_the_catalogue_says_it_is() {
     let deep = Scenario {
-        at: Some(StartAt { x: 0.0, y: 3000.0 }),
+        at: Some(StartAt {
+            x: 0.0,
+            y: lava_sea_y(),
+        }),
         free_camera: true,
         settle: 40,
         ..Scenario::default()
@@ -545,10 +564,11 @@ fn the_lava_sea_is_where_the_catalogue_says_it_is() {
     let Some(seen) = run_or_skip("lava sea", &deep) else {
         return;
     };
-    println!("lava sea at y=3000: {}", seen.census());
+    println!("lava sea at y={}: {}", lava_sea_y(), seen.census());
     assert!(
         seen.count("lava") > SAMPLE / 2,
-        "y=3000 is supposed to be a lava sea and holds {} lava of {SAMPLE}: {}",
+        "y={} is supposed to be a lava sea and holds {} lava of {SAMPLE}: {}",
+        lava_sea_y(),
         seen.count("lava"),
         seen.census()
     );
@@ -590,7 +610,10 @@ fn the_clock_reaches_the_states_the_catalogue_names() {
 #[test]
 fn lava_kills_a_body_and_a_carved_chamber_does_not() {
     let in_lava = Scenario {
-        at: Some(StartAt { x: 0.0, y: 3000.0 }),
+        at: Some(StartAt {
+            x: 0.0,
+            y: lava_sea_y(),
+        }),
         settle: 120,
         ..Scenario::default()
     };

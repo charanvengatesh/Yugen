@@ -49,6 +49,7 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 
+use yugen_core::config::WorldScale;
 use yugen_core::config::cell_at;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::materials::{EMPTY, code_of};
@@ -88,7 +89,15 @@ struct Shot {
     seed: Option<u32>,
     /// Cycle position, `None` for the default start. 0 midnight, 0.5 noon.
     time: Option<f32>,
-    /// World px BELOW the spawn to fly the camera. 0 keeps the surface frame.
+    /// Px BELOW the spawn to fly the camera, in the LEGACY world geometry these
+    /// scenes were authored against. 0 keeps the surface frame.
+    ///
+    /// Multiplied by the world scale at use. The depth bands these shots aim at —
+    /// the cavern, the ore band, the underworld's lava — are authored in legacy
+    /// cells, so a fixed px depth stops naming the same band the moment the world
+    /// scales. That is not hypothetical: at `WorldScale::LIVE` the unscaled 2900
+    /// px put `lava-sea` a long way above the lava, and the rig caught it by
+    /// checking the scene is the scene rather than by the numbers looking odd.
     depth: f32,
     /// Carve a room at the focus and floor it, so there is somewhere to stand.
     carve: bool,
@@ -301,8 +310,9 @@ fn capture(shot: &Shot) -> (Frame, bool, bool) {
     // focus back onto the body every frame and is gated on `FocusDriver::Player`,
     // so flipping the driver is what lets the camera stay where it is put.
     let focus_x = app.world().resource::<WorldFocus>().x;
-    let target_y = app.world().resource::<WorldFocus>().y + shot.depth;
-    if shot.depth > 0.0 {
+    let depth_px = shot.depth * WorldScale::LIVE.factor() as f32;
+    let target_y = app.world().resource::<WorldFocus>().y + depth_px;
+    if depth_px > 0.0 {
         *app.world_mut().resource_mut::<FocusDriver>() = FocusDriver::FreeCamera;
         for _ in 0..DEEP_SETTLE {
             app.world_mut().resource_mut::<WorldFocus>().y = target_y;
