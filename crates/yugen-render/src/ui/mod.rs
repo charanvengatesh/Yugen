@@ -236,6 +236,8 @@ use yugen_core::items::{HOTBAR, Inventory};
 use yugen_core::sim::materials::{CellId, mat_by_code};
 
 pub mod font_table;
+pub mod layout;
+pub mod theme;
 
 use crate::input::Tool;
 use crate::items::Pack;
