@@ -66,6 +66,8 @@ const S_BLOB: i32 = 1709; // + 137k: per-cell canopy dither
 const S_CLUT: i32 = 1801; // ground clutter gate
 const S_CMIX: i32 = 1901;
 const S_CKIND: i32 = 2003;
+/// Which plane a tree stands in. See [`BEHIND_SHARE`].
+const S_DEPTH: i32 = 2101;
 
 // --- Reach -------------------------------------------------------------------
 // The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or
@@ -88,6 +90,18 @@ const TREE_PHASE: i32 = 1;
 const CLUTTER_STRIDE: i32 = 2;
 const CLUTTER_PHASE: i32 = 0;
 const CLUTTER_REACH: i32 = 2;
+
+/// Share of trees that stand BEHIND the play plane.
+///
+/// Drawn into the chunk's background plane, which nothing collides with and the
+/// automata never touch — so these are trees you walk straight through. A third
+/// is enough that every stretch of woodland has a lane through it while the
+/// forest still reads as a forest, and it is a positional hash rather than a
+/// second lattice so the choice stays a pure function of the column.
+///
+/// They are not free scenery: the light solver counts a filled back cell as a
+/// wall, so a stand of them shades the ground beneath.
+const BEHIND_SHARE: f64 = 0.35;
 
 /// No biome grows on more than this fraction of its candidate columns.
 const MAX_TREE_DENSITY: f64 = 0.56;
@@ -1194,6 +1208,13 @@ fn grow_tree(ctx: &mut DecorContext<'_>, wcx: i32) {
         return; // nothing roots on a cliff
     }
 
+    // A share of trees stand in the BACKGROUND plane. Selected here, around the
+    // whole draw, so a tree is wholly in one plane or the other — half a trunk in
+    // front of its own canopy would read as a rendering fault, not as depth.
+    let behind = ctx.hash(wcx, S_DEPTH) < BEHIND_SHARE;
+    if behind {
+        ctx.draw_behind();
+    }
     match sp {
         SP_BROADLEAF => draw_broadleaf(ctx, wcx, surf, biome),
         SP_CONIFER => draw_conifer(ctx, wcx, surf, biome),
@@ -1205,6 +1226,7 @@ fn grow_tree(ctx: &mut DecorContext<'_>, wcx: i32) {
         SP_SHROOM => draw_shroom(ctx, wcx, surf),
         _ => draw_shrub(ctx, wcx, surf, biome),
     }
+    ctx.in_front();
 }
 
 /// Ground cover: one to three cells, but dense enough that the surface stops
@@ -1359,13 +1381,19 @@ mod tests {
         base_x: i32,
         base_y: i32,
         scale: WorldScale,
-    ) -> Vec<CellId> {
+    ) -> (Vec<CellId>, Vec<CellId>) {
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
+        let mut back = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         {
-            let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm, scale);
+            // Both planes, because a share of trees stand behind the play plane
+            // and the seam and reach contracts apply to them exactly as much:
+            // a back-plane canopy clipped at a chunk edge is just as wrong, and
+            // nothing else in the suite would ever look at it.
+            let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm, scale)
+                .with_back(&mut back);
             TreeDecorator.decorate(&mut ctx);
         }
-        out
+        (out, back)
     }
 
     /// The chunk-aligned row a flora canvas should start at, so the ground line
@@ -1393,12 +1421,20 @@ mod tests {
         assert_eq!(w % CHUNK_CELLS, 0);
         assert_eq!(h % CHUNK_CELLS, 0);
         let mut hm = Heightmap::new();
+        // Front and back merged, front winning, so one comparison covers both
+        // planes. A tree that changed PLANE between two chunk alignments still
+        // shows up, because it would have to move cells to do it.
         let mut buf = vec![EMPTY; (w * h) as usize];
         let mut by = y0;
         while by < y0 + h {
             let mut bx = x0;
             while bx < x0 + w {
-                let c = chunk(noise, &mut hm, bx, by, scale);
+                let (front, back) = chunk(noise, &mut hm, bx, by, scale);
+                let c: Vec<CellId> = front
+                    .iter()
+                    .zip(back.iter())
+                    .map(|(&f, &b)| if f != EMPTY { f } else { b })
+                    .collect();
                 for ly in 0..CHUNK_CELLS {
                     for lx in 0..CHUNK_CELLS {
                         let cx = bx - x0 + lx;

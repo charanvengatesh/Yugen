@@ -76,6 +76,16 @@ pub struct DecorContext<'a> {
     heightmap: &'a mut Heightmap,
     /// The world scale the chunk under this pass was generated at.
     scale: WorldScale,
+    /// The chunk's BACKGROUND plane, when the caller has one.
+    ///
+    /// `None` on the `generate` path, which has no wall plane at all — a
+    /// decoration aimed at the back simply draws nothing there, and the FRONT
+    /// plane comes out identical either way. That is what keeps `generate` and
+    /// `generate_with_back` in agreement about the thing the goldens hash.
+    back: Option<&'a mut [CellId]>,
+    /// Whether plots are currently going to the back plane. See
+    /// [`DecorContext::draw_behind`].
+    behind: bool,
     /// Nearest-upscale anchor for the decoration currently being drawn.
     ///
     /// `None` means plot cells straight through, which is what a pass that has
@@ -110,6 +120,8 @@ impl<'a> DecorContext<'a> {
             sink: Sink::Chunk(out),
             heightmap,
             scale,
+            back: None,
+            behind: false,
             expand: None,
         }
     }
@@ -138,6 +150,8 @@ impl<'a> DecorContext<'a> {
             sink: Sink::Record(into),
             heightmap,
             scale,
+            back: None,
+            behind: false,
             expand: None,
         }
     }
@@ -191,8 +205,29 @@ impl<'a> DecorContext<'a> {
         }
     }
 
+    /// Write to the back plane if one is attached, otherwise drop the cell.
+    ///
+    /// Returns whether the write was HANDLED — true whenever the context is in
+    /// behind mode, back plane or not, because "there is no back plane" must
+    /// mean the cell is discarded and not that it lands in front.
+    #[inline]
+    fn plot_behind(&mut self, wcx: i32, wcy: i32, code: CellId) -> bool {
+        if !self.behind {
+            return false;
+        }
+        if let Some(i) = self.index(wcx, wcy)
+            && let Some(back) = self.back.as_deref_mut()
+        {
+            back[i] = code;
+        }
+        true
+    }
+
     #[inline]
     fn plot_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -219,6 +254,9 @@ impl<'a> DecorContext<'a> {
 
     #[inline]
     fn plot_if_empty_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -247,6 +285,9 @@ impl<'a> DecorContext<'a> {
 
     #[inline]
     fn plot_if_solid_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -314,6 +355,41 @@ impl<'a> DecorContext<'a> {
     #[inline]
     pub fn raster(&self) -> i32 {
         self.scale.raster()
+    }
+
+    /// Attach the chunk's background plane, so decorations may be drawn behind
+    /// the one the player walks in.
+    #[must_use]
+    pub fn with_back(mut self, back: &'a mut [CellId]) -> DecorContext<'a> {
+        debug_assert_eq!(back.len(), (CHUNK_CELLS * CHUNK_CELLS) as usize);
+        self.back = Some(back);
+        self
+    }
+
+    /// Send everything that follows to the BACKGROUND plane, until
+    /// [`DecorContext::in_front`] ends it.
+    ///
+    /// The back plane is inert scenery: nothing collides with it and the automata
+    /// never touch it, so a body walks straight through whatever is drawn here.
+    /// That is the whole point — a forest with a third of its trees behind the
+    /// play plane has lanes through it and still reads as a forest.
+    ///
+    /// It is not free. The light solver counts any filled back cell as a wall, so
+    /// a back-plane canopy darkens the ground under it, and the cells are
+    /// mineable through the wall cursor like any other backdrop.
+    ///
+    /// A no-op when the context has no back plane, which is the `generate` path.
+    /// A decoration aimed at the back then draws NOTHING rather than falling
+    /// through to the front, so the front plane is identical on both paths.
+    #[inline]
+    pub fn draw_behind(&mut self) {
+        self.behind = true;
+    }
+
+    /// End a [`DecorContext::draw_behind`] block.
+    #[inline]
+    pub fn in_front(&mut self) {
+        self.behind = false;
     }
 
     /// Full climate/biome/layer profile for an absolute column.

@@ -170,7 +170,8 @@ use std::sync::LazyLock;
 use yugen_core::config::{CELL_SIZE, LIGHT_DOWNSCALE, SEED, SURFACE_ANCHOR_Y, View};
 use yugen_core::sim::grid::CellGrid;
 use yugen_core::sim::materials::{
-    CellId, EMPTY, MAT_B, MAT_COLLIDE, MAT_COUNT, MAT_EMISSIVE, MAT_G, MAT_LIGHT, MAT_R,
+    CellId, EMPTY, MAT_B, MAT_COLLIDE, MAT_COUNT, MAT_EMISSIVE, MAT_G, MAT_LIGHT, MAT_R, Tag,
+    has_tags,
 };
 use yugen_core::sim::noise::Noise;
 use yugen_core::sim::worldgen::heightmap::Heightmap;
@@ -1163,7 +1164,15 @@ impl LightGrid {
                 let solid = loaded && MAT_COLLIDE[grid.material[at] as usize] == 1;
                 // Open air with a wall behind it. Only asked where the front is
                 // not solid, because rock in front of a wall is just rock.
-                let walled = loaded && !solid && grid.back[at] != EMPTY;
+                //
+                // FLORA behind you is not a wall. A share of trees are drawn into
+                // the background plane so the player can walk through them, and
+                // counting their canopies as rock put three quarters of the sky
+                // cells in a wood under `WALL_DECAY` — a forest lit like a cave,
+                // in broad daylight. A trunk you can see daylight past does not
+                // occlude, which is the same reason leaves do not collide.
+                let behind = if loaded { grid.back[at] } else { EMPTY };
+                let walled = loaded && !solid && behind != EMPTY && !has_tags(behind, Tag::FLORA);
 
                 // STORE, THEN DECAY. A cell is lit by the light that REACHES it;
                 // the occlusion it causes applies to what is behind it, not to

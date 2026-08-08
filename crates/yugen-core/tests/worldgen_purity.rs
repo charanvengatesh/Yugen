@@ -38,7 +38,7 @@ use yugen_core::config::CHUNK_CELLS;
 use yugen_core::config::WorldScale;
 use yugen_core::sim::biomes::column_profile_at;
 use yugen_core::sim::decor::{DecorContext, Decorator};
-use yugen_core::sim::materials::{CellId, EMPTY, MaterialState, Tag, has_tags};
+use yugen_core::sim::materials::{CellId, EMPTY, MaterialState, Tag, block, has_tags};
 use yugen_core::sim::noise::Noise;
 use yugen_core::sim::worldgen::containers::{containers_present, is_container};
 use yugen_core::sim::worldgen::features::LANDMARK_DECORATOR;
@@ -691,6 +691,13 @@ fn the_back_plane_is_pure_across_a_pool() {
 /// The failure this guards against is someone later "improving" the wall rule by
 /// moving the snapshot after `decorate`, which would look like a richer backdrop
 /// and would quietly put unmineable gold behind every hillside.
+///
+/// One decorator is now allowed back here, deliberately: a share of TREES are
+/// drawn into the wall plane so a forest has lanes a body can walk through.
+/// That is a narrowing of this test, not an abandonment of it — the thing it was
+/// written to prevent is ore and chests and liquids, and all three are still
+/// forbidden and now checked by tag rather than by the blanket "nothing from a
+/// decorator" rule that a tree happened to fall under.
 #[test]
 fn the_wall_plane_is_terrain_only() {
     let mut cg = ChunkGen::new(SEED);
@@ -724,6 +731,17 @@ fn the_wall_plane_is_terrain_only() {
         front_seen.iter().any(|&id| has_tags(id, Tag::ORE)),
         "no ore anywhere in the front plane over this sweep — the exclusion \
          below would be vacuous"
+    );
+
+    // The one decorator allowed back here, and the positive control that it
+    // actually arrives. A share of trees are drawn into the wall plane on
+    // purpose, so the player has a forest to walk through rather than into; if
+    // this stops being true the feature has silently stopped working, which is
+    // exactly how it behaved before the plane was plumbed through.
+    assert!(
+        seen.iter().any(|&id| has_tags(id, Tag::FLORA)),
+        "no flora in the wall plane over this sweep — the tree decorator is \
+         supposed to put a share of its trees behind the play plane"
     );
 
     for id in seen {
@@ -760,6 +778,24 @@ fn the_wall_plane_is_terrain_only() {
 /// That branch is the interesting one: it is where the front plane is air because
 /// a chasm cut through the cap, and the wall behind it has to be the topsoil that
 /// was removed — otherwise a chasm reads as a hole punched through to nothing.
+/// The palette the tree decorator may leave in the wall plane.
+///
+/// Flora by tag — leaves, vines, mushrooms — plus the materials the tree pass
+/// uses that are not tagged as flora: WOOD, which is a building material and so
+/// carries no flora tag despite every trunk being made of it, and the two
+/// terrain materials used decoratively, snow on a spruce bough and ash under a
+/// volcanic snag.
+///
+/// Enumerated rather than waved through, so a decorator that starts drawing
+/// something else behind the world has to come here and say so.
+fn is_tree_palette(id: CellId) -> bool {
+    has_tags(id, Tag::FLORA)
+        || id == block::WOOD
+        || id == block::SNOW
+        || id == block::ASH
+        || id == block::MOSS
+}
+
 #[test]
 fn walls_stop_at_the_sky_and_never_gap_below_it() {
     let mut cg = ChunkGen::new(SEED);
@@ -788,11 +824,17 @@ fn walls_stop_at_the_sky_and_never_gap_below_it() {
                 let wcy = base_y + ly;
                 let wall = back[(ly * CHUNK_CELLS + lx) as usize];
                 if wcy < surf {
-                    assert_eq!(
-                        wall,
-                        EMPTY,
-                        "a wall at ({}, {wcy}) is above the ground line at {surf} — \
-                         open sky must stay open, or digging out to it shows nothing",
+                    // Flora is the one thing allowed above the ground line: a
+                    // share of trees are drawn into the wall plane on purpose, so
+                    // the player can walk through them, and a tree behind you is
+                    // of course above the ground. The claim this preserves is the
+                    // one the message states — no ROCK backdrop where sky should
+                    // be, so digging out still opens onto sky.
+                    assert!(
+                        wall == EMPTY || is_tree_palette(wall),
+                        "a wall at ({}, {wcy}) is above the ground line at {surf} \
+                         and is not the tree palette (id {wall}) — open sky must \
+                         stay open, or digging out to it shows nothing",
                         base_x + lx
                     );
                     checked_sky += 1;

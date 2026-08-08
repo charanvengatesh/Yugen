@@ -489,13 +489,26 @@ impl ChunkGen {
         }
 
         if self.decorated {
-            self.decorate(base_x, base_y, &mut out);
+            self.decorate(base_x, base_y, &mut out, back);
         }
         out
     }
 
     /// Run every registered decoration pass over one chunk's material array.
-    fn decorate(&mut self, base_x: i32, base_y: i32, out: &mut [CellId]) {
+    ///
+    /// `back` is handed on so a pass may draw BEHIND the play plane — the tree
+    /// decorator puts a share of its trees there. It stays an `Option` for the
+    /// same reason the wall plane itself does: on the `generate` path there is no
+    /// back plane, a behind-drawn decoration writes nothing at all rather than
+    /// falling through to the front, and the front plane the goldens hash is
+    /// identical on both paths.
+    fn decorate(
+        &mut self,
+        base_x: i32,
+        base_y: i32,
+        out: &mut [CellId],
+        back: Option<&mut [CellId]>,
+    ) {
         let mut ctx = DecorContext::new(
             &self.noise,
             self.seed,
@@ -505,6 +518,9 @@ impl ChunkGen {
             &mut self.heightmap,
             self.scale,
         );
+        if let Some(back) = back {
+            ctx = ctx.with_back(back);
+        }
         for d in DECORATORS {
             d.decorate(&mut ctx);
         }
@@ -874,14 +890,18 @@ mod tests {
             })
             .count();
         // The positive control: `walkable_spawn` is only worth its cost if the
-        // PLAIN spawn is often bad. 11 of 24 measured, down from 23 — the flora
-        // rework thinned the surface out a lot (trees planted on a scaled stride
-        // instead of every three cells, and leaves you fall through). Still
-        // comfortably a third, so the search still earns its place; if it falls
-        // much below this, delete `walkable_spawn` rather than quietly carry it.
+        // PLAIN spawn is often bad. This has fallen a long way — 23 of 24 before
+        // the flora rework, 11 once trees were planted on a scaled stride instead
+        // of every three cells, 7 once a third of them moved behind the play
+        // plane where nothing collides with them.
+        //
+        // 7 of 24 is still not nothing and the search is still cheap, but this is
+        // now close enough to the floor to say plainly: if it reaches ~3, DELETE
+        // `walkable_spawn` and the whole probe with it rather than carrying a
+        // search that almost never finds anything to fix.
         assert!(
-            cramped >= 8,
-            "only {cramped}/24 plain spawns are cramped, and 11 were measured. \
+            cramped >= 5,
+            "only {cramped}/24 plain spawns are cramped, and 7 were measured. \
              If the surface stopped being broken up, `walkable_spawn` is now \
              dead weight and should go rather than be quietly carried"
         );

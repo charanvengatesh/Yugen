@@ -43,7 +43,7 @@ use yugen_core::config::WorldScale;
 use yugen_core::input::KEYS;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::edits::EditMode;
-use yugen_core::sim::materials::{CellId, code_of};
+use yugen_core::sim::materials::{CellId, Tag, code_of, has_tags};
 use yugen_render::daynight::{DayNight, WorldClock};
 use yugen_render::player::{NoPlayer, PlayerBody};
 use yugen_render::scene::{ARRANGE_FRAMES, ScenePlugin, StartAt, StartWith, StartupEdit};
@@ -142,6 +142,21 @@ impl Observed {
             .iter()
             .zip(&self.wall)
             .filter(|(f, w)| **f == 0 && **w != 0)
+            .count()
+    }
+
+    /// Air cells with TERRAIN behind them — the wall plane proper.
+    ///
+    /// Separate from [`Frame::air_with_wall`] because a share of trees are drawn
+    /// into the wall plane so the player can walk through them, and a canopy
+    /// behind open sky is not the same claim as rock behind open sky. The
+    /// lighting draws the same distinction: `light.rs` exempts flora from
+    /// `WALL_DECAY` for exactly this reason.
+    fn air_with_rock_wall(&self) -> usize {
+        self.front
+            .iter()
+            .zip(&self.wall)
+            .filter(|(f, w)| **f == 0 && **w != 0 && !has_tags(**w, Tag::FLORA))
             .count()
     }
 
@@ -525,13 +540,17 @@ fn underground_air_has_a_wall_behind_it_and_open_sky_does_not() {
         under.air_with_wall(),
         under.air()
     );
-    // Above the surface line there is deliberately no wall, which is what makes
-    // "you have dug through to open sky" a state you can see.
+    // Above the surface line there is deliberately no ROCK wall, which is what
+    // makes "you have dug through to open sky" a state you can see. Trees drawn
+    // into the wall plane are exempt — they are scenery you walk through, not a
+    // backdrop the sky has been replaced by — so this counts terrain only.
     assert!(
-        above.air() > 0 && above.air_with_wall() * 4 < above.air(),
-        "open sky should have nothing behind it: {} of {} air cells walled",
-        above.air_with_wall(),
-        above.air()
+        above.air() > 0 && above.air_with_rock_wall() * 4 < above.air(),
+        "open sky should have no TERRAIN behind it: {} of {} air cells walled \
+         with rock ({} counting flora, which is allowed)",
+        above.air_with_rock_wall(),
+        above.air(),
+        above.air_with_wall()
     );
 }
 
