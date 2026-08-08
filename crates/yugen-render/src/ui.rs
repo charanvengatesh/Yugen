@@ -728,6 +728,8 @@ pub enum UiPrim {
         h: i32,
         /// The sprite id from [`ITEM_ICONS`], for [`IconAtlas::icon_sprite`].
         sprite: &'static str,
+        /// Multiplicative tint, `[255, 255, 255]` for "as authored".
+        tint: [u8; 3],
     },
 }
 
@@ -971,6 +973,15 @@ fn item_swatch(out: &mut Vec<UiPrim>, code: ItemCode, sx: i32, sy: i32, icons: &
         let k = icon_scale(cw, ch);
         if k > 0 {
             let (w, h) = (cw * k, ch * k);
+            // The shared cube is drawn in neutral greys precisely so a
+            // multiplicative tint by the item's own colour lands correctly.
+            // DEDICATED icons are authored in their own colours and must never
+            // be tinted.
+            let tint = if id == "icon_block_cube" {
+                item_by_code(code).color
+            } else {
+                [255, 255, 255]
+            };
             out.push(UiPrim::Icon {
                 // `>> 1` in the original, and the same thing here: the leftover
                 // is 0 or 2 for the sizes icons are authored at, but an odd
@@ -980,6 +991,7 @@ fn item_swatch(out: &mut Vec<UiPrim>, code: ItemCode, sx: i32, sy: i32, icons: &
                 w,
                 h,
                 sprite: id,
+                tint,
             });
             return;
         }
@@ -2284,14 +2296,21 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
                 }
             }
         }
-        UiPrim::Icon { x, y, w, h, sprite } => {
+        UiPrim::Icon {
+            x,
+            y,
+            w,
+            h,
+            sprite,
+            tint,
+        } => {
             if let Some(art) = icons.icon_sprite(sprite) {
                 out.push(Quad {
                     x: *x,
                     y: *y,
                     w: *w,
                     h: *h,
-                    color: Color::WHITE,
+                    color: Color::srgb_u8(tint[0], tint[1], tint[2]),
                     art: Some(art),
                 });
             }
@@ -2737,6 +2756,45 @@ mod tests {
         assert_eq!(icon_scale(0, 4), 0);
         assert_eq!(icon_scale(4, 0), 0);
         assert_eq!(icon_scale(-1, -1), 0);
+    }
+
+    #[test]
+    fn the_shared_cube_is_tinted_by_its_item_and_nothing_else_is() {
+        // The cube is neutral grey SO THAT a multiplicative tint by the item's
+        // colour turns one drawing into two dozen distinct placeables; a
+        // dedicated icon is authored in its own colours and a tint would
+        // corrupt it. Both halves, from the real registry, so the rule cannot
+        // rot into "everything gets tinted" or "nothing does".
+        use yugen_core::items::ITEM_ICONS;
+        use yugen_core::items::registry::{item_by_code, item_code_of};
+
+        let cube_item = (0..ITEM_ICONS.len())
+            .find(|&c| ITEM_ICONS[c] == Some("icon_block_cube"))
+            .expect("some item still uses the shared cube") as u16;
+        let own_item = item_code_of("gem").expect("the gem exists");
+        assert_ne!(ITEM_ICONS[own_item as usize], Some("icon_block_cube"));
+
+        let tint_of = |code: u16| {
+            let mut out = Vec::new();
+            item_swatch(&mut out, code, 0, 0, &SquareIcons(2));
+            out.iter()
+                .find_map(|p| match p {
+                    UiPrim::Icon { tint, .. } => Some(*tint),
+                    _ => None,
+                })
+                .expect("the swatch emitted an icon")
+        };
+
+        assert_eq!(
+            tint_of(cube_item),
+            item_by_code(cube_item).color,
+            "the cube carries its item's colour"
+        );
+        assert_eq!(
+            tint_of(own_item),
+            [255, 255, 255],
+            "a dedicated icon stays as authored"
+        );
     }
 
     #[test]
@@ -3243,6 +3301,7 @@ mod tests {
             w: 24,
             h: 24,
             sprite: "block_cube",
+            tint: [255, 255, 255],
         };
         expand(&prim, &Handle::default(), &NoIcons, &mut out);
         assert!(out.is_empty(), "no art, no quad — the well shows through");
@@ -3264,11 +3323,14 @@ mod tests {
             w: 24,
             h: 24,
             sprite: "block_cube",
+            tint: [255, 255, 255],
         };
         expand(&prim, &Handle::default(), &SquareIcons(3), &mut out);
         let sprite = dressed(&out[0], Vec2::splat(24.0));
         assert_eq!(sprite.custom_size, Some(Vec2::splat(24.0)));
-        assert_eq!(sprite.color, Color::WHITE);
+        // srgb_u8 white, not Color::WHITE: the tint path constructs Srgba and
+        // the two variants compare unequal even when the colour is identical.
+        assert_eq!(sprite.color, Color::srgb_u8(255, 255, 255));
     }
 
     #[test]

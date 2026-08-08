@@ -210,6 +210,34 @@ pub fn schema() -> Schema {
                         |d, _ctx| Some(d.num("liquidSpread")),
                     )]),
             ),
+            (
+                "viscosity".into(),
+                Field::new("float")
+                    .doc(
+                        "How reluctantly a liquid flows, 0..1 (liquids only). 0 -- water \
+                         -- moves every tick it can and pays nothing for this field \
+                         existing. Above 0, each tick the liquid skips its whole move \
+                         with this probability (staying AWAKE, so it oozes rather than \
+                         freezes) and its sideways reach shrinks by the same fraction: \
+                         a viscous liquid falls late, pools tall, and levels slowly.",
+                    )
+                    .default_float(0.0)
+                    .check(|v| {
+                        let n = v.as_num().unwrap_or(-1.0);
+                        if (0.0..=1.0).contains(&n) {
+                            None
+                        } else {
+                            Some("must be 0..1".to_string())
+                        }
+                    })
+                    .hot(vec![table(
+                        "MAT_VISCOSITY",
+                        ArrayKind::F32,
+                        0.0,
+                        "Liquid flow reluctance, 0..1.",
+                        |d, _ctx| Some(d.num("viscosity")),
+                    )]),
+            ),
             // --- Surface appearance -------------------------------------------------
             // Three knobs the renderer's per-cell pass reads on EVERY visible cell,
             // which is why all three are hot and all three are one byte. `colorVar`

@@ -843,6 +843,143 @@ frames = '''
 '''
 
 # =============================================================================
+# Raw materials — the five that were sharing the placeable cube
+# =============================================================================
+# The shared `icon_block_cube` exists because two dozen PLACEABLES differ only in
+# which block they put down. These five are not that: they are what the world
+# hands you before you have decided anything, they show up in the hotbar by the
+# stack, and a stack of five identical grey boxes is the one case the cube's tint
+# trick cannot rescue — the player is reading QUANTITY here, and quantity of what
+# has to survive being glanced at. So they get silhouettes. None of them sparkle;
+# they are the commonest things in the game, and sparkle is value.
+
+# Kin to flint, and drawn to be told apart from it: flint is a knapped wedge that
+# tapers to a chipped point, this is the same fracture geometry gone CHUNKY —
+# full width through the middle four rows, a flat facet break running down from
+# the lit crown, and a heel that steps in only once at the bottom left. Lighter
+# than flint by a full step at both ends of the ramp, because flint is a dark
+# glassy stone and this is the pale rubble it was struck out of. Six greys, no
+# glint: the pale arris along the top-left is the light landing on a facet, not a
+# spark, which is exactly the allowance flint gets.
+[icon_stone_chunk]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a3842", "#5b5966", "#82808e", "#a6a4b2", "#cdcbd6"]
+[[icon_stone_chunk.seq]]
+frames = '''
+..1111..
+.165541.
+16555431
+15554321
+15543221
+14432221
+.1322221
+..11111.
+'''
+
+# Dirt has no fracture and no facets — it is the one material here that FALLS
+# APART, so the drawing is a lump that has already started to. The silhouette
+# grows in uneven steps rather than a clean taper (narrow and offset left at the
+# top, widest at row three, tucked back in at the base), and two crumbs have come
+# off and are lying on the floor line clear of the mass. The crumbs are the read:
+# a brown lump on its own is a potato. They follow the dust motes' rule — one
+# colour cell with a single ink pixel beside it, so even a one-pixel subject
+# keeps its outline and does not dissolve into the well — and the left one is a
+# step brighter than the right because the light still comes from up there.
+[icon_dirt_clod]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#2e1f13", "#472f1c", "#66462b", "#8a6039", "#a87c4e"]
+[[icon_dirt_clod.seq]]
+frames = '''
+..111...
+.16541..
+1655431.
+16554321
+15443221
+.1433221
+..11111.
+51....41
+'''
+
+# The dust heap, but poured rather than scattered. Same idea — a mass sitting on
+# a hard full-width floor line — and three deliberate differences so the two
+# never trade places in a hotbar: no motes at all, a fourth tone in the ramp so
+# the slope has a real interior instead of two shades and an edge, and a crest
+# set left of centre with a long soft fall to the right, because a symmetric heap
+# reads as a triangle and a triangle reads as a roof. Tan rather than dust's pale
+# ochre. The whole thing is grain, so nothing in it is allowed to be sharp: every
+# step out is one cell, never two.
+[icon_sand_pile]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6f5a38", "#96794c", "#c0a068", "#e2c894"]
+[[icon_sand_pile.seq]]
+frames = '''
+..11....
+.1551...
+.15541..
+1554431.
+15544331
+14443321
+13332221
+11111111
+'''
+
+# The only icon in the file lying DOWN, and the only one built around a vertical
+# ink seam: sawn face on the left, bark length on the right, the seam between
+# them doing the same job the chest's strap does — it splits the subject into two
+# unmistakably different materials before the eye has resolved either one. The
+# face is the identity, so it gets the pale end of the ramp and a concentric
+# hint: a core column of the palest wood running inside a ring one step darker,
+# shading down to the third tone where the underside of the cut turns away from
+# the light. Three pale cells in a row is not a sparkle — it is heartwood, and it
+# is the reason you can tell this from a rolled hide at a glance. The bark keeps
+# the dark three tones and ramps top to bottom, so the log reads as round.
+[icon_wood_log]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3a2718", "#59402a", "#7d5c3a", "#9a7a4e", "#c2a071", "#e2c99a"]
+[[icon_wood_log.seq]]
+frames = '''
+.111111.
+16661441
+16761431
+16761431
+16761331
+15651321
+15551221
+.111111.
+'''
+
+# A splinter, not a gem: near-vertical on the left flank, a one-cell-per-row rake
+# down the right, and a base that is simply the floor line — ice breaks off, it
+# is not cut. That silhouette is what separates it from the two blue-ish things
+# already in the file: the frozen core is an octahedron pointed at both ends and
+# carries a halo, this is pointed at one end and carries nothing outside its ink.
+# Translucency is bought with a two-cell pale streak running down the middle of
+# the body, below the surface tones on either side of it — light going THROUGH
+# rather than off. One cell of the near-white sits at the tip and appears exactly
+# once in the frame: this is a common drop off any frozen thing, so it gets the
+# metals' single bright pixel and is not permitted the plus the gem and the
+# crystal shard wear.
+[icon_ice_shard]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#1e3c56", "#31607f", "#4d8db2", "#7fbcd8", "#b6e2f2", "#e8f8ff"]
+[[icon_ice_shard.seq]]
+frames = '''
+..11....
+.1761...
+.16541..
+.165431.
+16554321
+15453221
+14432221
+11111111
+'''
+
+# =============================================================================
 # Relics
 # =============================================================================
 # Still the only two icons in the file with a pure white in the palette, and now

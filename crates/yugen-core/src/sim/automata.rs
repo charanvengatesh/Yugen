@@ -69,7 +69,7 @@ use super::materials::{
     CellId, EMPTY, MAT_BURNINTO, MAT_BURNTIME, MAT_CONDUCT, MAT_COOL, MAT_COUNT, MAT_DENSITY,
     MAT_FLAMMABLE, MAT_GROWCHANCE, MAT_GROWDOWN, MAT_GROWINTO, MAT_GROWMAX, MAT_GROWS,
     MAT_HEATEMIT, MAT_HEATTHRESH, MAT_IGNITE, MAT_IGNITEAT, MAT_MELTAT, MAT_MELTINTO, MAT_SPREAD,
-    MaterialState, block, grow_onto,
+    MAT_VISCOSITY, MaterialState, block, grow_onto,
 };
 use super::reactions::{RULES, react, reaction_pending};
 use super::rng::SimRng;
@@ -501,6 +501,7 @@ impl Sweep<'_> {
                 y,
                 MAT_DENSITY[id as usize],
                 i32::from(MAT_SPREAD[id as usize]),
+                MAT_VISCOSITY[id as usize],
             );
         } else if st == MaterialState::Gas as u8 {
             self.update_gas(x, y, id);
@@ -671,7 +672,22 @@ impl Sweep<'_> {
     /// Liquid: fall down, else down-diagonal, else spread sideways up to
     /// `spread` cells to find its level. Denser liquid sinks below lighter (lava
     /// under water, oil floating on water) via the same displacement swap.
-    fn update_liquid(&mut self, x: i32, y: i32, density: f32, spread: i32) {
+    fn update_liquid(&mut self, x: i32, y: i32, density: f32, spread: i32, viscosity: f32) {
+        // Viscosity is a per-tick refusal to move at all. The roll comes FIRST,
+        // before any probe, so a viscous liquid on a ledge hesitates the same
+        // way one in a channel does — and the branch is guarded on zero so
+        // water never draws from the stream for a field it does not use.
+        //
+        // ON A SKIPPED TICK THE CELL WAKES ITSELF. This is the same contract
+        // `grow` established for a failed chance roll: a probabilistic "not
+        // this tick" must never become "asleep mid-flow", or a tar fall
+        // freezes in the air the first tick the dice go cold. The scenario
+        // suite's levitation counts are the net under this.
+        if viscosity > 0.0 && self.rng.chance(f64::from(viscosity)) {
+            self.grid.wake(x, y);
+            return;
+        }
+
         if self.flow_into(x, y, x, y + 1, density) {
             return;
         }
@@ -686,11 +702,19 @@ impl Sweep<'_> {
 
         // Horizontal spread: probe outward on the chosen side, then the other,
         // and step to the farthest open cell so water levels quickly instead of
-        // crawling.
-        if self.spread_side(x, y, first, spread) {
+        // crawling. Viscosity shortens the reach by its own fraction (floor of
+        // one): a thick liquid levels in short shuffles and pools tall, where
+        // shortening the PROBABILITY alone would leave it levelling fast on
+        // the ticks it did move.
+        let reach = if viscosity > 0.0 {
+            ((spread as f32 * (1.0 - viscosity)) as i32).max(1)
+        } else {
+            spread
+        };
+        if self.spread_side(x, y, first, reach) {
             return;
         }
-        self.spread_side(x, y, -first, spread);
+        self.spread_side(x, y, -first, reach);
     }
 
     /// Move down/diagonal into empty air or a strictly lighter liquid.
