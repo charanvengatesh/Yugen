@@ -984,18 +984,16 @@ mod tests {
     use crate::sim::worldgen::heightmap::Heightmap;
 
     /// Paint one chunk at (base_x, base_y) into a fresh buffer.
-    fn chunk(noise: &Noise, hm: &mut Heightmap, base_x: i32, base_y: i32) -> Vec<CellId> {
+    fn chunk(
+        noise: &Noise,
+        hm: &mut Heightmap,
+        base_x: i32,
+        base_y: i32,
+        scale: WorldScale,
+    ) -> Vec<CellId> {
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         {
-            let mut ctx = DecorContext::new(
-                noise,
-                SEED,
-                base_x,
-                base_y,
-                &mut out,
-                hm,
-                WorldScale::LEGACY,
-            );
+            let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm, scale);
             TreeDecorator.decorate(&mut ctx);
         }
         out
@@ -1007,7 +1005,7 @@ mod tests {
     /// Moving (x0, y0) moves the CHUNK GRID, not the world: the decorator is a
     /// pure function of absolute coordinates, so two canvases over the same
     /// region under different alignments must agree cell for cell.
-    fn canvas(noise: &Noise, x0: i32, y0: i32, w: i32, h: i32) -> Vec<CellId> {
+    fn canvas(noise: &Noise, x0: i32, y0: i32, w: i32, h: i32, scale: WorldScale) -> Vec<CellId> {
         assert_eq!(w % CHUNK_CELLS, 0);
         assert_eq!(h % CHUNK_CELLS, 0);
         let mut hm = Heightmap::new();
@@ -1016,7 +1014,7 @@ mod tests {
         while by < y0 + h {
             let mut bx = x0;
             while bx < x0 + w {
-                let c = chunk(noise, &mut hm, bx, by);
+                let c = chunk(noise, &mut hm, bx, by, scale);
                 for ly in 0..CHUNK_CELLS {
                     for lx in 0..CHUNK_CELLS {
                         let cx = bx - x0 + lx;
@@ -1211,15 +1209,31 @@ mod tests {
 
     #[test]
     fn a_tree_straddling_a_seam_is_painted_identically_from_both_sides() {
+        seam_agrees_at(WorldScale::LEGACY);
+    }
+
+    /// The same contract at the scale the GAME runs at.
+    ///
+    /// Worth its own test rather than a loop inside the one above: for the whole
+    /// life of these tests every canvas ran at LEGACY, where the raster factor is
+    /// 1 and the scaled drawing path is a no-op — so the path the player actually
+    /// sees had never been exercised by anything. A guard that only ever runs at
+    /// the identity is not guarding the shipping code.
+    #[test]
+    fn a_tree_straddling_a_seam_agrees_at_the_live_scale() {
+        seam_agrees_at(WorldScale::LIVE);
+    }
+
+    fn seam_agrees_at(scale: WorldScale) {
         // THE contract test. Generate the same world region twice under two
         // different chunk alignments; every cell they share must agree. A tree
         // whose origin falls outside one alignment's scan window shows up here as
         // a canopy clipped on one side and whole on the other.
         let noise = Noise::new(SEED);
         // Aligned grid, covering x 0..128, y 0..128 — the whole flora band.
-        let a = canvas(&noise, 0, 0, 128, 128);
+        let a = canvas(&noise, 0, 0, 128, 128, scale);
         // Same world, chunk grid shifted by half a chunk on both axes.
-        let b = canvas(&noise, 16, 16, 96, 96);
+        let b = canvas(&noise, 16, 16, 96, 96, scale);
 
         let mut painted = 0;
         for y in 16..112 {
@@ -1240,14 +1254,26 @@ mod tests {
 
     #[test]
     fn nothing_is_painted_outside_the_declared_reach() {
+        reach_holds_at(WorldScale::LEGACY);
+    }
+
+    /// The reach promise at the scale the game runs at. See
+    /// [`a_tree_straddling_a_seam_agrees_at_the_live_scale`] for why this is a
+    /// separate test and not a loop.
+    #[test]
+    fn the_declared_reach_holds_at_the_live_scale() {
+        reach_holds_at(WorldScale::LIVE);
+    }
+
+    fn reach_holds_at(scale: WorldScale) {
         // Reach is the promise the generator scans against. Paint a canvas from
         // aligned chunks, then re-paint it from chunks offset by one cell at a
         // time: if any decoration extended further than REACH_X from its origin
         // column, some offset would clip it and the canvases would part company.
         let noise = Noise::new(SEED);
-        let base = canvas(&noise, 0, 0, 128, 128);
+        let base = canvas(&noise, 0, 0, 128, 128, scale);
         for shift in [1, 5, 8, 13, 31] {
-            let s = canvas(&noise, shift, 0, 96, 128);
+            let s = canvas(&noise, shift, 0, 96, 128, scale);
             for y in 32..96 {
                 for x in shift..(shift + 96) {
                     assert_eq!(
