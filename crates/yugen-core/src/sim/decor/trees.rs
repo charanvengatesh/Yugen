@@ -41,6 +41,10 @@ const STEM: CellId = block::MUSHROOM_STEM;
 const MOSS: CellId = block::MOSS;
 const VINE: CellId = block::VINE;
 const SNOW: CellId = block::SNOW;
+/// Snow ON A BOUGH. Deliberately not [`SNOW`], which is a powder: it would give
+/// the player mid-air blocks to stand on and would avalanche off the canopy the
+/// moment the chunk was simulated. See `content/blocks/flora.toml`.
+const SNOW_CAP: CellId = block::SNOW_CAP;
 const ASH: CellId = block::ASH;
 
 // --- Salts -------------------------------------------------------------------
@@ -68,6 +72,8 @@ const S_CMIX: i32 = 1901;
 const S_CKIND: i32 = 2003;
 /// Which plane a tree stands in. See [`BEHIND_SHARE`].
 const S_DEPTH: i32 = 2101;
+/// Per-row bark wobble: width at `+0`, centre drift at `+1+row`.
+const S_BARK: i32 = 2203;
 
 // --- Reach -------------------------------------------------------------------
 // The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or
@@ -559,6 +565,12 @@ fn leaf_blob(
 fn trunk_up(ctx: &mut DecorContext<'_>, wcx: i32, surf: i32, h: i32, lean: i32, t: &Trunk) -> i32 {
     let mut prev = wcx;
     let mut x = wcx;
+    // The base flares: the lowest cells are wider than the taper alone asks for,
+    // easing out over the bottom `flare_h` rows. A trunk that meets the ground at
+    // exactly its own width reads as a post driven into the dirt.
+    let flare_h = a1(ctx, 2);
+    let flare_extra = a1(ctx, 1);
+
     for i in 1..=h {
         x = wcx
             + js_round(f64::from(i * lean) / f64::from(h)) as i32
@@ -570,13 +582,49 @@ fn trunk_up(ctx: &mut DecorContext<'_>, wcx: i32, surf: i32, h: i32, lean: i32, 
         // Width eases from base to tip over the height. A trunk that keeps its
         // root width all the way up reads as a pillar, which is what four times
         // the cells made the un-tapered version look like.
-        let w = taper_w(t.base_w, t.tip_w, i, h);
-        span(ctx, x, surf - i, w, t.code);
+        let mut w = taper_w(t.base_w, t.tip_w, i, h);
+        if i <= flare_h {
+            w += flare_extra * (flare_h - i + 1) / flare_h;
+        }
+
+        // Bark, and the reason a trunk stopped being a rectangle. Two independent
+        // per-row wobbles: one on the WIDTH, so the silhouette is not a pair of
+        // straight lines, and one on the CENTRE, so it wanders instead of being a
+        // ruled column with ragged paint. Both are positional hashes, so a trunk
+        // is the same trunk from whichever chunk draws it.
+        //
+        // Kept to one cell each and only above the flare: a trunk that wobbles at
+        // the root looks broken rather than organic, and more than a cell at this
+        // width stops reading as one trunk.
+        let mut cx = x;
+        if i > flare_h {
+            if ctx.hash(wcx + i, S_BARK) > 0.62 {
+                w += 1;
+            }
+            let drift = ctx.hash(wcx, S_BARK + 1 + i);
+            if drift > 0.86 {
+                cx += 1;
+            } else if drift < 0.14 {
+                cx -= 1;
+            }
+        }
+
+        span(ctx, cx, surf - i, w, t.code);
         if i > 1 && prev != x {
             // The doubled diagonal step, at full width.
             span(ctx, prev, surf - i, w, t.code);
         }
         prev = x;
+
+        // Every column of the LOWEST row follows the terrain down on its own, so
+        // a wide trunk on a slope grips the ground across its whole width instead
+        // of hanging off the downhill side.
+        if i == 1 {
+            let left = (w - 1) / 2;
+            for dx in 0..w {
+                seat(ctx, cx - left + dx, surf, t.code);
+            }
+        }
     }
     x
 }
@@ -622,6 +670,34 @@ fn span(ctx: &mut DecorContext<'_>, x: i32, y: i32, w: i32, code: CellId) {
 /// heights tall across the only gap between two trunks, and `walkable_spawn`
 /// reported exactly that: a spawn with zero walkable cells in EITHER direction.
 /// A tree may be an obstacle; its roots may not.
+/// How far below the trunk's own ground line a foot column will chase the
+/// terrain before giving up, in authored cells.
+///
+/// A tree on a slope has ground under its downhill side several cells lower than
+/// under its centre. Without a bound this would follow a cliff edge down forever;
+/// with one, a tree perched on a lip still plants what it can and the rest is a
+/// tree on a lip, which is a thing that happens.
+const FOOT_REACH: i32 = 3;
+
+/// Fill column `x` downward from `from_y` until it meets that column's OWN
+/// ground line.
+///
+/// This is what stops a trunk hovering. `trunk_up` draws every column of its
+/// width against the ONE surface row it was handed — the row under the tree's
+/// origin column — so on any slope the downhill side of a wide trunk ends above
+/// the dirt and the tree reads as floating a cell or two off the ground. It was
+/// invisible while trunks were one cell wide, because one cell cannot straddle a
+/// slope; the moment they got thick it was in every screenshot.
+fn seat(ctx: &mut DecorContext<'_>, x: i32, from_y: i32, code: CellId) {
+    let ground = ctx.surface_at(x);
+    let limit = from_y + a(ctx, FOOT_REACH);
+    let mut y = from_y;
+    while y < ground && y <= limit {
+        ctx.plot(x, y, code);
+        y += 1;
+    }
+}
+
 fn root_flare(ctx: &mut DecorContext<'_>, x: i32, surf: i32, spread: i32, code: CellId) {
     for d in 1..=spread {
         let rise = (spread - d + 1).min(STEP_UP_CELLS);
@@ -629,6 +705,10 @@ fn root_flare(ctx: &mut DecorContext<'_>, x: i32, surf: i32, spread: i32, code: 
             ctx.plot(x - d, surf - 1 - k, code);
             ctx.plot(x + d, surf - 1 - k, code);
         }
+        // Each flare column follows the ground down on its own, so a root on the
+        // downhill side of a slope grips instead of hanging.
+        seat(ctx, x - d, surf, code);
+        seat(ctx, x + d, surf, code);
     }
 }
 
@@ -819,10 +899,10 @@ fn draw_conifer(ctx: &mut DecorContext<'_>, wcx: i32, surf: i32, b: Biome) {
         if snowy && on_tier {
             for k in 0..a1(ctx, 1) {
                 if ctx.hash(wcx - r + k, y + S_PAL) < 0.6 {
-                    ctx.plot_if_empty(wcx - r + k, y - 1, SNOW);
+                    ctx.plot_if_empty(wcx - r + k, y - 1, SNOW_CAP);
                 }
                 if ctx.hash(wcx + r - k, y + S_PAL) < 0.6 {
-                    ctx.plot_if_empty(wcx + r - k, y - 1, SNOW);
+                    ctx.plot_if_empty(wcx + r - k, y - 1, SNOW_CAP);
                 }
             }
         }
@@ -1706,6 +1786,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A trunk must not hover. This is the defect the seating exists for, and it
+    /// was reported from a screenshot rather than caught here.
+    ///
+    /// Only columns whose lowest WOOD cell sits near the ground are checked — a
+    /// limb tip is wood with air under it and always will be. Near the ground,
+    /// wood with a gap between it and the dirt is a floating tree, which is what
+    /// a wide trunk drawn against ONE surface row does on any slope.
+    #[test]
+    fn no_trunk_hovers_above_its_own_ground() {
+        let noise = Noise::new(SEED);
+        let scale = WorldScale::LIVE;
+        let y0 = band_y0(&noise, scale);
+        let buf = canvas(&noise, 0, y0, 128, 128, scale);
+        let mut hm = Heightmap::new();
+
+        let mut feet = 0;
+        for x in 0..128 {
+            let ground = hm.surface_row_at(&noise, x, None, scale);
+            // Lowest wood cell in this column.
+            let Some(low) = (0..128)
+                .rev()
+                .map(|ly| y0 + ly)
+                .find(|&wy| buf[(((wy - y0) * 128) + x) as usize] == WOOD)
+            else {
+                continue;
+            };
+            // Well above the ground: a limb, not a foot.
+            if ground - low > FOOT_REACH * scale.raster() + 2 {
+                continue;
+            }
+            feet += 1;
+            for wy in (low + 1)..ground {
+                let c = buf[(((wy - y0) * 128) + x) as usize];
+                assert_ne!(
+                    c, EMPTY,
+                    "a trunk column at x={x} ends at row {low} with open air down \
+                     to the ground at {ground} — the tree is hovering"
+                );
+            }
+        }
+        assert!(
+            feet > 4,
+            "only {feet} trunk feet in the sweep — proved nothing"
+        );
     }
 
     #[test]

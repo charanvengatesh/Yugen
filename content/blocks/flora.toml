@@ -221,3 +221,32 @@ flammable.burnTime = 44
 flammable.burnsInto = "smoke"
 heat.conduct = 20
 heat.igniteAt = 84
+
+# Snow that sits ON a bough, as distinct from snow lying on the ground.
+#
+# The ground kind (`snow`, in terrain.toml) is a POWDER: it collides and it
+# falls. Both are wrong up a tree. A spruce drawn with real snow gave the player
+# solid blocks to stand on in mid-air — the same complaint that took `oneWay` off
+# the leaves, arriving by a different door — and, once the chunk was simulated,
+# the powder rule would avalanche the whole canopy's worth of it onto the ground.
+#
+# So this is foliage that happens to be white: non-colliding like the leaves it
+# sits on, inert like them, and tagged `flora` so everything that special-cases
+# a canopy — the wall-plane palette, the light solver's occlusion exemption —
+# picks it up without being told about it separately.
+[snowCap]
+name = "Snow-laden Bough"
+state = "solid"
+color = [188, 198, 210]
+colorVar = 12
+texture = "grain"
+edge = 96
+density = 0.5
+collides = false
+hardness = 0.15
+blastResist = 0.15
+tags = ["flora", "foliage", "diggable"]
+heat.conduct = 28
+heat.cool = 7
+heat.meltAt = 14
+heat.meltInto = "water"
