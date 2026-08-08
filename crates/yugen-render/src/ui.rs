@@ -2761,18 +2761,16 @@ mod tests {
     #[test]
     fn the_shared_cube_is_tinted_by_its_item_and_nothing_else_is() {
         // The cube is neutral grey SO THAT a multiplicative tint by the item's
-        // colour turns one drawing into two dozen distinct placeables; a
+        // colour can distinguish placeables that arrive without art; a
         // dedicated icon is authored in its own colours and a tint would
-        // corrupt it. Both halves, from the real registry, so the rule cannot
-        // rot into "everything gets tinted" or "nothing does".
+        // corrupt it. Since every shipping placeable got its own drawing the
+        // cube's half of the rule is exercised over ALL items rather than a
+        // found example — vacuous today, and deliberately still here, because
+        // the cube remains the documented fallback and the first new item to
+        // use it re-arms the assertion without anyone remembering to. The
+        // dedicated half must never be vacuous and the count proves it.
         use yugen_core::items::ITEM_ICONS;
-        use yugen_core::items::registry::{item_by_code, item_code_of};
-
-        let cube_item = (0..ITEM_ICONS.len())
-            .find(|&c| ITEM_ICONS[c] == Some("icon_block_cube"))
-            .expect("some item still uses the shared cube") as u16;
-        let own_item = item_code_of("gem").expect("the gem exists");
-        assert_ne!(ITEM_ICONS[own_item as usize], Some("icon_block_cube"));
+        use yugen_core::items::registry::item_by_code;
 
         let tint_of = |code: u16| {
             let mut out = Vec::new();
@@ -2785,15 +2783,29 @@ mod tests {
                 .expect("the swatch emitted an icon")
         };
 
-        assert_eq!(
-            tint_of(cube_item),
-            item_by_code(cube_item).color,
-            "the cube carries its item's colour"
-        );
-        assert_eq!(
-            tint_of(own_item),
-            [255, 255, 255],
-            "a dedicated icon stays as authored"
+        let mut own_icons = 0;
+        for code in 0..ITEM_ICONS.len() as u16 {
+            match ITEM_ICONS[code as usize] {
+                Some("icon_block_cube") => assert_eq!(
+                    tint_of(code),
+                    item_by_code(code).color,
+                    "the cube carries its item's colour"
+                ),
+                Some(_) => {
+                    own_icons += 1;
+                    assert_eq!(
+                        tint_of(code),
+                        [255, 255, 255],
+                        "a dedicated icon stays as authored (item {code})"
+                    );
+                }
+                None => {}
+            }
+        }
+        assert!(
+            own_icons >= 24,
+            "only {own_icons} items carry their own icon — the dedicated half \
+             of this test has gone vacuous"
         );
     }
 

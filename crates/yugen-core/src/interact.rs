@@ -238,7 +238,13 @@ pub static PALETTE: [PaletteGroup; PALETTE_SLOTS] = [
     },
     PaletteGroup {
         name: "Liquid",
-        members: &[block::WATER, block::OIL, block::LAVA, block::ACID],
+        members: &[
+            block::WATER,
+            block::OIL,
+            block::LAVA,
+            block::ACID,
+            block::TAR,
+        ],
     },
     PaletteGroup {
         name: "Rock",
@@ -249,6 +255,7 @@ pub static PALETTE: [PaletteGroup; PALETTE_SLOTS] = [
             block::OBSIDIAN,
             block::GLASS,
             block::CRYSTAL,
+            block::SCORIA,
         ],
     },
     PaletteGroup {
@@ -259,6 +266,7 @@ pub static PALETTE: [PaletteGroup; PALETTE_SLOTS] = [
             block::MUD,
             block::STICKY,
             block::PERMAFROST,
+            block::PEAT,
         ],
     },
     PaletteGroup {
@@ -271,7 +279,10 @@ pub static PALETTE: [PaletteGroup; PALETTE_SLOTS] = [
     },
     PaletteGroup {
         name: "Cold",
-        members: &[block::SNOW, block::ICE, block::PACKED_ICE],
+        // Mist sits with the cold family rather than with smoke and steam:
+        // those two are combustion's exhaust, and mist is the one gas whose
+        // whole behaviour is COOLING (it condenses back to water).
+        members: &[block::SNOW, block::ICE, block::PACKED_ICE, block::MIST],
     },
     PaletteGroup {
         name: "Gadget",

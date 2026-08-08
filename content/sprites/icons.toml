@@ -27,14 +27,16 @@
 # no more; a halo that fills the well stops being a halo.
 #
 # ---- WHY ONE `icon_block_cube` FOR TWO DOZEN ITEMS --------------------------
-# Roughly twenty-four items are `category placeable` and differ from each other
-# in exactly one respect: which block they put down. Twenty-four hand-drawn
-# cubes would be twenty-four copies of the same three-tone lump, and the moment
-# one of them was redrawn the set would start to drift. They share this one
-# sprite instead, drawn in a NEUTRAL grey specifically so a multiplicative tint
-# by the item's own `color` lands where it should — which is the natural next
-# step for the HUD, and is the same trick MobSprite's VARIANT_TINT already uses
-# to make a crowd of one species read as individuals.
+# HISTORY, and a fallback. This file once argued that the placeables differ
+# only in colour and should share one neutral-grey cube under a multiplicative
+# tint. Three items broke the premise from three directions (tar tinted to an
+# invisible black square, scoria's holes cannot be tinted in, the two
+# conveyors tinted to the SAME cube), and once the set had exceptions the
+# uniformity argument was already spent — every placeable now owns a drawing;
+# see "the cube, retired to a fallback" further down for what keeps
+# twenty-four of them from drifting. The cube itself stays as the documented
+# fallback for placeable content that arrives without art, and the tint
+# machinery is still pinned by the swatch tests.
 #
 # ---- SHAPE VOCABULARY -------------------------------------------------------
 # Repeated deliberately, so a glance at a slot says what KIND of thing is in it
@@ -1396,4 +1398,480 @@ frames = '''
 13355221
 .135521.
 ..1111..
+'''
+
+
+# =============================================================================
+# Placeables the tinted cube cannot carry
+# =============================================================================
+# The shared cube's whole argument is that a multiplicative tint does the
+# distinguishing. Three items broke the premise from three directions and each
+# gets a drawing:
+#
+#   tar_glob    — its colour is [18,14,11]. A tint that dark multiplies the
+#                 cube to a black square in a dark well; the item was invisible
+#                 in exactly the place it is picked. The drawing carries the
+#                 read the cube could not: a sagging glob mid-drip, one pale
+#                 sheen pixel upper-left where every lit edge in this game
+#                 lives. Sheen, not sparkle — tar is wet, not precious.
+#   scoria_block — a tinted cube says "rock of this colour" and nothing else;
+#                 scoria's one identifying feature is the vesicles, and holes
+#                 cannot be tinted in. Ink pits punched in the lit faces.
+#   peat_clod   — cut fuel, not soil: the drawing is the stacked-brick read
+#                 (two sods, offset), with fibre ticks in the lit face and one
+#                 moss fleck. Organic, so no sparkle at all.
+#
+# Everything else about them obeys the file: 8x8, ink outline #16121e, lit from
+# upper-left, palette lifted from the item's own colour family.
+
+[icon_tar_glob]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#0d0b09", "#1c1712", "#2a231b", "#453a2e", "#948a76"]
+[[icon_tar_glob.seq]]
+frames = '''
+..1111..
+.166421.
+16654321
+15432221
+14322221
+.132221.
+..1121..
+...12...
+'''
+
+[icon_scoria_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#2a1e1c", "#443230", "#5c4440", "#745650"]
+[[icon_scoria_block.seq]]
+frames = '''
+..11111.
+.1554431
+15514331
+14531231
+14413321
+13321321
+.131231.
+..1111..
+'''
+
+[icon_peat_clod]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#241a10", "#3a2c1a", "#4e3c24", "#66502f", "#4a5c30"]
+[[icon_peat_clod.seq]]
+frames = '''
+........
+.111111.
+15546541
+13233231
+11111111
+14535431
+12322321
+.111111.
+'''
+
+
+# =============================================================================
+# The cube, retired to a fallback
+# =============================================================================
+# The shared tinted cube argued that two dozen placeables differ only in
+# colour. That held until it didn't: tar tinted to an invisible black square,
+# scoria's holes cannot be tinted in, and the two conveyors tinted to the SAME
+# cube — a direction is not a colour. Once three had broken the premise the
+# remaining twenty-one were living on borrowed time, so every placeable now
+# owns a drawing.
+#
+# What keeps twenty-four cubes from drifting apart is what always kept the
+# icons coherent: one silhouette (the same eight rows the shared cube used),
+# ink #16121e, lit from the upper left, palette lifted from the item's own
+# colour, texture spent ONLY on the one trait that names the material —
+# strata for sandstone, columns for basalt, spine ranks for the cactus, a
+# chevron for each conveyor. `icon_block_cube` itself stays: it is the
+# documented fallback for placeable content that arrives without art, and the
+# tint machinery it exercises is pinned by the swatch tests.
+
+[icon_gravel_pile]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#4b4740", "#6b655c", "#8a8276", "#b0a697", "#d5c9b6"]
+[[icon_gravel_pile.seq]]
+frames = '''
+..1111..
+.154441.
+15464441
+13263221
+13332621
+16332221
+13362321
+.111111.
+'''
+
+[icon_sandstone_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e6042", "#9c885d", "#c8af78", "#ffe099", "#ffffba"]
+[[icon_sandstone_block.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332221
+16662221
+13332661
+16632221
+.111111.
+'''
+
+[icon_basalt_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#1e1c21", "#2b282e", "#38343c", "#47424c", "#56505d"]
+[[icon_basalt_block.seq]]
+frames = '''
+..1111..
+.154441.
+15446441
+13362261
+13362261
+13362261
+13362261
+.111111.
+'''
+
+[icon_obsidian_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#14101c", "#1d1728", "#261e34", "#302642", "#b8a8e0"]
+[[icon_obsidian_block.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332261
+13326221
+13262221
+13332221
+.111111.
+'''
+
+[icon_crystal_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#533d7f", "#7657b4", "#9870e8", "#c28fff", "#f2ecff"]
+[[icon_crystal_block.seq]]
+frames = '''
+..1111..
+.154441.
+15446441
+13362221
+13666221
+13362261
+13332221
+.111111.
+'''
+
+[icon_glass_pane]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#63747c", "#8ca5b0", "#b4d4e2", "#e6ffff", "#ffffff"]
+[[icon_glass_pane.seq]]
+frames = '''
+..1111..
+.156441.
+154..441
+13..2..1
+13.222.1
+1..2..61
+133.2661
+.111111.
+'''
+
+[icon_clay_lump]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#553428", "#794a39", "#9c604a", "#c77a5e", "#f19472"]
+[[icon_clay_lump.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332221
+16663221
+13366621
+13332221
+.111111.
+'''
+
+[icon_wet_sand_pile]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#5c4d32", "#836d47", "#a88c5c", "#d7b375", "#ffd98e"]
+[[icon_wet_sand_pile.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332221
+13332221
+16332261
+16662661
+.111111.
+'''
+
+[icon_mud_ball]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#251d16", "#352a1f", "#443628", "#574533", "#69533e"]
+[[icon_mud_ball.seq]]
+frames = '''
+..1111..
+.156441.
+15444441
+13332221
+13332221
+13332221
+13362221
+.111611.
+'''
+
+[icon_sticky_mud]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#3c2c1b", "#553e27", "#6e5032", "#8c6640", "#aa7c4d"]
+[[icon_sticky_mud.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332221
+13332221
+13332221
+16332621
+.161161.
+'''
+
+[icon_ash_pile]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#32302f", "#474443", "#5c5856", "#75706e", "#8e8885"]
+[[icon_ash_pile.seq]]
+frames = '''
+..1111..
+.154441.
+15444641
+13332221
+13632221
+13332621
+13332221
+.111111.
+'''
+
+[icon_snow_ball]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#818489", "#b8bbc3", "#ecf0fa", "#ffffff", "#b8c4e0"]
+[[icon_snow_ball.seq]]
+frames = '''
+..1111..
+.155441.
+15444441
+13332221
+13332261
+13632221
+13332221
+.111111.
+'''
+
+[icon_packed_ice]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#526b81", "#7598b8", "#96c4ec", "#c0faff", "#f0f8ff"]
+[[icon_packed_ice.seq]]
+frames = '''
+..1111..
+.154461.
+15446441
+13364221
+13632221
+16332221
+13332221
+.111111.
+'''
+
+[icon_permafrost_block]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#393f44", "#515a60", "#68747c", "#85949e", "#a8d0e8"]
+[[icon_permafrost_block.seq]]
+frames = '''
+..1111..
+.154441.
+15464441
+13332621
+13632221
+13332261
+13362221
+.111111.
+'''
+
+[icon_moss_clump]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#27431e", "#385f2b", "#487a38", "#5c9c47", "#8ce070"]
+[[icon_moss_clump.seq]]
+frames = '''
+..6161..
+.165641.
+16465541
+13632221
+13332621
+13332221
+13332221
+.111111.
+'''
+
+[icon_vine_coil]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#1f4822", "#2d6630", "#3a843e", "#4aa84f", "#59cc60"]
+[[icon_vine_coil.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13662221
+13326621
+13332261
+13366621
+.111111.
+'''
+
+[icon_jungle_leaf]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#1f5222", "#2d7530", "#3a963e", "#4ac04f", "#59e860"]
+[[icon_jungle_leaf.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332261
+13332621
+13366221
+13632221
+.111111.
+'''
+
+[icon_autumn_leaf]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#603b18", "#895422", "#b06c2c", "#e18a38", "#7a3820"]
+[[icon_autumn_leaf.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13332261
+13332621
+13366221
+13632221
+.111111.
+'''
+
+[icon_cactus_pad]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#29482d", "#3b663f", "#4c8452", "#61a868", "#e8f0d0"]
+[[icon_cactus_pad.seq]]
+frames = '''
+..1111..
+.154441.
+15464641
+13332221
+16232621
+13332221
+16232621
+.111111.
+'''
+
+[icon_mushroom_stem]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6c6656", "#9a917b", "#c6ba9e", "#fdeeca", "#fffff4"]
+[[icon_mushroom_stem.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13632261
+13632261
+13632261
+13632261
+.111111.
+'''
+
+[icon_mushroom_cap]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#452a55", "#623c79", "#7e4e9c", "#a163c7", "#e0d4ec"]
+[[icon_mushroom_cap.seq]]
+frames = '''
+..1111..
+.154641.
+15444441
+13362221
+16332621
+13332221
+13632221
+.111111.
+'''
+
+[icon_bounce_pad]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#2c7942", "#3eab5d", "#50dc78", "#66ff99", "#ffffff"]
+[[icon_bounce_pad.seq]]
+frames = '''
+..1111..
+.154441.
+15464441
+13366221
+16636621
+13366221
+13332221
+.111111.
+'''
+
+[icon_conveyor_right]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e5821", "#9c7c2e", "#c8a03c", "#ffcc4c", "#4a3410"]
+[[icon_conveyor_right.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13362221
+13366621
+13362221
+13332221
+.111111.
+'''
+
+[icon_conveyor_left]
+cellsW = 8
+cellsH = 8
+pal = [".", "#16121e", "#6e5821", "#9c7c2e", "#c8a03c", "#ffcc4c", "#4a3410"]
+[[icon_conveyor_left.seq]]
+frames = '''
+..1111..
+.154441.
+15444441
+13326221
+13666221
+13326221
+13332221
+.111111.
 '''
