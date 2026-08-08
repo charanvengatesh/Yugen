@@ -276,6 +276,37 @@ const BAND_SHIFT_AMP: f64 = 30.0;
 const BAND_SHIFT_FREQ: f64 = 0.0023;
 const BAND_SHIFT_ANCHOR: f64 = 4409.7;
 
+// Flooded galleries: the ravine field turned on its side. A ridged field whose
+// x frequency is ~7x LOWER than its y frequency cuts long near-horizontal
+// ribbons — hundreds of cells of gallery a handful of cells tall — where the
+// ravines' inverted ratio cuts thin vertical slabs. The window that admits them
+// is centred on the column's own liquid table, which is the whole idea: the
+// table's ±52-cell wobble then decides, along the LENGTH of one gallery,
+// which stretches are dry walkway, which are waist-deep, and which have sumped
+// completely. The carve pass needs no new liquid logic for that — the existing
+// table test floods whatever part of the ribbon dips below it.
+const GAL_FX: f64 = 0.0012;
+const GAL_FY: f64 = 0.0081;
+/// Threshold where no gallery is permitted. Nothing reaches this.
+const GAL_T_CLOSED: f64 = 1.2;
+/// Threshold inside the fully-open band. The ridged percentiles from the tunnel
+/// notes apply (p90 = 0.84, p95 = 0.89, p97 = 0.915). Tuned against the atlas:
+/// 0.895 measured 0.39% of the surveyed strip moved — hairline cracks lost in
+/// the cave tangle around the table — and 0.868 measures 0.66%, which renders
+/// as a lens-shaped gallery 100-200 cells long and 5-12 tall every few hundred
+/// columns. The anisotropy is what strings the opened cells into ribbons
+/// rather than scattering them.
+const GAL_T_OPEN: f64 = 0.868;
+/// Half-height of the fully-open window around the liquid table, in cells.
+const GAL_CORE: f64 = 24.0;
+/// Half-height at which the window has tapered fully shut. Wider than
+/// [`LIQ_WOBBLE`] on one side of the table would be pointless — a gallery that
+/// cannot reach above the wobble is never dry, and one far below it never wet.
+const GAL_REACH: f64 = 55.0;
+/// How much the threshold is raised where the window is closing, mirroring
+/// [`RAV_WINDOW_BITE`]: the ribbon tapers to a point instead of ending flat.
+const GAL_WINDOW_BITE: f64 = 0.25;
+
 // Low-frequency openness bias — the field that makes some REGIONS cavey and
 // others near-solid, so exploring has a payoff gradient.
 const BIAS_FX: f64 = 0.0021;
@@ -325,6 +356,12 @@ fn ravine_field(noise: &Noise, wcx: f64, wcy: f64) -> f64 {
     noise.ridged2(wcx * RAV_FX + 811.3, wcy * RAV_FY - 77.9, 2, 1.9)
 }
 
+/// The near-horizontal gallery ribbons — the ravines' aspect ratio, inverted.
+#[inline]
+fn gallery_field(noise: &Noise, wcx: f64, wcy: f64) -> f64 {
+    noise.ridged2(wcx * GAL_FX - 271.9, wcy * GAL_FY + 431.3, 2, 1.9)
+}
+
 /// Tunnel radius modulation along a passage's length.
 #[inline]
 fn tunmod_field(noise: &Noise, wcx: f64, wcy: f64) -> f64 {
@@ -371,7 +408,7 @@ const _: () = assert!(
 
 /// One chunk's worth of coarse samples of every low-frequency cave field.
 ///
-/// Seven planes of `LAT * LAT` = 81 corners each, bilinearly interpolated per
+/// Eight planes of `LAT * LAT` = 81 corners each, bilinearly interpolated per
 /// cell by [`CaveLattice::lat`]. The TypeScript held these as module-level
 /// `Float32Array`s reused across every chunk; here the caller owns one per
 /// worker thread, which keeps the "allocate once" property without the shared
@@ -391,6 +428,7 @@ pub struct CaveLattice {
     tunmod: [f32; LAT_N],
     liq: [f32; LAT_N],
     strata: [f32; LAT_N],
+    gallery: [f32; LAT_N],
 }
 
 impl Default for CaveLattice {
@@ -410,6 +448,7 @@ impl CaveLattice {
             tunmod: [0.0; LAT_N],
             liq: [0.0; LAT_N],
             strata: [0.0; LAT_N],
+            gallery: [0.0; LAT_N],
         }
     }
 
@@ -438,6 +477,7 @@ impl CaveLattice {
                 self.tunmod[i] = tunmod_field(noise, wcx, wcy) as f32;
                 self.liq[i] = liq_field(noise, wcx, wcy) as f32;
                 self.strata[i] = strata_field(noise, wcx, wcy) as f32;
+                self.gallery[i] = gallery_field(noise, wcx, wcy) as f32;
             }
         }
     }
@@ -601,6 +641,7 @@ enum Mode {
 struct Row {
     mode: Mode,
     rav_t: f64,
+    gal_t: f64,
     tun_t: f64,
     ch_t: f64,
     liq_t: f64,
@@ -634,6 +675,7 @@ fn compute_row(cc: &CaveColumn, depth: i32) -> Row {
     let mut row = Row {
         mode: Mode::Bedrock,
         rav_t,
+        gal_t: GAL_T_CLOSED,
         tun_t: 0.0,
         ch_t: 0.0,
         liq_t: 0.0,
@@ -682,6 +724,16 @@ fn compute_row(cc: &CaveColumn, depth: i32) -> Row {
     }
 
     row.mode = Mode::Normal;
+    // The gallery window rides the column's own liquid table (band depth, like
+    // every other band interface, so the window dips and swells with the rock).
+    // Only Normal rows can open one: the crust return above keeps galleries out
+    // of the topsoil however shallow a wet column's table runs, and the
+    // underworld needs no ribbons carved through what is already a sea.
+    let gwin = smooth_ramp(cc.liquid_depth - GAL_REACH, cc.liquid_depth - GAL_CORE, bd)
+        * (1.0 - smooth_ramp(cc.liquid_depth + GAL_CORE, cc.liquid_depth + GAL_REACH, bd));
+    if gwin > 0.02 {
+        row.gal_t = GAL_T_OPEN + (1.0 - gwin) * GAL_WINDOW_BITE;
+    }
     row.tun_t = TUN_T0 - TUN_TD * dt - scale_adj * TUN_SCALE_GAIN + fade_adj;
     row.ch_t = CHEESE_T0 - CHEESE_TD * dt - scale_adj * CHEESE_SCALE_GAIN + fade_adj;
     // Liquid iff `bd > liquid_depth + wobble * LIQ_WOBBLE`, rearranged so the
@@ -726,6 +778,19 @@ fn carve_core(noise: &Noise, wcx: i32, wcy: i32, site: Option<LatSite<'_>>, r: &
             None => ravine_field(noise, x, y),
         };
         open = rav > r.rav_t;
+    }
+
+    // --- Flooded galleries ---------------------------------------------------
+    // An independent opener, like the ravines: a gallery cell falls through to
+    // the liquid table below, which is what leaves one ribbon part boardwalk,
+    // part sump. `gal_t` is only ever open in Normal mode, so this costs the
+    // crust and the underworld nothing but the compare.
+    if !open && r.gal_t < GAL_T_CLOSED {
+        let gal = match site {
+            Some(s) => CaveLattice::lat(&s.lattice.gallery, s.lx, s.ly),
+            None => gallery_field(noise, x, y),
+        };
+        open = gal > r.gal_t;
     }
 
     if !open {

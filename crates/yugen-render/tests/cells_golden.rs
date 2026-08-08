@@ -83,7 +83,25 @@ fn fixture_path() -> std::path::PathBuf {
 /// `YUGEN_BLESS=1`, the same switch `registry_golden.rs` and
 /// `worldgen_golden.rs` use.
 fn blessing() -> bool {
-    std::env::var_os("YUGEN_BLESS").is_some_and(|v| v != "0" && !v.is_empty())
+    std::env::var_os("YUGEN_BLESS").is_some_and(|v| v != "0" && !v.is_empty()) || world_blessing()
+}
+
+/// Whether this bless may absorb a LEGITIMATE worldgen move.
+///
+/// `YUGEN_BLESS_WORLD=1` (implies a bless). The ordinary bless treats a moved
+/// worldgen window as a failure to report, because for the whole life of this
+/// fixture the windows were the TypeScript's and nothing was allowed to move
+/// them. The day worldgen legitimately changes — a new cave shape, a new biome —
+/// that stance inverts: the windows, the emitter census and the coverage masks
+/// all move as a CONSEQUENCE, and refusing to re-derive them would make worldgen
+/// unchangeable forever.
+///
+/// The mode still refuses unless `worldgen.golden.json` has ALSO changed in the
+/// working tree. The two fixtures are this file's header calls "in agreement":
+/// a worldgen move that shows up here but not in the 357-chunk baseline is not a
+/// worldgen move, it is a bug in one of the two, and no bless may pick a winner.
+fn world_blessing() -> bool {
+    std::env::var_os("YUGEN_BLESS_WORLD").is_some_and(|v| v != "0" && !v.is_empty())
 }
 
 /// Rewrite the palette-derived fields of the baseline from the live build.
@@ -136,16 +154,76 @@ fn blessing() -> bool {
 /// human-readable record of an art change is `registry_golden`'s diff, which is
 /// pretty-printed with one table value per line.
 fn bless() {
+    let world = world_blessing();
     let mut root = fixture();
     let stride = i(&root["meta"]["shadeStride"]) as usize;
     let mut refuse: Vec<String> = Vec::new();
     let mut report: Vec<String> = Vec::new();
 
+    // ---- The world-bless precondition: the OTHER fixture moved too.
+    //
+    // Checked against git rather than against the file's content, because the
+    // question is not "does worldgen.golden.json exist" but "did the same tree
+    // that is asking me to absorb a worldgen move also re-derive the 357-chunk
+    // baseline". A worldgen change that only one of the two fixtures sees is a
+    // bug in one of them, and this bless refuses to pick a winner.
+    if world {
+        let repo_diff = std::process::Command::new("git")
+            .args(["diff", "--name-only", "HEAD"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("git runs");
+        let changed = String::from_utf8_lossy(&repo_diff.stdout);
+        assert!(
+            changed.lines().any(|l| l.ends_with("worldgen.golden.json")),
+            "REFUSING YUGEN_BLESS_WORLD: worldgen.golden.json is unchanged in \
+             this tree. A world-bless re-derives this fixture's windows, census \
+             and coverage masks on the premise that worldgen moved DELIBERATELY \
+             — and the proof of that is a re-blessed worldgen.golden.json in the \
+             same tree (YUGEN_BLESS=1 cargo test -p yugen-core --test \
+             worldgen_golden). Bless that first, read its diff, then run this."
+        );
+    }
+
     // ---- Guards. Everything a palette CANNOT move, re-checked before writing.
     //
     // `build_grid` already asserts both origins and the material hash, so calling
     // `grids` is itself the worldgen guard; it panics rather than returning here.
-    let grids = grids(&root);
+    // Under a world-bless the hash premise is the thing being re-derived, so the
+    // guard inverts: the windows are rebuilt unchecked and their derived fields
+    // rewritten below.
+    let grids = grids_expecting(&root, !world);
+    if world {
+        for (name, spec) in root["grids"].as_object_mut().unwrap() {
+            let grid = &grids[name.as_str()];
+            let hash = fnv_u16(&grid.material);
+            let moved = hash != spec["materialHash"].as_str().unwrap();
+            let distinct = grid
+                .material
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let mut histogram = serde_json::Map::new();
+            let mut counts: BTreeMap<u16, u64> = BTreeMap::new();
+            for &m in grid.material.iter() {
+                *counts.entry(m).or_default() += 1;
+            }
+            for (m, n) in counts {
+                histogram.insert(m.to_string(), J::from(n));
+            }
+            spec["materialHash"] = J::from(hash);
+            spec["distinctMaterials"] = J::from(distinct as u64);
+            spec["histogram"] = J::Object(histogram);
+            report.push(format!(
+                "grid {name}: window {} (distinct {distinct})",
+                if moved {
+                    "REWRITTEN — worldgen moved"
+                } else {
+                    "unchanged"
+                },
+            ));
+        }
+    }
     if MAT_COUNT < i(&root["meta"]["matCount"]) as usize {
         refuse.push(format!(
             "the registry SHRANK to {MAT_COUNT} materials, below the baselined \
@@ -153,17 +231,19 @@ fn bless() {
             i(&root["meta"]["matCount"]),
         ));
     }
-    for (name, spec) in root["grids"].as_object().unwrap() {
-        let distinct = grids[name]
-            .material
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len();
-        if distinct != i(&spec["distinctMaterials"]) as usize {
-            refuse.push(format!(
-                "grid {name}: {distinct} distinct materials, baseline says {}",
-                i(&spec["distinctMaterials"]),
-            ));
+    if !world {
+        for (name, spec) in root["grids"].as_object().unwrap() {
+            let distinct = grids[name]
+                .material
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            if distinct != i(&spec["distinctMaterials"]) as usize {
+                refuse.push(format!(
+                    "grid {name}: {distinct} distinct materials, baseline says {}",
+                    i(&spec["distinctMaterials"]),
+                ));
+            }
         }
     }
     for (key, tile) in [("a", &**TEX_A), ("b", &**TEX_B)] {
@@ -226,13 +306,29 @@ fn bless() {
         let emit = paint_cells(&mut px, w, h, grid, ox, oy, &shades);
 
         // The census is a guard, not an output: it is a function of WHICH cells
-        // emit light, which no colour can change.
-        if emit.len() != want_n || emit.x() != want_x || emit.y() != want_y {
+        // emit light, which no colour can change. WORLDGEN can — different rock
+        // means different emitters in the window — so the world-bless re-derives
+        // it as a consequence of the windows it just rewrote.
+        let census_moved = emit.len() != want_n || emit.x() != want_x || emit.y() != want_y;
+        if census_moved && !world {
             refuse.push(format!(
                 "{name}: the emitter census moved ({} emitters, baseline {want_n}). \
                  A palette cannot do that — check `lightEmit` and `emissive`",
                 emit.len(),
             ));
+        }
+        if world {
+            root["cases"][k]["emit"]["n"] = J::from(emit.len() as u64);
+            root["cases"][k]["emit"]["x"] =
+                J::Array(emit.x().iter().map(|&v| J::from(v)).collect());
+            root["cases"][k]["emit"]["y"] =
+                J::Array(emit.y().iter().map(|&v| J::from(v)).collect());
+            if census_moved {
+                report.push(format!(
+                    "{name}: emitter census REWRITTEN ({want_n} -> {} emitters)",
+                    emit.len(),
+                ));
+            }
         }
         // The coverage mask is SEEDED ONCE and is a guard forever after.
         //
@@ -249,12 +345,26 @@ fn bless() {
                 root["cases"][k]["cover"] = J::from(cover);
                 report.push(format!("{name}: cover SEEDED"));
             }
-            Some(want) if cover != want => refuse.push(format!(
+            Some(want) if cover != want && !world => refuse.push(format!(
                 "{name}: the coverage mask moved. That is window GEOMETRY — \
                  clipping, row spans, the negative-origin subtractions — and no \
                  palette can reach it, so this is a blit change and the bless has \
                  no business hiding it"
             )),
+            // The one writer `cover` has ever had besides its seeding. The mask
+            // is opacity, opacity is material, and material is worldgen's — so a
+            // deliberate worldgen move REWRITES it, and the authority the seeded
+            // mask inherited from the TypeScript buffers ends at the first
+            // world-bless. That end is recorded here rather than papered over:
+            // from that bless on, `cover` pins the blit's geometry against the
+            // LAST DELIBERATE worldgen, which is the strongest claim still
+            // available once the world itself is allowed to change.
+            Some(want) if cover != want => {
+                root["cases"][k]["cover"] = J::from(cover);
+                report.push(format!(
+                    "{name}: cover REWRITTEN — worldgen moved the opaque set"
+                ));
+            }
             Some(_) => {}
         }
 
@@ -430,7 +540,7 @@ fn i(v: &J) -> i64 {
 /// Rebuild one of the fixture's grid windows: `chunk_cols` x `chunk_rows`
 /// chunks from the Rust worldgen at the fixture's seed, with the window origin
 /// set to the same absolute cell as the TypeScript's.
-fn build_grid(spec: &J, seed: u32) -> CellGrid {
+fn build_grid(spec: &J, seed: u32, expect_baselined_world: bool) -> CellGrid {
     let cx0 = i(&spec["cx0"]) as i32;
     let cy0 = i(&spec["cy0"]) as i32;
     let chunk_cols = i(&spec["chunkCols"]) as i32;
@@ -457,25 +567,38 @@ fn build_grid(spec: &J, seed: u32) -> CellGrid {
     }
 
     // The grid is the shared premise of every case below. If worldgen has
-    // drifted, the pixel failures that follow would be blamed on the blit.
-    assert_eq!(
-        fnv_u16(&grid.material),
-        spec["materialHash"].as_str().unwrap(),
-        "the worldgen window differs from the TypeScript's before a single \
-         pixel is painted — fix worldgen parity first"
-    );
+    // drifted, the pixel failures that follow would be blamed on the blit. The
+    // ONE caller allowed to skip this is the world-bless, whose whole job is to
+    // re-derive the fixture after a deliberate worldgen change; the window
+    // GEOMETRY below is asserted unconditionally, because no worldgen change can
+    // move where a window sits.
+    if expect_baselined_world {
+        assert_eq!(
+            fnv_u16(&grid.material),
+            spec["materialHash"].as_str().unwrap(),
+            "the worldgen window differs from the baseline before a single \
+             pixel is painted — fix worldgen first, or bless it deliberately \
+             with YUGEN_BLESS_WORLD=1 alongside a worldgen.golden.json bless"
+        );
+    }
     assert_eq!(grid.origin_cell_x(), i(&spec["originCellX"]) as i32);
     assert_eq!(grid.origin_cell_y(), i(&spec["originCellY"]) as i32);
     grid
 }
 
 fn grids(f: &J) -> BTreeMap<String, CellGrid> {
+    grids_expecting(f, true)
+}
+
+/// [`grids`], with the world-hash premise made explicit. `false` is for the
+/// world-bless alone.
+fn grids_expecting(f: &J, expect_baselined_world: bool) -> BTreeMap<String, CellGrid> {
     let seed = f["meta"]["seed"].as_u64().unwrap() as u32;
     f["grids"]
         .as_object()
         .unwrap()
         .iter()
-        .map(|(name, spec)| (name.clone(), build_grid(spec, seed)))
+        .map(|(name, spec)| (name.clone(), build_grid(spec, seed, expect_baselined_world)))
         .collect()
 }
 
