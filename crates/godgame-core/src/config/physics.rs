@@ -275,6 +275,33 @@ pub const STEP_UP_CELLS: i32 = 1;
 /// Step-up height in world px.
 pub const STEP_UP_MAX: f32 = (STEP_UP_CELLS * CELL_SIZE) as f32; // 5
 
+/// Horizontal travel a body must cover after one step-up before it is allowed
+/// another, in world px.
+///
+/// This is the line between a HILL and a WALL, and it exists because the
+/// step-up mechanic cannot tell them apart on its own: it lifts a blocked body
+/// one cell whenever the raised position clears, and each lift licenses the
+/// next. Against terrain that supplies a riser per column that is walking
+/// uphill; against anything that supplies risers FASTER than one per column —
+/// a pine's alternating branches, a brush-placed pillar's ragged juts — it is
+/// a ladder, and a body that only pressed "right" rides it to the top. That
+/// was reported twice, the second time against a pillar the player had built
+/// in creative mode, which no content fix can reach.
+///
+/// The discriminator is horizontal progress, because it is the one thing a
+/// slope grants and a wall withholds: at 45 degrees a body travels one full
+/// cell between risers, at a vertical face it travels nothing. The value must
+/// be UNDER one cell — at exactly one cell (or more), the 45-degree case
+/// deadlocks: the body stops against the riser it is not yet allowed to take,
+/// stopped bodies accrue no travel, and the gate never re-arms. 0.8 of a cell
+/// lets every walkable slope through with margin and stops everything steeper
+/// at its first course, standing on the jut it reached rather than sailing to
+/// the top.
+///
+/// Whole-cell geometry like [`STEP_UP_MAX`], so unscaled by design: the cell
+/// grid does not scale with the character.
+pub const STEP_UP_REARM: f32 = 0.8 * CELL_SIZE as f32; // 4
+
 /// Visual rise rate, px/s. The box snaps; the drawn sprite eases to hide it.
 pub const STEP_UP_SMOOTH: f32 = scaled(420.0);
 

@@ -10,7 +10,7 @@ what the sweep can and cannot see.
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
 | 1 — content | `content/` | 237 records | one THING: a block, a mob, an item |
-| 2 — config | `crates/godgame-core/src/config/` | 98 constants | the WHOLE GAME: geometry, physics, worldgen |
+| 2 — config | `crates/godgame-core/src/config/` | 99 constants | the WHOLE GAME: geometry, physics, worldgen |
 | 3 — module | `crates/*/src/**` | 592 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
@@ -129,7 +129,8 @@ only the exported surface is held to the rule.
 | `DROP_THROUGH_TIME` | `0.24` | Seconds of one-way-platform pass-through granted by a deliberate down input. | 258 |
 | `STEP_UP_CELLS` | `1` | Height, in cells, a blocked horizontal move may be retried lifted by. | 273 |
 | `STEP_UP_MAX` | `(STEP_UP_CELLS * CELL_SIZE) as f32` | Step-up height in world px. | 276 |
-| `STEP_UP_SMOOTH` | `scaled(420.0)` | Visual rise rate, px/s. | 279 |
+| `STEP_UP_REARM` | `0.8 * CELL_SIZE as f32` | Horizontal travel a body must cover after one step-up before it is allowed another, in world px. | 303 |
+| `STEP_UP_SMOOTH` | `scaled(420.0)` | Visual rise rate, px/s. | 306 |
 
 ### `render`
 

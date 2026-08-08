@@ -42,7 +42,7 @@
 //! chase a difference far below a pixel would fork the width rule. The mob RNG
 //! keeps its `f64` scaling internally — see [`MobRng::rand`].
 
-use crate::config::{CELL_SIZE, cell_at};
+use crate::config::{CELL_SIZE, STEP_UP_REARM, cell_at};
 use crate::physics::collision::{
     Aabb, NO_ONE_WAY, box_overlaps_solid, for_each_overlapped_cell, is_solid_cell,
     move_horizontal_stepped, resolve_axis,
@@ -258,6 +258,13 @@ pub struct Mob {
     pub beat_t: f32,
     /// Countdown to the next material-hazard probe.
     pub hazard_t: f32,
+    /// Horizontal travel since the last step-up, px, saturating at
+    /// [`STEP_UP_REARM`]. Same gate as the player's, for the same reason: a
+    /// patroller's `turn_on_wall` only fires when the mover reports BLOCKED,
+    /// and an ungated step-up prevents "blocked" against exactly the ragged
+    /// vertical faces a walker should turn at — so creatures climbed pillars
+    /// and pines instead of turning. See [`STEP_UP_REARM`].
+    pub step_rearm: f32,
     /// Countdown to the next contact hit.
     pub attack_cd: f32,
     /// Damage blink, 0..1, decayed every step.
@@ -323,6 +330,7 @@ impl Mob {
             clock: MobClock::default(),
             decide_t: 0.0,
             beat_t: 0.0,
+            step_rearm: STEP_UP_REARM,
             hazard_t: 0.0,
             attack_cd: 0.0,
             flash: 0.0,
@@ -805,7 +813,24 @@ fn erupt(m: &mut Mob, grid: &CellGrid, force: f32) {
 fn move_grounded(m: &mut Mob, dt: f32, grid: &CellGrid, turn_on_wall: bool) {
     let d = m.def;
     if m.vx != 0.0 {
-        let mv = move_horizontal_stepped(grid, m.body, m.vx * dt, d.step_up_max);
+        // The re-arm gate: a creature that has not travelled since its last
+        // lift is offered no step-up, so a ragged face reads as BLOCKED and
+        // `turn_on_wall` gets to do its job.
+        let step = if m.step_rearm >= STEP_UP_REARM {
+            d.step_up_max
+        } else {
+            0.0
+        };
+        let mv = move_horizontal_stepped(grid, m.body, m.vx * dt, step);
+        // Restart at this frame's travel on a lift, never at zero — the same
+        // overshoot credit the player's accumulator makes, for the same
+        // deadlock; the argument lives in `player.rs`.
+        let travel = (mv.x - m.body.x).abs();
+        m.step_rearm = if mv.stepped > 0.0 {
+            travel.min(STEP_UP_REARM)
+        } else {
+            (m.step_rearm + travel).min(STEP_UP_REARM)
+        };
         m.body.x = mv.x;
         m.body.y = mv.y;
         if mv.blocked() {

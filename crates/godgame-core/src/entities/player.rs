@@ -71,10 +71,11 @@ use crate::config::{
     JUMP_SPEED, LIQUID_DRAG, LIQUID_GRAVITY_SCALE, MAX_AIR_JUMPS, MAX_FALL_SPEED, MAX_HEALTH,
     MAX_RUN_SPEED, MELEE_REACH_FIST, MELEE_REACH_WEAPON, MOVE_ACCEL, PLAYER_H, PLAYER_W,
     PUNCH_DAMAGE, PUNCH_KNOCKBACK, PUNCH_SWING_TIME, SHOT_KNOCKBACK, SHOT_SPEED_DEFAULT,
-    STEP_UP_MAX, STEP_UP_SMOOTH, STICKY_JUMP_SCALE, STICKY_MAX_SPEED, SWIM_ACCEL, SWIM_ACCEL_H,
-    SWIM_BUOYANCY, SWIM_EXIT_SUBMERSION, SWIM_MAX_DOWN, SWIM_MAX_SPEED_H, SWIM_MAX_UP,
-    SWIM_OUT_BOOST, SWIM_SINK_ACCEL, SWIM_SUBMERGE_MIN, SWING_POSE_MAX, SWING_WINDOW_FRAC,
-    SWING_WINDOW_MAX, TILE_SIZE, WALL_JUMP_LOCK, WALL_JUMP_PUSH, WALL_SLIDE_SPEED, cell_at, scaled,
+    STEP_UP_MAX, STEP_UP_REARM, STEP_UP_SMOOTH, STICKY_JUMP_SCALE, STICKY_MAX_SPEED, SWIM_ACCEL,
+    SWIM_ACCEL_H, SWIM_BUOYANCY, SWIM_EXIT_SUBMERSION, SWIM_MAX_DOWN, SWIM_MAX_SPEED_H,
+    SWIM_MAX_UP, SWIM_OUT_BOOST, SWIM_SINK_ACCEL, SWIM_SUBMERGE_MIN, SWING_POSE_MAX,
+    SWING_WINDOW_FRAC, SWING_WINDOW_MAX, TILE_SIZE, WALL_JUMP_LOCK, WALL_JUMP_PUSH,
+    WALL_SLIDE_SPEED, cell_at, scaled,
 };
 use crate::entities::projectiles::{SHOT_STYLE_ARROW, ShotSpec};
 use crate::input::Intent;
@@ -500,6 +501,14 @@ pub struct Player {
     /// a whole cell instantly; the drawn sprite carries this offset and eases it
     /// to zero so walking over rubble reads as a stride, not a teleport.
     step_up_visual: f32,
+    /// Horizontal travel accrued since the last step-up, in px, saturating at
+    /// [`STEP_UP_REARM`]. A step-up is only offered when this is full — the
+    /// gate that lets a body walk up a hill but not ride a ragged pillar to
+    /// its top. See [`STEP_UP_REARM`] for the full argument.
+    ///
+    /// Deliberately NOT saved: a restored run starts ready, which at worst
+    /// grants one early step-up on the first stride after a load.
+    step_rearm: f32,
 
     // Jump / air state.
     /// Mid-air jumps left before the feet have to touch something.
@@ -601,6 +610,7 @@ impl Player {
             sticky_this_step: false,
             conveyor_vx: 0.0,
             step_up_visual: 0.0,
+            step_rearm: STEP_UP_REARM,
             air_jumps: MAX_AIR_JUMPS,
             coyote: 0.0,
             jump_buffer: 0.0,
@@ -1467,8 +1477,15 @@ impl Player {
         // Climbing is excluded as well as mid-air: a ladder keeps `coyote` topped up
         // so that stepping off it still gets the grace period, and without this that
         // would let a climber ratchet sideways up a sheer wall a cell at a time.
-        let may_step =
-            (self.on_ground || self.coyote > 0.0) && self.dash_timer <= 0.0 && !self.climbing;
+        // And it must be RE-ARMED: [`STEP_UP_REARM`] px of horizontal travel
+        // since the last lift. This is what separates a hill from a wall —
+        // without it, anything that supplies risers faster than one per column
+        // (a ragged player-built pillar, alternating juts) is a ladder the body
+        // rides to the top with no jump pressed.
+        let may_step = (self.on_ground || self.coyote > 0.0)
+            && self.dash_timer <= 0.0
+            && !self.climbing
+            && self.step_rearm >= STEP_UP_REARM;
         // `resolve_axis` runs both axes in one call; passing a zero delta for the
         // other one takes neither of its clamp branches, which is exactly the
         // single-axis TypeScript call this replaces.
@@ -1478,6 +1495,26 @@ impl Player {
         } else {
             let r = resolve_axis(grid, body, dx, 0.0, NO_ONE_WAY);
             (r.x, self.y, 0.0, r.hits.left, r.hits.right)
+        };
+        // Travel accrues from what the body ACTUALLY covered, not what it asked
+        // for — a body pressed against a wall asks every frame and goes nowhere,
+        // and it must not re-arm by standing still.
+        //
+        // On the step-up frame the accumulator RESTARTS AT THIS FRAME'S TRAVEL
+        // rather than at zero, and the difference is a deadlock. A step-up
+        // completes the horizontal move THROUGH the riser, so up to a frame's
+        // worth of travel lands on the new course before the accumulator would
+        // start counting; zeroing threw that away, and on a 45-degree slope the
+        // remaining run to the next riser measured 3.06px against a 4px re-arm —
+        // the body stopped flush against a riser it was one frame short of
+        // being allowed to take, accruing nothing, forever. Crediting the
+        // overshoot at most credits half a cell of pre-riser travel, which no
+        // wall can exploit: a wall's next riser allows no travel at all.
+        let travel = (rx_x - self.x).abs();
+        self.step_rearm = if rx_stepped > 0.0 {
+            travel.min(STEP_UP_REARM)
+        } else {
+            (self.step_rearm + travel).min(STEP_UP_REARM)
         };
         self.x = rx_x;
         if rx_stepped > 0.0 {
@@ -2010,6 +2047,86 @@ mod tests {
             1,
             "the swing id does NOT reset: a resolver comparing ids across a \
              respawn must not see one it has already damaged with"
+        );
+    }
+
+    /// Walk a body right for `steps` fixed steps over `grid`, from `(x, y)`.
+    /// Returns the body, settled by its own physics.
+    fn walk_right(grid: &CellGrid, x: f32, y: f32, steps: u32) -> Player {
+        let mut p = Player::new(SPAWN);
+        p.x = x;
+        p.y = y;
+        let mut pool = NoProjectiles;
+        let mut kit = Loadout::new(&mut pool);
+        let intent = Intent {
+            dir_x: 1.0,
+            ..Intent::default()
+        };
+        for _ in 0..steps {
+            p.step(1.0 / 60.0, intent, grid, &mut kit);
+        }
+        p
+    }
+
+    /// A floor at `floor_row` across the whole window, in stone.
+    fn floored(floor_row: i32) -> CellGrid {
+        let mut g = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+        for cy in floor_row..crate::config::WINDOW_ROWS {
+            for cx in 0..crate::config::WINDOW_COLS {
+                g.set(cx, cy, block::STONE);
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn a_body_walks_up_a_forty_five_degree_slope_but_not_a_ragged_pillar() {
+        // The two shapes STEP_UP_REARM exists to tell apart, in one test so
+        // they cannot drift independently. Both are built from the same stone
+        // on the same floor and walked by the same body for the same time; the
+        // only difference is how fast the risers come.
+        const CS: i32 = crate::config::CELL_SIZE;
+
+        // A 45-degree staircase: each column one cell higher than the last.
+        // One riser per cell of travel — the steepest thing that is still a
+        // hill, and the boundary the re-arm distance is tuned just under.
+        let mut hill = floored(40);
+        for i in 0..12 {
+            for cy in (40 - 1 - i)..40 {
+                for cx in (30 + i)..crate::config::WINDOW_COLS {
+                    hill.set(cx, cy, block::STONE);
+                }
+            }
+        }
+        let start_y = 40.0 * CS as f32 - PLAYER_H;
+        let walked = walk_right(&hill, 20.0 * CS as f32, start_y, 240);
+        assert!(
+            start_y - walked.y >= 10.0 * CS as f32,
+            "a 45-degree slope stopped being walkable: rose only {:.0}px in 4s              (started y={start_y}, ended y={:.0}). The re-arm distance is at or              over one cell and the gate deadlocks on ordinary hills",
+            start_y - walked.y,
+            walked.y,
+        );
+
+        // A ragged pillar: a 2-wide column with 1-cell juts alternating sides,
+        // which is what a brush-placed stack of blocks looks like. Risers come
+        // faster than one per column, so the gate must refuse them: this is the
+        // shape a player built in creative mode and rode to the top of by
+        // pressing nothing but "right".
+        let mut pillar = floored(40);
+        for i in 0..12 {
+            let cy = 40 - 1 - i;
+            pillar.set(60, cy, block::STONE);
+            pillar.set(61, cy, block::STONE);
+            // the jut: one extra cell on the approach side every other course
+            if i % 2 == 0 {
+                pillar.set(59, cy, block::STONE);
+            }
+        }
+        let walked = walk_right(&pillar, 50.0 * CS as f32, start_y, 240);
+        assert!(
+            start_y - walked.y <= 2.0 * CS as f32,
+            "a ragged pillar is climbable again: the body rose {:.0}px against a              near-vertical face with no jump pressed. The re-arm gate is not              holding",
+            start_y - walked.y,
         );
     }
 
