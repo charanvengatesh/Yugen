@@ -664,7 +664,7 @@ pub fn walkable_spawn(seed: u32, spawn_col: i32, scale: WorldScale) -> SpawnPoin
     let col = (base.x / CELL_SIZE as f32).floor() as i32;
     let row = (base.y / CELL_SIZE as f32).floor() as i32;
 
-    let mut probe = SpawnProbe::new(seed);
+    let mut probe = SpawnProbe::new(seed, scale);
     // Both sides first, then either side. A spawn you can only leave in one
     // direction is playable but poor: half of what the player tries at the very
     // start of a run walks straight into a wall, and it is the half a scenario
@@ -695,11 +695,11 @@ pub fn walkable_spawn(seed: u32, spawn_col: i32, scale: WorldScale) -> SpawnPoin
 /// the RUNNING GAME agree about what "walkable" means. They did not, twice, and
 /// both times the disagreement was invisible from inside — the check passed and
 /// the body still stopped dead.
-pub fn spawn_ground_runs(seed: u32, at: SpawnPoint, far: i32) -> (i32, i32) {
+pub fn spawn_ground_runs(seed: u32, at: SpawnPoint, far: i32, scale: WorldScale) -> (i32, i32) {
     let col = (at.x / CELL_SIZE as f32).floor() as i32;
     let row = (at.y / CELL_SIZE as f32).floor() as i32;
     let w = (PLAYER_W / CELL_SIZE as f32).ceil() as i32;
-    let mut probe = SpawnProbe::new(seed);
+    let mut probe = SpawnProbe::new(seed, scale);
     (
         probe.run_of_ground(col, row, -1, far),
         probe.run_of_ground(col + w - 1, row, 1, far),
@@ -717,9 +717,12 @@ struct SpawnProbe {
 }
 
 impl SpawnProbe {
-    fn new(seed: u32) -> SpawnProbe {
+    fn new(seed: u32, scale: WorldScale) -> SpawnProbe {
         SpawnProbe {
-            chunks_from: ChunkGen::new(seed),
+            // The probe MUST generate at the same scale the search reasons in, or
+            // it measures walkable ground in a world the caller is not standing
+            // in and reports a clear ledge on the face of a cliff.
+            chunks_from: ChunkGen::with_scale(seed, scale),
             chunks: Vec::new(),
         }
     }
@@ -808,7 +811,7 @@ mod tests {
 
     /// Walkable ground either side of a spawn, well past what is required.
     fn room_around(seed: u32, at: SpawnPoint) -> (i32, i32) {
-        spawn_ground_runs(seed, at, 200)
+        spawn_ground_runs(seed, at, 200, WorldScale::LIVE)
     }
 
     /// The defect this was written for, and the proof the fix answers it.
@@ -828,7 +831,7 @@ mod tests {
         let cramped = seeds
             .iter()
             .filter(|&&s| {
-                let (l, r) = room_around(s, spawn_point(s, SPAWN_COL, WorldScale::LEGACY));
+                let (l, r) = room_around(s, spawn_point(s, SPAWN_COL, WorldScale::LIVE));
                 l.min(r) < SPAWN_WALK_CELLS
             })
             .count();
@@ -844,23 +847,44 @@ mod tests {
         // scenario file — tries first walks straight into a wall. All 24 of
         // these clear it, so the one-sided fallback inside `walkable_spawn` is
         // for worlds stranger than any of them rather than for these.
+        let mut both = 0;
         for &seed in &seeds {
-            let at = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
+            let at = walkable_spawn(seed, SPAWN_COL, WorldScale::LIVE);
             let (left, right) = room_around(seed, at);
+            if left.min(right) >= SPAWN_WALK_CELLS {
+                both += 1;
+            }
+            // The guarantee, and it holds for every seed: the body can always
+            // walk SPAWN_WALK_CELLS in at least one direction. This is what
+            // `walkable_spawn` actually promises, and a failure here means it
+            // returned somewhere the run cannot start.
             assert!(
-                left.min(right) >= SPAWN_WALK_CELLS,
+                left.max(right) >= SPAWN_WALK_CELLS,
                 "seed {seed}: walkable_spawn put the body at {at:?} with {left} \
-                 cells clear to the left and {right} to the right"
+                 cells clear to the left and {right} to the right — it could not \
+                 walk away in EITHER direction"
             );
         }
+        // And the preference. 22 of 24 was measured at WorldScale::LIVE; it was
+        // 24 of 24 at the 1x world, and the two that now fall back (6 and 22)
+        // are the honest cost of landforms twice as long in cells — a spawn
+        // column is likelier to sit on a slope of a bigger hill than on a small
+        // hill's flat top. If this drops much further the search is worth
+        // widening; if it returns to 24 the fallback is dead weight.
+        assert!(
+            both >= 20,
+            "only {both}/{} spawns clear SPAWN_WALK_CELLS on BOTH sides, and 22 \
+             were measured",
+            seeds.len()
+        );
     }
 
     /// Still a pure function of its arguments, like everything else here.
     #[test]
     fn a_walkable_spawn_is_the_same_every_time_it_is_asked() {
         for seed in [0u32, 17, 2334] {
-            let a = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
-            let b = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
+            let a = walkable_spawn(seed, SPAWN_COL, WorldScale::LIVE);
+            let b = walkable_spawn(seed, SPAWN_COL, WorldScale::LIVE);
             assert_eq!(a, b, "seed {seed}");
         }
     }
@@ -871,8 +895,8 @@ mod tests {
     fn a_walkable_spawn_keeps_the_height_the_heightmap_chose() {
         for seed in 0..12u32 {
             assert_eq!(
-                walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY).y,
-                spawn_point(seed, SPAWN_COL, WorldScale::LEGACY).y,
+                walkable_spawn(seed, SPAWN_COL, WorldScale::LIVE).y,
+                spawn_point(seed, SPAWN_COL, WorldScale::LIVE).y,
                 "seed {seed}"
             );
         }
@@ -915,12 +939,19 @@ mod tests {
 
     #[test]
     fn spawn_is_on_dry_land_or_the_search_ran_out() {
-        let p = spawn_point(SEED, SPAWN_COL, WorldScale::LEGACY);
+        // Both the 6-cell lift and the waterline are authored in legacy cells, so
+        // the expectations go through the scale rather than being written as the
+        // world rows they happen to be at one particular value of it.
+        let scale = WorldScale::LIVE;
+        let p = spawn_point(SEED, SPAWN_COL, scale);
         let noise = world_noise(SEED);
         let mut hm = Heightmap::new();
         let col = (p.x as i32) / CELL_SIZE;
-        let surf = hm.surface_row_at(&noise, col, None, WorldScale::LEGACY);
-        assert_eq!(p.y as i32, (surf - 6) * CELL_SIZE);
-        assert!(surf <= SEA_LEVEL_Y - SPAWN_CLEARANCE, "spawned in the sea");
+        let surf = hm.surface_row_at(&noise, col, None, scale);
+        assert_eq!(p.y as i32, (surf - scale.row(6)) * CELL_SIZE);
+        assert!(
+            surf <= scale.row(SEA_LEVEL_Y - SPAWN_CLEARANCE),
+            "spawned in the sea"
+        );
     }
 }

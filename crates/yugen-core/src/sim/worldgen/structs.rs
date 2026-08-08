@@ -1287,7 +1287,7 @@ mod tests {
                 bay,
                 &mut a.cells,
                 &mut a.heightmap,
-                WorldScale::LEGACY,
+                WorldScale::LIVE,
             );
             stamp(&mut ctx, &site);
         }
@@ -1299,7 +1299,7 @@ mod tests {
                 bby,
                 &mut b.cells,
                 &mut b.heightmap,
-                WorldScale::LEGACY,
+                WorldScale::LIVE,
             );
             stamp(&mut ctx, &site);
         }
@@ -1379,7 +1379,7 @@ mod tests {
                     0,
                     &mut canvas.cells,
                     &mut canvas.heightmap,
-                    WorldScale::LEGACY,
+                    WorldScale::LIVE,
                 );
                 resolve_column_site(&mut ctx, ox).map(|s| (s.t.id, s.ox, s.oy, s.times, s.mirrored))
             };
@@ -1440,7 +1440,7 @@ mod tests {
                     cy * CHUNK_CELLS,
                     &mut cells,
                     &mut hm,
-                    WorldScale::LEGACY,
+                    WorldScale::LIVE,
                 );
                 stamp_structs(&mut ctx);
                 painted += cells.iter().filter(|&&c| c != EMPTY).count();

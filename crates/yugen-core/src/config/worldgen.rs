@@ -127,13 +127,16 @@ impl WorldScale {
     /// UNBLESSED rather than by review.
     pub const LEGACY: WorldScale = WorldScale(1.0);
 
-    /// What the game generates at.
+    /// What the game generates at: features twice as long in cells, so one cell
+    /// is half a world-feature unit and the world reads twice as big.
     ///
-    /// Still the identity: this commit threads the parameter and proves the
-    /// threading is byte-identical by leaving `worldgen_golden`, `player_golden`
-    /// and `noise_golden` green with their fixtures untouched. Raising it to 2.0
-    /// is the next commit, and the one that actually changes the world.
-    pub const LIVE: WorldScale = WorldScale(1.0);
+    /// The camera, the chunk, the streaming window, `CELL_SIZE` and every px the
+    /// player moves are all untouched by this. What changes is the world under
+    /// them: a chunk now covers half the world it used to, the viewport frames
+    /// half as much of it, and the terrain carries twice the cell detail per
+    /// landform. Nothing extra is simulated — the cell count per chunk, per
+    /// window and per frame is exactly what it was.
+    pub const LIVE: WorldScale = WorldScale(2.0);
 
     /// A world cell coordinate, in the field layer's legacy-cell space.
     ///

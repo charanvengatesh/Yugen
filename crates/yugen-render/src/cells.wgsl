@@ -39,7 +39,7 @@
 /// `cells::TEX_GRAIN` — texels per cell, per axis, in this pass. The pattern
 /// is sampled at `world_cell * GRAIN + sub`, and everything STRUCTURAL — the
 /// edge class, the air test, the shade row — stays keyed on the cell.
-const GRAIN: i32 = 2;
+const GRAIN: i32 = 1;
 /// `cells::TEX_A_PERIOD`.
 const PA: i32 = 61;
 /// `cells::TEX_B_PERIOD`.
