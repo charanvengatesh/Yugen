@@ -248,6 +248,17 @@ static FLORA: [Flora; BIOME_COUNT] = [
     Flora { density: 0.12, clutter: 0.18, weights: &[
         (SP_SNAG, 0.62), (SP_SHRUB, 0.38),
     ] },
+    // cinderveld -- what a fire leaves standing: snags nearly alone, the odd
+    // shrub in a hollow the embers missed. Barest ground in the game bar the
+    // volcano itself.
+    Flora { density: 0.09, clutter: 0.14, weights: &[
+        (SP_SNAG, 0.8), (SP_SHRUB, 0.2),
+    ] },
+    // mirefen -- a moor is not bare, it is LOW: dense shrub and shroom cover
+    // with almost nothing tall enough to call a tree.
+    Flora { density: 0.3, clutter: 0.55, weights: &[
+        (SP_SHRUB, 0.55), (SP_SHROOM, 0.35), (SP_SNAG, 0.1),
+    ] },
 ];
 
 #[inline]

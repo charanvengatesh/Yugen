@@ -57,7 +57,9 @@
     "furnace": 54,
     "workbench": 55,
     "mist": 56,
-    "tar": 57
+    "tar": 57,
+    "peat": 58,
+    "scoria": 59
   },
   "feature": {
     "floating_island": 0,
@@ -153,7 +155,9 @@
     "workbench": 81,
     "chitin_plate": 82,
     "hide_jerkin": 83,
-    "tar_glob": 84
+    "tar_glob": 84,
+    "peat_clod": 85,
+    "scoria_block": 86
   },
   "mob": {
     "grubling": 0,

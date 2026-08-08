@@ -356,7 +356,7 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
 
 /// The heaviest-weighted entry of a normalised set.
 ///
-/// Reported rather than the whole vector because a blend of nine biomes is a
+/// Reported rather than the whole vector because a blend of eleven biomes is a
 /// wall of numbers that answers no question; "Tundra 82%" answers the one that
 /// gets asked, and the percentage is what says whether you are standing on a
 /// boundary.

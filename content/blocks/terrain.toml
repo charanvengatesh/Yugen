@@ -214,3 +214,40 @@ flammable.burnTime = 90
 flammable.burnsInto = "smoke"
 heat.conduct = 18
 heat.igniteAt = 35
+
+# Scoria: the Cinderveld's ground truth — vesicular lava froth, light enough to
+# have cooled where it fell. A dark ember-red lean keeps it in the basalt/ash
+# family (PALETTE.md band: dark rock, chroma from the red channel alone) while
+# reading as ITS rock the way clay reads as the Badlands'.
+[scoria]
+name = "Scoria"
+state = "solid"
+color = [52, 38, 36]
+colorVar = 18
+texture = "grain"
+edge = 84
+hardness = 2.0
+blastResist = 1.2
+tags = ["rock", "diggable", "buildable"]
+heat.conduct = 44
+drop = [{ item = "scoria_block", count = 1 }]
+
+# Peat: the Mirefen's cap — half-drowned moor soil, centuries of moss pressed
+# into fuel. Digs easily, burns long and low once something sets it off, which
+# is what makes a moor fire a real hazard rather than a colour.
+[peat]
+name = "Peat"
+state = "solid"
+color = [48, 38, 26]
+colorVar = 14
+texture = "grain"
+edge = 56
+hardness = 0.8
+blastResist = 0.5
+tags = ["soil", "diggable", "buildable"]
+flammable.igniteChance = 0.03
+flammable.burnTime = 160
+flammable.burnsInto = "smoke"
+heat.conduct = 28
+heat.igniteAt = 45
+drop = [{ item = "peat_clod", count = 1 }]

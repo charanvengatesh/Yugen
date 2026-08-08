@@ -265,6 +265,14 @@ static LAYER_MULT: [[f64; N_ORES]; UG_COUNT] = [
     // metal is scarce and the one thing it has more of than anywhere but the
     // geodes is crystal — which is what ice does to water given long enough.
     /* rime    */ [0.6,  0.45,   0.5,  0.4,   1.4],
+    // Dry rock keeps what water never came to carry away: coal seams intact,
+    // iron in the old beds. What it lacks is everything water DEPOSITS —
+    // copper, gems — because nothing has flowed here for a geological age.
+    /* dust    */ [1.35, 0.5,    1.3,  0.9,   0.5],
+    // The Scald is hydrothermal country: hot water through hot rock is how
+    // copper and gold get moved, so both run rich; coal steamed away with
+    // everything else organic.
+    /* scald   */ [0.5,  1.7,    0.9,  1.6,   1.0],
 ];
 
 #[inline]

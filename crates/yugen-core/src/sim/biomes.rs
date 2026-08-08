@@ -171,10 +171,14 @@ pub enum Biome {
     /// Mild and bone dry, and the first surface biome this project authored
     /// rather than ported. See [`BIOMES`].
     Badlands = 8,
+    /// Hot ash scrubland between savanna and jungle. See [`BIOMES`].
+    Cinderveld = 9,
+    /// Cold peat moor between tundra and glacier. See [`BIOMES`].
+    Mirefen = 10,
 }
 
 /// How many biomes compete for a column.
-pub const BIOME_COUNT: usize = 9;
+pub const BIOME_COUNT: usize = 11;
 
 impl Biome {
     /// Every biome, in stable palette order. Entry `i` describes `BIOMES[i]`.
@@ -188,6 +192,8 @@ impl Biome {
         Biome::Jungle,
         Biome::Savanna,
         Biome::Badlands,
+        Biome::Cinderveld,
+        Biome::Mirefen,
     ];
 
     /// This biome's definition — materials, height knobs, atmosphere.
@@ -349,6 +355,37 @@ pub static BIOMES: [BiomeDef; BIOME_COUNT] = [
             weather: Weather::Dust,
         },
     },
+    // Sited by the Badlands method: sweep the square for the gap, then pull
+    // inward off the edge. The hot mid-moist flank between savanna [0.76,0.30]
+    // and jungle [0.87,0.82] was held by neither — [0.88, 0.52] is 0.25+ from
+    // both, three times BLEND_WIDTH. Ash scrub over scoria: the ember country a
+    // volcano leaves behind when the volcano itself is somewhere else.
+    BiomeDef {
+        id: "cinderveld", name: "Cinderveld",
+        cap: block::ASH, rock: block::SCORIA, pocket: block::WATER,
+        amp_scale: 0.8, height_offset: 1.0, cap_scale: 0.8, cave_scale: 1.05, trees: false,
+        climate: Some([0.88, 0.52]), bias: -0.03,
+        atmo: BiomeAtmosphere {
+            sky_top: hex(0x2a1c16), sky_top_deep: hex(0x120b08), sky_bottom: hex(0x5c3a26),
+            star: hex(0xffc9a0), hill: hex(0x2f1e16), ambient: [0.06, 0.03, 0.01],
+            weather: Weather::Embers,
+        },
+    },
+    // The cold mid-moist mirror of the same sweep: tundra [0.10,0.28], glacier
+    // [0.08,0.85] and plains [0.48,0.46] leave [0.19, 0.57] a hole 0.30 from
+    // each. A drowned peat moor — flat, low, deep-capped, sleet coming off the
+    // ice sheet next door.
+    BiomeDef {
+        id: "mirefen", name: "Mirefen",
+        cap: block::PEAT, rock: block::MUD, pocket: block::WATER,
+        amp_scale: 0.55, height_offset: 2.0, cap_scale: 1.3, cave_scale: 0.9, trees: false,
+        climate: Some([0.19, 0.57]), bias: 0.0,
+        atmo: BiomeAtmosphere {
+            sky_top: hex(0x1c2422), sky_top_deep: hex(0x0c1210), sky_bottom: hex(0x46564c),
+            star: hex(0xd8e8dc), hill: hex(0x243029), ambient: [0.02, 0.05, 0.04],
+            weather: Weather::Snow,
+        },
+    },
 ];
 
 /// Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate.
@@ -397,6 +434,18 @@ static ECOTONES: &[(Biome, Biome, CellId)] = &[
     (Biome::Savanna, Biome::Volcanic, block::ASH),
     (Biome::Glacier, Biome::Volcanic, block::ASH),
     (Biome::Badlands, Biome::Volcanic, block::ASH),
+    // Cinderveld: every border is a fire line of one kind or another.
+    (Biome::Cinderveld, Biome::Savanna,  block::ASH),    // scorched grass
+    (Biome::Cinderveld, Biome::Jungle,   block::ASH),    // the burn line
+    (Biome::Cinderveld, Biome::Desert,   block::SCORIA), // clinker field
+    (Biome::Cinderveld, Biome::Plains,   block::ASH),
+    (Biome::Cinderveld, Biome::Volcanic, block::ASH),
+    // Mirefen: the moor freezes toward the ice and churns toward the grass.
+    (Biome::Mirefen, Biome::Tundra,   block::PERMAFROST),
+    (Biome::Mirefen, Biome::Glacier,  block::PACKED_ICE),
+    (Biome::Mirefen, Biome::Plains,   block::MUD),
+    (Biome::Mirefen, Biome::Swamp,    block::MUD),
+    (Biome::Mirefen, Biome::Volcanic, block::ASH),
 ];
 
 /// Transitional cap material for an adjacency, or `None` when the two biomes are
@@ -463,10 +512,16 @@ pub enum UndergroundLayerId {
     /// Cold and wet, and the first layer this project authored rather than
     /// ported. See [`UNDERGROUND_LAYERS`].
     Rime = 5,
+    /// Bone-dry crumbling caverns on the diagram's dry edge. See
+    /// [`UNDERGROUND_LAYERS`].
+    DustHollows = 6,
+    /// Hot-wet steam country in the diagram's far corner. See
+    /// [`UNDERGROUND_LAYERS`].
+    Scald = 7,
 }
 
 /// How many underground layers compete for a column.
-pub const UG_COUNT: usize = 6;
+pub const UG_COUNT: usize = 8;
 
 impl UndergroundLayerId {
     /// Every layer, in stable palette order.
@@ -477,6 +532,8 @@ impl UndergroundLayerId {
         UndergroundLayerId::Geode,
         UndergroundLayerId::Fungal,
         UndergroundLayerId::Rime,
+        UndergroundLayerId::DustHollows,
+        UndergroundLayerId::Scald,
     ];
 
     /// This layer's definition — rock, pocket liquid, veins.
@@ -549,6 +606,32 @@ pub static UNDERGROUND_LAYERS: [UndergroundLayer; UG_COUNT] = [
         // Tight caves and a low liquid table: the water that would have filled
         // them is the walls.
         cave_scale: 0.8, pocket_bias: 0.12, climate: [0.02, 0.64], bias: 0.0,
+    },
+    // Sited by the same sweep as Rime, against the six above: the dry edge of
+    // the square is held only at its cold end (geode [0.12,0.22]) and its hot
+    // end (magma [0.93,0.18]); the temperate middle of it was empty. [0.54,
+    // 0.06] rather than the emptiest [0.54, 0.00] is the Badlands correction —
+    // the moisture field rarely reaches its own edge, so the boundary coordinate
+    // wins columns nobody visits. 0.36 from caverns, 0.41 from magma.
+    UndergroundLayer {
+        id: "dust_hollows", name: "Dust Hollows",
+        // Crumbling dry rock: sandstone that gave up, gravel where it already
+        // has, sand sifting out of the seams. The high cave_scale plus a table
+        // pushed 20% deeper is the layer's whole character — more hollow than
+        // rock, and almost none of it wet.
+        rock: block::SANDSTONE, pocket: block::WATER,
+        vein_rich: block::CRYSTAL, vein_common: block::GRAVEL, vein_soft: block::SAND,
+        cave_scale: 1.25, pocket_bias: 0.2, climate: [0.54, 0.06], bias: 0.0,
+    },
+    // The far hot-wet corner, pulled inward off both edges: fungal [0.72,0.74]
+    // is the only neighbour that matters and [0.93, 0.93] keeps 0.28 of
+    // separation from it. Water pockets against magma-adjacent rock — the
+    // steam the depths make when the two halves of the diagram meet.
+    UndergroundLayer {
+        id: "scald", name: "The Scald",
+        rock: block::BASALT, pocket: block::WATER,
+        vein_rich: block::CRYSTAL, vein_common: block::OBSIDIAN, vein_soft: block::MUD,
+        cave_scale: 1.05, pocket_bias: -0.05, climate: [0.93, 0.93], bias: 0.0,
     },
 ];
 
@@ -1215,12 +1298,16 @@ mod tests {
         // on climate at all -- `volcanic_is_rare_but_real` is its own check --
         // but it is measured here anyway and, at 289 columns, would pass.
         //
-        // Measured over this sweep, as fractions of 4 616 columns:
-        //   desert 23%, jungle 17%, tundra 14%, glacier 12%, swamp 8%,
-        //   plains 7%, savanna 6%, badlands 5%
-        // Badlands is deliberately the rarest and still clears the 2% floor with
-        // room. That floor is the same one the underground check uses, and for
-        // the same reason: catch dead content, do not pin the tuning.
+        // Measured over this sweep, as fractions of 4 616 columns (after the
+        // 2+2 addition):
+        //   desert 23%, jungle 14%, tundra 12%, glacier 10%, swamp 8%,
+        //   cinderveld 7%, plains 6%, volcanic 6%, mirefen 6%, badlands 5%,
+        //   savanna 3%
+        // Savanna is now the rarest: Cinderveld took its hot-wet flank, which
+        // is why Cinderveld carries bias -0.03 — at bias 0 savanna fell to
+        // 2.7%, a whisker off the floor. That floor is the same one the
+        // underground check uses, and for the same reason: catch dead content,
+        // do not pin the tuning.
         let n = noise();
         let mut wins = [0usize; BIOME_COUNT];
         let mut cols = 0;
@@ -1251,8 +1338,10 @@ mod tests {
         // stay true of a layer sited so close to another that it never wins a
         // column. This is the one check that says the content is REACHABLE.
         //
-        // Measured over this sweep, as fractions of 4 616 columns:
-        //   fungal 24%, geode 23%, grottos 16%, magma 14%, rime 12%, caverns 11%
+        // Measured over this sweep, as fractions of 4 616 columns (after the
+        // 2+2 addition):
+        //   geode 20%, grottos 16%, scald 14%, magma 12%, rime 12%, fungal 10%,
+        //   caverns 8%, dust_hollows 8%
         // so the 2% floor below is far under every one of them. It is deliberately
         // not a tighter bound: the point is to catch a layer that is effectively
         // dead, not to pin the climate tuning, which
@@ -1639,7 +1728,7 @@ mod tests {
     #[test]
     fn biome_at_index_is_total() {
         assert_eq!(biome_at_index(0), Biome::Plains);
-        assert_eq!(biome_at_index(BIOME_COUNT - 1), Biome::Badlands);
+        assert_eq!(biome_at_index(BIOME_COUNT - 1), Biome::Mirefen);
         assert_eq!(biome_at_index(9999), Biome::Plains);
         let n = noise();
         let p = biome_at(&n, 0);

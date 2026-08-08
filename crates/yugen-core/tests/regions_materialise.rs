@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 use yugen_core::sim::biomes::{BIOMES, Biome, biome_mix_at, column_profile_at};
 use yugen_core::sim::materials::CellId;
 use yugen_core::sim::noise::Noise;
-use yugen_core::sim::worldgen::heightmap::Heightmap;
+use yugen_core::sim::worldgen::heightmap::{Heightmap, shore_weight_at};
 use yugen_core::sim::worldgen::{ChunkGen, world_noise};
 
 /// The seed the rest of the suite uses, and the game's own.
@@ -46,8 +46,9 @@ const SEED: u32 = 2334;
 
 /// How far out to look for a column a biome dominates.
 ///
-/// Badlands is the rarest of the nine and its first column is 4 426 cells from
-/// spawn, so this has to be generous. It is a search bound, not a claim about
+/// Savanna is the rarest of the eleven (Cinderveld took its hot flank) and
+/// Badlands' first column was already 4 426 cells from spawn, so this has to
+/// be generous. It is a search bound, not a claim about
 /// the world: a biome not found inside it fails, which is the correct outcome
 /// for content this hard to reach.
 const SEARCH: i32 = 40_000;
@@ -64,8 +65,8 @@ const SEARCH: i32 = 40_000;
 /// this repo authors for that pair. A quarter of a neighbour is not a little
 /// bit of a neighbour -- it is a border. `items().len() == 1` is the only
 /// honest reading of "heartland", so that is what this asks for.
-fn heartland(noise: &Noise, b: Biome) -> Option<i32> {
-    for d in 0..SEARCH {
+fn heartland_from(noise: &Noise, b: Biome, from: i32) -> Option<i32> {
+    for d in from..SEARCH {
         for x in [d, -d] {
             let m = biome_mix_at(noise, x);
             if m.top == b && m.items().len() == 1 {
@@ -90,11 +91,31 @@ fn every_biome_puts_its_own_materials_on_the_ground() {
         if def.climate.is_none() {
             continue;
         }
-        let x = heartland(&noise, b)
-            .unwrap_or_else(|| panic!("no column within {SEARCH} of spawn is solidly {}", def.id));
-
-        let col = column_profile_at(&noise, x);
-        let surf = hm.surface_row_at(&noise, x, Some(&col));
+        // A shore column is skipped for the same reason a border column is: the
+        // shore rule REPLACES the cap near sea level by design (`layers.rs`
+        // overrides the topsoil with a sand/sandstone band wherever
+        // `shore_weight_at` is nonzero), so a heartland that happens to be a
+        // beach or a lakebed is a legitimate column and a useless witness.
+        // Found by savanna, whose first pure stretch after the 2+2 biome
+        // addition was a below-sea-level basin capped in sand for a hundred
+        // columns. The skip asks the exact predicate the generator asks, not a
+        // reconstruction of it. A biome genuinely drowned end to end still
+        // fails -- by exhausting the search, which is the honest message.
+        let mut from = 0;
+        let (x, surf) = loop {
+            let x = heartland_from(&noise, b, from).unwrap_or_else(|| {
+                panic!(
+                    "no dry column within {SEARCH} of spawn is solidly {}",
+                    def.id
+                )
+            });
+            let col = column_profile_at(&noise, x);
+            let surf = hm.surface_row_at(&noise, x, Some(&col));
+            if shore_weight_at(surf) == 0.0 {
+                break (x, surf);
+            }
+            from = x.unsigned_abs() as i32 + 1;
+        };
 
         // This column only, from the surface down, out of the chunk that
         // actually generated it -- decorators, shore rule and all.

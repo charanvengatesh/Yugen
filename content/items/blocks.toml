@@ -310,3 +310,26 @@ stack = 99
 value = 6
 desc = "Sticks to everything, burns for ages. Handle with tongs, or don't handle it."
 tags = ["fuel", "buildable"]
+
+[scoria_block]
+name = "Scoria"
+category = "placeable"
+color = [96, 66, 62]
+icon = "icon_block_cube"
+places = "scoria"
+stack = 99
+value = 2
+desc = "Full of holes, none of them structural. Surprisingly light."
+tags = ["stone", "buildable"]
+
+# Fuel first, wall second: the tinted cube is a brick of dried moor.
+[peat_clod]
+name = "Peat"
+category = "placeable"
+color = [74, 56, 40]
+icon = "icon_block_cube"
+places = "peat"
+stack = 99
+value = 2
+desc = "Cut from the moor, dried on the stack. Burns all night, smells like it."
+tags = ["fuel", "buildable"]

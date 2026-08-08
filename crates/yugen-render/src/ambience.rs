@@ -166,6 +166,26 @@ const EMBER_TERRAIN_GAIN: f32 = 0.55;
 /// read them against.
 const EMBER_NIGHT_GAIN: f32 = 0.25;
 
+/// How much of a swamp's fireflies the Mirefen carries. A moor at night is
+/// marsh-light country, but colder and quieter than the swamp that anchors the
+/// emitter.
+const FIREFLY_MIREFEN: f32 = 0.6;
+
+/// How much of a grotto's drip the Scald condenses. Not a wet cave but a hot
+/// one whose ceiling sweats — audible, sparser than real seepage.
+const DRIP_SCALD: f32 = 0.7;
+
+/// How much of a geode's glint the Rime Hollows throw. Ice facets catch light
+/// the same way crystal does, more dimly. This line is also a fix: Rime
+/// shipped with NO emitter at all — the one layer whose mood changed nothing
+/// on screen — and the gap survived precisely because nothing asserts a layer
+/// is heard. `every_region_reaches_at_least_one_emitter` now does.
+const GLINT_RIME: f32 = 0.65;
+
+/// How much MORE cave dust the Dust Hollows raise than the Stone Caverns that
+/// anchor the emitter. Above 1 on purpose: dust is this layer's weather.
+const CAVEDUST_DUST_HOLLOWS: f32 = 1.6;
+
 /// Hot cells in view at which the ember rate saturates.
 ///
 /// Six is about one small pocket. Past that the rate is capped, so walking into
@@ -628,8 +648,11 @@ pub fn spawn_rates(mood: &Mood, phase: &DayPhase, hot_count: usize) -> [f32; EMI
     let mut out = [0.0f32; EMITTER_COUNT];
 
     // --- Surface -----------------------------------------------------------
-    out[Emitter::Firefly.index()] =
-        surf * night * (mood.biome(Biome::Swamp) + mood.biome(Biome::Jungle));
+    out[Emitter::Firefly.index()] = surf
+        * night
+        * (mood.biome(Biome::Swamp)
+            + mood.biome(Biome::Jungle)
+            + mood.biome(Biome::Mirefen) * FIREFLY_MIREFEN);
     // Plains declares no weather at all, so without pollen the friendliest biome
     // is also the emptiest.
     out[Emitter::Pollen.index()] = surf
@@ -643,16 +666,24 @@ pub fn spawn_rates(mood: &Mood, phase: &DayPhase, hot_count: usize) -> [f32; EMI
 
     // --- Depth -------------------------------------------------------------
     out[Emitter::Spore.index()] = ug * mood.layer_of(UndergroundLayerId::Fungal);
-    out[Emitter::Drip.index()] = ug * mood.layer_of(UndergroundLayerId::Grottos);
-    out[Emitter::Glint.index()] = ug * mood.layer_of(UndergroundLayerId::Geode);
-    out[Emitter::CaveDust.index()] = ug * mood.layer_of(UndergroundLayerId::Caverns);
+    out[Emitter::Drip.index()] = ug
+        * (mood.layer_of(UndergroundLayerId::Grottos)
+            + mood.layer_of(UndergroundLayerId::Scald) * DRIP_SCALD);
+    out[Emitter::Glint.index()] = ug
+        * (mood.layer_of(UndergroundLayerId::Geode)
+            + mood.layer_of(UndergroundLayerId::Rime) * GLINT_RIME);
+    out[Emitter::CaveDust.index()] = ug
+        * (mood.layer_of(UndergroundLayerId::Caverns)
+            + mood.layer_of(UndergroundLayerId::DustHollows) * CAVEDUST_DUST_HOLLOWS);
 
     // --- Embers ------------------------------------------------------------
     if hot_count > 0 {
         let heat = EMBER_BASE
             + EMBER_TERRAIN_GAIN
-                * (ug * mood.layer_of(UndergroundLayerId::Magma)
-                    + surf * mood.biome(Biome::Volcanic))
+                * (ug
+                    * (mood.layer_of(UndergroundLayerId::Magma)
+                        + mood.layer_of(UndergroundLayerId::Scald))
+                    + surf * (mood.biome(Biome::Volcanic) + mood.biome(Biome::Cinderveld)))
             + EMBER_NIGHT_GAIN * night;
         out[Emitter::Ember.index()] = heat * (hot_count as f32 / EMBER_FULL_HOT).min(1.0);
     }
@@ -1657,11 +1688,62 @@ mod tests {
     fn only_the_wet_biomes_get_fireflies() {
         for b in Biome::ALL {
             let r = spawn_rates(&all_surface(b), &midnight(), 0);
-            let want = b == Biome::Swamp || b == Biome::Jungle;
+            let want = b == Biome::Swamp || b == Biome::Jungle || b == Biome::Mirefen;
             assert_eq!(
                 r[Emitter::Firefly.index()] > 0.0,
                 want,
                 "{b:?} fireflies at midnight"
+            );
+        }
+    }
+
+    /// Every region is HEARD: some emitter answers for it at some hour.
+    ///
+    /// This is the assertion whose absence let Rime Hollows ship with no
+    /// emitter at all — a layer that passed siting, weights, worldgen and
+    /// reachability while its mood changed nothing on screen.
+    ///
+    /// Regions that speak through the ember channel (Volcanic, Cinderveld,
+    /// Magma, the Scald) need a hot cell in view before they say anything, and
+    /// `EMBER_BASE` makes a lava pocket ember over ANY mood — so "heard" via
+    /// embers must mean "raises the rate ABOVE what a null mood gets from the
+    /// same hot cell", not merely "nonzero". The first draft of this test
+    /// granted everyone the hot cell and asserted nonzero; it passed with Rime
+    /// un-wired, which is this comment's way of saying the baseline term is
+    /// load-bearing.
+    #[test]
+    fn every_region_reaches_at_least_one_emitter() {
+        let heard = |mood: &Mood, phase: &DayPhase| {
+            let own = spawn_rates(mood, phase, 1);
+            let null = Mood {
+                underground: mood.underground,
+                ..Default::default()
+            };
+            let base = spawn_rates(&null, phase, 1);
+            own.iter().zip(base).any(|(&r, b)| r > b)
+        };
+        // A surface biome has TWO channels: the emitters here, and the weather
+        // system. Tundra and Glacier are deliberately all-weather (their snow
+        // IS the ambience; pollen exists because Plains has neither), so the
+        // claim for the surface is "one of the two channels answers". The
+        // underground has no weather, which is what made the Rime gap possible
+        // — down there the emitter claim is the whole claim.
+        for b in Biome::ALL {
+            let mood = all_surface(b);
+            assert!(
+                heard(&mood, &noon())
+                    || heard(&mood, &midnight())
+                    || b.def().atmo.weather != Weather::None,
+                "surface biome {b:?} reaches neither an emitter nor a weather \
+                 kind — a mood that changes nothing on screen"
+            );
+        }
+        for l in UndergroundLayerId::ALL {
+            let mood = all_deep(l);
+            assert!(
+                heard(&mood, &noon()) || heard(&mood, &midnight()),
+                "underground layer {l:?} reaches no emitter at any hour — a \
+                 mood that changes nothing on screen"
             );
         }
     }
