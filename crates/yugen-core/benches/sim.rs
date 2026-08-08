@@ -284,7 +284,7 @@ fn verdict(ok: bool) -> &'static str {
     if ok { "OK" } else { "FAIL" }
 }
 
-const SCENARIOS: [Scenario; 8] = [
+const SCENARIOS: [Scenario; 9] = [
     Scenario {
         // A pile forms and every grain ends up supported. The basic wake
         // contract, and the cheapest thing that breaks when it is wrong.
@@ -519,6 +519,46 @@ const SCENARIOS: [Scenario; 8] = [
             format!(
                 "tar={tar} levitating={lev} sink={sink:.1} {}",
                 verdict(lev == 0 && tar == 96 && sink > 2.0)
+            )
+        },
+    },
+    // The shear model's two claims, each pinned against its own failure mode.
+    //
+    // 100 ticks is chosen against both codes, not one: a 30-cell drop takes a
+    // free-falling blob ~40 ticks, and under the old gate-everything rule tar
+    // at 0.85 moved one cell per ~6.7 ticks — still ~170 ticks of air at the
+    // century mark, so `airborne == 0` separates the two models cleanly. The
+    // heap check is the other half: the blob lands 12 wide in a 58-wide box,
+    // and levelling that spread through an 0.85 shear gate takes thousands of
+    // ticks, so a still-ragged surface at t=100 proves the roll still gates
+    // DEFORMATION. A wrong "fix" that ungated everything would land instantly
+    // AND be pancake-flat by 100 — first check green, second red.
+    Scenario {
+        name: "tar-falls-fast-levels-slow",
+        ticks: 100,
+        build: |grid| {
+            boxed(grid, 10, 80, 70, 130);
+            fill_rect(grid, 30, 84, 12, 8, block::TAR);
+        },
+        check: |grid| {
+            let airborne = levitating_in(grid, 11, 81, 69, 129);
+            let tar = count_of(grid, block::TAR);
+            let cols = grid.cols();
+            // Surface skew: how many distinct rows hold the topmost tar of
+            // some column. 1 = levelled flat; a fresh heap is many.
+            let mut tops = std::collections::BTreeSet::new();
+            for x in 11..69 {
+                for y in 81..129 {
+                    if grid.material[(y * cols + x) as usize] == block::TAR {
+                        tops.insert(y);
+                        break;
+                    }
+                }
+            }
+            let heap_rows = tops.len();
+            format!(
+                "tar={tar} airborne={airborne} heap-rows={heap_rows} {}",
+                verdict(airborne == 0 && tar == 96 && heap_rows >= 3)
             )
         },
     },

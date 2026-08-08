@@ -135,11 +135,14 @@ pub struct BlockDef {
     pub collides: bool,
     /// Horizontal flow reach per tick, in cells (liquids only).
     pub liquid_spread: i32,
-    /// How reluctantly a liquid flows, 0..1 (liquids only). 0 -- water -- moves
-    /// every tick it can and pays nothing for this field existing. Above 0, each
-    /// tick the liquid skips its whole move with this probability (staying AWAKE,
-    /// so it oozes rather than freezes) and its sideways reach shrinks by the
-    /// same fraction: a viscous liquid falls late, pools tall, and levels slowly.
+    /// How reluctantly a liquid SHEARS, 0..1 (liquids only). 0 -- water -- moves
+    /// every tick it can and pays nothing for this field existing. Above 0: free
+    /// fall is untouched (honey off a spoon drops as fast as water), but every
+    /// deforming move -- sinking through a lighter liquid, toppling onto a
+    /// diagonal, levelling sideways -- is skipped with this probability (staying
+    /// AWAKE, so it oozes rather than freezes), and the sideways reach shrinks by
+    /// the same fraction. A viscous liquid falls at full speed, lands in a heap,
+    /// and levels slowly.
     pub viscosity: f32,
     /// Which per-cell noise pattern the renderer applies. Names a LOOK, not a
     /// material: sandstone and strata rock are both `layered` because they are

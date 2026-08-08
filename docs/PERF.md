@@ -105,9 +105,9 @@ Activity decays across the measured batch as the scene settles, which is what
 makes a single mean interpretable only alongside the curve:
 
 ```
-swept cells as % of window:  t120=14.7%  t270=6.8%  t420=6.2%  t570=7.2%  t720=3.7%
-world: 52 531 non-empty cells, 43/88 chunks awake at t120
-digest: 524d76e0 at t120 -> c001ab2b at t720
+swept cells as % of window:  t120=20.4%  t270=17.7%  t420=15.5%  t570=10.6%  t720=6.8%
+world: 52 531 non-empty cells, 45/88 chunks awake at t120
+digest: 139a1ccf at t120 -> 472de892 at t720
 ```
 
 The digest is FNV-1a over all four cell planes. The automata is deterministic,
@@ -121,6 +121,18 @@ the whole world evolves differently from the first oil cell onward. That is a
 DELIBERATE behaviour change, which is exactly the case where this digest is
 supposed to move and be re-recorded by hand -- an unexplained move is still a
 bug.
+
+Re-recorded again (was `524d76e0 -> c001ab2b`) for three stacked deliberate
+changes: the flooded galleries and the 2+2 biomes moved the WORLD the bench
+paints (worldgen is an input to the digest, and the P5/P6 blesses each moved
+it), and the viscosity rework moved the STREAM -- free fall no longer draws a
+roll, so every viscous liquid consumes the RNG differently from its first
+airborne tick. The activity curve rose with it (t120 14.7% -> 20.4%): the
+galleries hang liquid near the table where the old world had rock, and liquid
+that falls at full speed reaches equilibrium later than liquid that drizzled.
+Both digests moved, both on purpose, and the scenario suite's eight verdicts
+(tar sink 6.8 -> 6.7, everything else identical) are the evidence the change
+is the intended one and nothing else.
 
 ### Cost scales with swept area, linearly
 

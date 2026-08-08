@@ -678,16 +678,34 @@ impl Sweep<'_> {
     /// `spread` cells to find its level. Denser liquid sinks below lighter (lava
     /// under water, oil floating on water) via the same displacement swap.
     fn update_liquid(&mut self, x: i32, y: i32, density: f32, spread: i32, viscosity: f32) {
-        // Viscosity is a per-tick refusal to move at all. The roll comes FIRST,
-        // before any probe, so a viscous liquid on a ledge hesitates the same
-        // way one in a channel does — and the branch is guarded on zero so
-        // water never draws from the stream for a field it does not use.
+        // FREE FALL IS NOT GATED. Viscosity is resistance to SHEAR — the fluid
+        // deforming against itself and its neighbours — and a detached blob in
+        // free fall is not shearing: honey off a spoon falls as fast as water,
+        // it just leaves the spoon reluctantly and lands in a heap. The first
+        // draft rolled the dice before ANY move, and the result read as
+        // slow-motion rain — tar drizzling down a shaft at a fraction of
+        // gravity, which is not what thick means.
+        if self.fall_free(x, y, y + 1) {
+            return;
+        }
+
+        // Everything past this line deforms the fluid: sinking THROUGH a
+        // lighter liquid (squeezing past the medium), toppling over a
+        // shoulder onto the diagonal, and levelling sideways are all shear,
+        // and one roll gates the lot. The branch is guarded on zero so water
+        // never draws from the stream for a field it does not use.
         //
         // ON A SKIPPED TICK THE CELL WAKES ITSELF. This is the same contract
         // `grow` established for a failed chance roll: a probabilistic "not
-        // this tick" must never become "asleep mid-flow", or a tar fall
-        // freezes in the air the first tick the dice go cold. The scenario
+        // this tick" must never become "asleep mid-flow", or a tar heap
+        // freezes half-levelled the first tick the dice go cold. The scenario
         // suite's levitation counts are the net under this.
+        //
+        // The roll uses the MOVING liquid's viscosity alone. The medium being
+        // displaced arguably owes a drag term too (sinking through tar should
+        // be slow for anything); that is a real refinement this deliberately
+        // leaves out, because the sinking cases the game has are all
+        // viscous-into-thin and the moving side's roll already dominates.
         if viscosity > 0.0 && self.rng.chance(f64::from(viscosity)) {
             self.grid.wake(x, y);
             return;
@@ -720,6 +738,32 @@ impl Sweep<'_> {
             return;
         }
         self.spread_side(x, y, -first, reach);
+    }
+
+    /// Straight-down free fall: move into EMPTY below, and nothing else.
+    ///
+    /// The ungated half of a liquid's tick — see the shear note in
+    /// [`Automata::update_liquid`]. Displacement (a denser liquid sinking
+    /// through a lighter one) deliberately does NOT come through here: pushing
+    /// a medium out of the way is shear and pays the viscosity roll.
+    ///
+    /// `x` is the SOURCE cell's own column and is in-window by construction —
+    /// the sweep loop only visits window cells — so unlike [`Automata::
+    /// flow_into`], whose `tx` can step off either edge, the one coordinate
+    /// this derives is `ty`, and that is the one bound it checks. This probe
+    /// runs once per falling liquid cell per tick; the two column compares the
+    /// sibling pays would buy nothing here but symmetry.
+    fn fall_free(&mut self, x: i32, y: i32, ty: i32) -> bool {
+        if ty >= self.rows {
+            return false;
+        }
+        let ti = (ty * self.cols + x) as usize;
+        if self.grid.material[ti] != EMPTY {
+            return false;
+        }
+        self.grid.swap(x, y, x, ty);
+        self.grid.flags[ti].insert(CellFlags::MOVED);
+        true
     }
 
     /// Move down/diagonal into empty air or a strictly lighter liquid.
