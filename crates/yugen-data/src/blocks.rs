@@ -1517,7 +1517,7 @@ pub static BLOCKS: [BlockDef; 60] = [
         edge: 60,
         surface: None,
         climb: None,
-        one_way: Some(true),
+        one_way: None,
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1561,7 +1561,7 @@ pub static BLOCKS: [BlockDef; 60] = [
         edge: 60,
         surface: None,
         climb: None,
-        one_way: Some(true),
+        one_way: None,
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1605,7 +1605,7 @@ pub static BLOCKS: [BlockDef; 60] = [
         edge: 60,
         surface: None,
         climb: None,
-        one_way: Some(true),
+        one_way: None,
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1645,7 +1645,7 @@ pub static BLOCKS: [BlockDef; 60] = [
         edge: 60,
         surface: None,
         climb: None,
-        one_way: Some(true),
+        one_way: None,
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -2731,7 +2731,7 @@ pub static MAT_CLIMB: [u8; 60] = [
 /// 1 = collides only from above.
 pub static MAT_ONEWAY: [u8; 60] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 /// 1 = opening yields loot.
