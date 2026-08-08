@@ -968,25 +968,12 @@ fn pmod(v: i32, m: i32) -> i32 {
     if r < 0 { r + m } else { r }
 }
 
-/// Fill `out` (a 32-bit RGBA buffer, `w` x `h` cells) with the material colours
-/// for the cell rect whose top-left is ABSOLUTE cell (`ox`, `oy`), and return
-/// the emitter census taken along the way.
+/// Paint the viewport at ONE texel per cell — the grain-1 wrapper.
 ///
-/// Split out of the class so it can be measured headlessly — there is no canvas
-/// in a node benchmark, and no window in a parity test, but this is where all
-/// the per-pixel cost lives.
-///
-/// The window bounds are resolved per ROW rather than per pixel: a row either
-/// misses the loaded window entirely (one fill and move on) or intersects it in
-/// a contiguous span, and outside that span the pixels are transparent. The
-/// inner loop over the span then needs no bounds test at all.
-///
-/// Per cell the loop does: one material load (each cell loaded exactly once, via
-/// the `next_id` lookahead that also serves as the right-hand neighbour), two
-/// pattern-tile loads, one `depth_above` load/store, and one shade-table load
-/// ending in a single 32-bit store. The tile wrap is a compare-and-subtract on a
-/// running counter, never a modulo — 61 and 67 are prime, so `%` in here would
-/// be an integer division per pixel.
+/// The body lives in [`paint_grained`]; this instantiation is byte-identical to
+/// the function that has always been here, and `tests/cells_golden.rs` proves
+/// it on every run WITHOUT a bless: the golden fixtures pin this wrapper, so a
+/// refactor of the shared body that perturbs grain 1 goes red the ordinary way.
 ///
 /// # Panics
 ///
@@ -1000,11 +987,66 @@ pub fn paint_cells(
     oy: i32,
     shades: &CellShades,
 ) -> EmitterCensus {
+    paint_grained::<1>(out, w, h, grid, ox, oy, shades)
+}
+
+/// Paint the viewport at [`TEX_GRAIN`] texels per cell, per axis — the fine
+/// blit the shipping shaders are held to.
+///
+/// The output is `(TEX_GRAIN*w) x (TEX_GRAIN*h)`. Everything STRUCTURAL is
+/// still per cell — the id runs, `d_above`, the edge class, the emitter census,
+/// air, the window margins — and only the pattern sample varies inside the
+/// cell, at the fine coordinate `cell * TEX_GRAIN + sub`. `p` stays 0..62 (the
+/// same two tiles, read at a doubled rate), so the shade table needs no retune;
+/// 61 and 67 stay coprime on the fine lattice and 2 is invertible mod both, so
+/// the world-cell repeat distance is still 4 087 cells with no even/odd column
+/// striping.
+///
+/// Render-only, and TEST-ONLY on the CPU: the game samples the same arithmetic
+/// in `cells.wgsl`, and `tests/shader_matches_cpu.rs` holds the two to byte
+/// identity at this grain. Nothing per-frame calls this.
+///
+/// # Panics
+///
+/// If `out` is shorter than `(TEX_GRAIN*w) * (TEX_GRAIN*h)`.
+pub fn paint_cells_fine(
+    out: &mut [u32],
+    w: i32,
+    h: i32,
+    grid: &CellGrid,
+    ox: i32,
+    oy: i32,
+    shades: &CellShades,
+) -> EmitterCensus {
+    paint_grained::<TEX_GRAIN>(out, w, h, grid, ox, oy, shades)
+}
+
+/// One pass over the viewport at `G` texels per cell, per axis.
+///
+/// Monomorphised on the grain so the `G = 1` instantiation folds every
+/// sub-cell loop away and compiles to the flat blit this function was
+/// refactored out of. The inner loop's cost model at `G = 1` is unchanged: one
+/// or two id compares, two pattern-tile loads, one `d_above` load/store, and
+/// one shade-table load ending in a single 32-bit store. The tile wrap is a
+/// compare-and-subtract on a running counter, never a modulo — 61 and 67 are
+/// prime, so `%` in here would be an integer division per pixel. At `G = 2`
+/// the sample-and-store fans out to four per cell; every other read stays
+/// hoisted per cell.
+fn paint_grained<const G: i32>(
+    out: &mut [u32],
+    w: i32,
+    h: i32,
+    grid: &CellGrid,
+    ox: i32,
+    oy: i32,
+    shades: &CellShades,
+) -> EmitterCensus {
     assert!(w >= 0 && h >= 0, "viewport extent must be non-negative");
-    let wu = w as usize;
+    let g = G as usize;
+    let wu = w as usize * g; // output row width, in texels
     assert!(
-        out.len() >= wu * h as usize,
-        "output buffer is smaller than the {w}x{h} viewport"
+        out.len() >= wu * h as usize * g,
+        "output buffer is smaller than the {w}x{h}-cell viewport at grain {G}"
     );
 
     let cols = grid.cols();
@@ -1023,7 +1065,7 @@ pub fn paint_cells(
     // The original grew a module-level scratch array on demand and never
     // reallocated after the first frame. One `vec!` per call is the same cost
     // profile once the allocator has warmed, and it keeps the function pure.
-    let mut d_above = vec![0u8; wu];
+    let mut d_above = vec![0u8; w as usize];
 
     // Local-x of the buffer's left edge, and the span of buffer columns that
     // lands inside the window. Constant for every row, so it is computed once.
@@ -1058,16 +1100,19 @@ pub fn paint_cells(
         y: Vec::with_capacity(EMIT_MAX),
     };
 
-    // Tile row/column cursors. `pmod` once per row for the row bases; the column
-    // cursors then walk with a compare-and-subtract.
-    let col_a0 = pmod(ox + span_start, PA);
-    let col_b0 = pmod(ox + span_start, PB);
+    // Tile column cursors, in FINE coordinates: the cursor holds the fine
+    // column of the cell's first sub-column and advances by `G` per cell. At
+    // `G = 1` that is exactly the historical +1-and-wrap; the sub-column
+    // offsets inside a cell are a compare-and-subtract each, and for any
+    // `G <= PA` one subtraction is enough.
+    let col_a0 = pmod(G * (ox + span_start), PA);
+    let col_b0 = pmod(G * (ox + span_start), PB);
 
     for ly in 0..h {
-        let row_out = (ly as usize) * wu;
         let local_y = oy + ly - origin_y;
+        let row_out0 = (ly as usize * g) * wu;
         if local_y < 0 || local_y >= rows || span_start >= span_end {
-            out[row_out..row_out + wu].fill(0);
+            out[row_out0..row_out0 + wu * g].fill(0);
             // A row outside the window is air as far as the shading is
             // concerned, so the run-lengths must reset or the first loaded row
             // below would inherit a stale "buried" class and lose its top rim.
@@ -1077,19 +1122,27 @@ pub fn paint_cells(
             continue;
         }
 
-        // Transparent margins either side of the loaded span.
-        if span_start > 0 {
-            out[row_out..row_out + span_start as usize].fill(0);
-        }
-        if span_end < w {
-            out[row_out + span_end as usize..row_out + wu].fill(0);
+        // Transparent margins either side of the loaded span, on every fine row.
+        for sy in 0..g {
+            let row_out = row_out0 + sy * wu;
+            if span_start > 0 {
+                out[row_out..row_out + span_start as usize * g].fill(0);
+            }
+            if span_end < w {
+                out[row_out + span_end as usize * g..row_out + wu].fill(0);
+            }
         }
 
         let row_in = local_y as isize * cols as isize + lx0 as isize;
-        // Pattern is keyed on the ABSOLUTE world cell so the texture is nailed
-        // to the world and does not shimmer as the camera moves.
-        let row_a = pmod(oy + ly, PA) * PA;
-        let row_b = pmod(oy + ly, PB) * PB;
+        // Pattern is keyed on the ABSOLUTE world cell — at fine rate — so the
+        // texture is nailed to the world and does not shimmer as the camera
+        // moves. One row base per sub-row.
+        let mut row_a = [0i32; 4];
+        let mut row_b = [0i32; 4];
+        for sy in 0..g {
+            row_a[sy] = pmod(G * (oy + ly) + sy as i32, PA) * PA;
+            row_b[sy] = pmod(G * (oy + ly) + sy as i32, PB) * PB;
+        }
         let mut ca = col_a0;
         let mut cb = col_b0;
 
@@ -1113,7 +1166,8 @@ pub fn paint_cells(
         // an id compare turns three loads and two adds into one compare for
         // every cell after the first of each run, which measured as the
         // difference between this pass costing 2.6x the old flat blit and
-        // costing 1.7x.
+        // costing 1.7x. The hoisted offsets are the per-material TILE bases;
+        // the per-sub-row row bases are added at sample time.
         let mut run_id: i32 = -1;
         let mut off_a: i32 = 0;
         let mut off_b: i32 = 0;
@@ -1123,15 +1177,19 @@ pub fn paint_cells(
 
         for lx in span_start..span_end {
             let id = cur_id;
+            let out_x0 = lx as usize * g;
 
             if id == 0 {
-                out[row_out + lx as usize] = 0;
+                for sy in 0..g {
+                    let row_out = row_out0 + sy * wu;
+                    out[row_out + out_x0..row_out + out_x0 + g].fill(0);
+                }
                 d_above[lx as usize] = 0; // air: everything below restarts its run
             } else {
                 if i32::from(id) != run_id {
                     run_id = i32::from(id);
-                    off_a = off_a_tab[id as usize] + row_a;
-                    off_b = off_b_tab[id as usize] + row_b;
+                    off_a = off_a_tab[id as usize];
+                    off_b = off_b_tab[id as usize];
                     shade_base = (id as usize) << SHADE_SHIFT;
                     run_emit = is_emit[id as usize];
                 }
@@ -1144,25 +1202,41 @@ pub fn paint_cells(
                     }
                 }
                 // Vertical class: saturating run length below the last air cell.
+                // Per CELL — the class is geometry, and geometry does not get
+                // finer.
                 let da = d_above[lx as usize];
                 let side_open = if prev_id == 0 || next_id == 0 { 4u8 } else { 0 };
-                let p = usize::from(tex_a[(off_a + ca) as usize])
-                    + usize::from(tex_b[(off_b + cb) as usize]);
-                out[row_out + lx as usize] =
-                    shade32[shade_base | (usize::from(da | side_open) << PAT_BITS) | p];
+                let edge_bits = usize::from(da | side_open) << PAT_BITS;
+                for sy in 0..g {
+                    let row_out = row_out0 + sy * wu;
+                    for sx in 0..g {
+                        let mut cax = ca + sx as i32;
+                        if cax >= PA {
+                            cax -= PA;
+                        }
+                        let mut cbx = cb + sx as i32;
+                        if cbx >= PB {
+                            cbx -= PB;
+                        }
+                        let p = usize::from(tex_a[(off_a + row_a[sy] + cax) as usize])
+                            + usize::from(tex_b[(off_b + row_b[sy] + cbx) as usize]);
+                        out[row_out + out_x0 + sx] = shade32[shade_base | edge_bits | p];
+                    }
+                }
                 if da < 3 {
                     d_above[lx as usize] = da + 1;
                 }
             }
 
-            // Advance the coprime cursors and the material window.
-            ca += 1;
-            if ca == PA {
-                ca = 0;
+            // Advance the coprime cursors (by G fine columns per cell) and the
+            // material window.
+            ca += G;
+            if ca >= PA {
+                ca -= PA;
             }
-            cb += 1;
-            if cb == PB {
-                cb = 0;
+            cb += G;
+            if cb >= PB {
+                cb -= PB;
             }
             prev_id = id;
             cur_id = next_id;
@@ -1203,6 +1277,14 @@ pub fn paint_cells(
 /// power of two would reinstate exactly the visible tiling this file's header
 /// describes removing.
 pub const TEX_A_PERIOD: i32 = PA;
+
+/// Texels per cell, per axis, in the SHIPPING terrain pass.
+///
+/// The CPU's `paint_cells` stays at grain 1 forever — it is what the golden
+/// fixtures pin. This constant is what `paint_cells_fine` and `cells.wgsl`'s
+/// `GRAIN` are both held to; the const-parity test fails a mismatch BY NAME
+/// before any pixel diff has to say it obliquely.
+pub const TEX_GRAIN: i32 = 2;
 
 /// Period of [`TEX_B`], in cells — 67. See [`TEX_A_PERIOD`].
 pub const TEX_B_PERIOD: i32 = PB;

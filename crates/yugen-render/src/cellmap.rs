@@ -654,8 +654,11 @@ mod tests {
         const BACK: &str = include_str!("backcell.wgsl");
 
         assert!(
-            BACK.contains("#import yugen::cells::{cell_color, CellShadeParams}"),
-            "backcell.wgsl no longer imports the shared shading"
+            BACK.contains("#import yugen::cells::{cell_color, CellShadeParams, GRAIN}"),
+            "backcell.wgsl no longer imports the shared shading (cell_color, its \
+             params struct and the GRAIN constant all come from yugen::cells — \
+             naga_oil imports are item-scoped, and a missing GRAIN is a shader \
+             that fails to compile at runtime, not at build time)"
         );
         assert_eq!(
             BACK.matches("cell_color(").count(),

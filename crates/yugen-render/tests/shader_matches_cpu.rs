@@ -61,7 +61,7 @@ use yugen_render::cellmap::{CellShadeParams, MATERIAL_SLOTS, build_params, new_s
 use yugen_render::cells::{
     CellShades, SHADE_EDGE_GAIN, SHADE_EDGE_SCALE, SHADE_MATERIAL_STRIDE, SHADE_PAT_MID,
     SHADE_PAT_SIGMA, SHIMMER_SIN_SCALE, SHIMMER_SIN_SIZE, TEX_A, TEX_A_PERIOD, TEX_B, TEX_B_PERIOD,
-    TEX_PATTERN_COUNT, paint_cells, shimmer_params,
+    TEX_GRAIN, TEX_PATTERN_COUNT, paint_cells_fine, shimmer_params,
 };
 
 /// The shipping shading module, included as SOURCE rather than re-implemented.
@@ -145,8 +145,13 @@ const HARNESS_WGSL: &str = r#"
 @group(0) @binding(3) var shade: texture_2d<f32>;
 @group(0) @binding(4) var<uniform> params: CellShadeParams;
 
-// A full-screen triangle: (-1,-1), (-1,3), (3,-1). One texel per cell, so
-// `@builtin(position)` lands on cell centres and truncates to the cell index.
+// A full-screen triangle: (-1,-1), (-1,3), (3,-1). The target is GRAIN texels
+// per cell per axis, so `@builtin(position)` lands on FINE texel centres; the
+// cell and the sub-offset are derived from the integer fine coordinate — no
+// float uv in sight, which is what makes this half of the comparison exact by
+// construction. (The game's `cellmap.wgsl` derives fine from a float uv; that
+// quantisation is the one line this harness cannot exercise, as its header has
+// always said of the uv path.)
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let i = i32(index);
@@ -155,7 +160,9 @@ fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-    let cell = vec2<i32>(pos.xy);
+    let fine = vec2<i32>(pos.xy);
+    let cell = fine / GRAIN;
+    let sub = fine - cell * GRAIN;
     let id = min(textureLoad(cell_ids, cell, 0).r, 63u);
     return cell_color(
         cell_ids,
@@ -163,6 +170,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         tex_b,
         shade,
         cell,
+        sub,
         params.origin,
         id,
         params.base[id],
@@ -394,6 +402,10 @@ impl Harness {
     /// bytes, row-major, `WINDOW_COLS x WINDOW_ROWS`.
     fn render(&self, grid: &CellGrid, clock: f32) -> Vec<u8> {
         let (w, h) = (grid.cols() as u32, grid.rows() as u32);
+        // The TARGET is fine texels; the id texture stays one texel per cell.
+        // That asymmetry IS the feature under test.
+        let g = TEX_GRAIN as u32;
+        let (fw, fh) = (w * g, h * g);
 
         let mut ids = Vec::with_capacity(grid.material.len() * 2);
         for id in &grid.material {
@@ -444,8 +456,8 @@ impl Harness {
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("cell framebuffer"),
             size: wgpu::Extent3d {
-                width: w,
-                height: h,
+                width: fw,
+                height: fh,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -459,10 +471,10 @@ impl Harness {
 
         // A buffer copy DOES need 256-byte rows, so the readback is padded and
         // unpadded again below.
-        let padded = w * 4 + (256 - (w * 4) % 256) % 256;
+        let padded = fw * 4 + (256 - (fw * 4) % 256) % 256;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
-            size: u64::from(padded * h),
+            size: u64::from(padded * fh),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -505,12 +517,12 @@ impl Harness {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded),
-                    rows_per_image: Some(h),
+                    rows_per_image: Some(fh),
                 },
             },
             wgpu::Extent3d {
-                width: w,
-                height: h,
+                width: fw,
+                height: fh,
                 depth_or_array_layers: 1,
             },
         );
@@ -523,10 +535,10 @@ impl Harness {
             .expect("poll the readback");
 
         let mapped = slice.get_mapped_range();
-        let mut out = Vec::with_capacity((w * h * 4) as usize);
-        for row in 0..h {
+        let mut out = Vec::with_capacity((fw * fh * 4) as usize);
+        for row in 0..fh {
             let at = (row * padded) as usize;
-            out.extend_from_slice(&mapped[at..at + (w * 4) as usize]);
+            out.extend_from_slice(&mapped[at..at + (fw * 4) as usize]);
         }
         drop(mapped);
         readback.unmap();
@@ -563,15 +575,21 @@ impl Diff {
     }
 }
 
-/// Walk both buffers and split the disagreements by whether the material
-/// animates. Returns `(static_diffs, animated_diffs, animated_cells)`.
+/// Walk both FINE buffers and split the disagreements by whether the material
+/// animates. Returns `(static_diffs, animated_diffs, animated_texels)`. The
+/// buffers are `TEX_GRAIN` texels per cell per axis; the material — and with
+/// it the static/animated split — is derived from the CELL under each texel.
 fn compare(grid: &CellGrid, cpu: &[u32], gpu: &[u8]) -> (Vec<Diff>, Vec<Diff>, usize) {
     let w = grid.cols();
+    let g = TEX_GRAIN;
+    let fw = w * g;
     let mut stat = Vec::new();
     let mut anim = Vec::new();
     let mut animated_cells = 0usize;
     for (i, &word) in cpu.iter().enumerate() {
-        let id = grid.material[i];
+        let (fx, fy) = (i as i32 % fw, i as i32 / fw);
+        let (cx, cy) = (fx / g, fy / g);
+        let id = grid.material[(cy * w + cx) as usize];
         let is_animated = animates(id);
         animated_cells += usize::from(is_animated);
         // `cells::pack` puts the red channel in whichever byte this target calls
@@ -586,8 +604,8 @@ fn compare(grid: &CellGrid, cpu: &[u32], gpu: &[u8]) -> (Vec<Diff>, Vec<Diff>, u
             continue;
         }
         let diff = Diff {
-            x: i as i32 % w,
-            y: i as i32 / w,
+            x: fx,
+            y: fy,
             id,
             cpu: cpu_px,
             gpu: gpu_px,
@@ -609,8 +627,8 @@ fn sweep(harness: &Harness, clock: f32) -> Vec<(&'static str, CellGrid, Vec<u32>
             // the shader recomputes — so the static half of the table stays at
             // rest on both sides.
             shades.update_shimmer(f64::from(clock));
-            let mut cpu = vec![0u32; (WINDOW_COLS * WINDOW_ROWS) as usize];
-            paint_cells(
+            let mut cpu = vec![0u32; (WINDOW_COLS * TEX_GRAIN * WINDOW_ROWS * TEX_GRAIN) as usize];
+            paint_cells_fine(
                 &mut cpu,
                 grid.cols(),
                 grid.rows(),
@@ -623,6 +641,40 @@ fn sweep(harness: &Harness, clock: f32) -> Vec<(&'static str, CellGrid, Vec<u32>
             (name, grid, cpu, gpu)
         })
         .collect()
+}
+
+/// Opacity is CELL geometry, and no grain may change that.
+///
+/// The four texels of every cell must agree in alpha: the air test lives on
+/// the cell, so a cell is wholly transparent or wholly opaque, and the fine
+/// pattern can never punch sub-cell holes in the world. This is the GPU-side
+/// restatement of `cells_golden`'s `cover` mask — the harness has no cover
+/// hash, but it can assert the property the hash freezes.
+#[test]
+fn every_cells_texels_agree_in_alpha() {
+    let Some(harness) = harness_or_skip("sub-cell alpha") else {
+        return;
+    };
+    let g = TEX_GRAIN;
+    for (name, grid, _, gpu) in sweep(&harness, 0.0) {
+        let (w, h) = (grid.cols(), grid.rows());
+        let fw = w * g;
+        for cy in 0..h {
+            for cx in 0..w {
+                let a0 = gpu[(((cy * g) * fw + cx * g) * 4 + 3) as usize];
+                for sy in 0..g {
+                    for sx in 0..g {
+                        let at = (((cy * g + sy) * fw + cx * g + sx) * 4 + 3) as usize;
+                        assert_eq!(
+                            gpu[at], a0,
+                            "{name}: cell ({cx},{cy}) sub ({sx},{sy}) alpha                              differs from its cell — the grain punched a                              sub-cell hole in the world"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    println!("every cell's texels agree in alpha at grain {g}");
 }
 
 /// `None` and a printed note when there is no GPU. See [`Harness::new`].
@@ -676,8 +728,8 @@ fn at_rest_materials_are_byte_identical_to_the_cpu_blit() {
     }
 
     assert!(
-        checked > 300_000,
-        "the sweep shrank: only {checked} static cells compared"
+        checked > 1_200_000,
+        "the sweep shrank: only {checked} static texels compared"
     );
     assert!(
         problems.is_empty(),
@@ -816,7 +868,8 @@ fn the_shader_states_the_same_constants_as_the_blit() {
         );
     }
 
-    let expect: [(&str, f64); 8] = [
+    let expect: [(&str, f64); 9] = [
+        ("GRAIN", f64::from(TEX_GRAIN)),
         ("PA", f64::from(TEX_A_PERIOD)),
         ("PB", f64::from(TEX_B_PERIOD)),
         ("PAT_MID", SHADE_PAT_MID),

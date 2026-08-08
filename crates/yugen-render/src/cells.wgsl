@@ -36,6 +36,10 @@
 // literals by `tests/shader_matches_cpu.rs`, which parses this file for them.
 // Do not edit a number here without editing it there.
 
+/// `cells::TEX_GRAIN` — texels per cell, per axis, in this pass. The pattern
+/// is sampled at `world_cell * GRAIN + sub`, and everything STRUCTURAL — the
+/// edge class, the air test, the shade row — stays keyed on the cell.
+const GRAIN: i32 = 2;
 /// `cells::TEX_A_PERIOD`.
 const PA: i32 = 61;
 /// `cells::TEX_B_PERIOD`.
@@ -136,8 +140,9 @@ fn cell_edge_class(ids: texture_2d<u32>, dims: vec2<i32>, cell: vec2<i32>) -> u3
 /// visible tiling `cells.rs` describes removing. Each texture is the eight
 /// pattern slabs stacked in y, so the slab base is `pattern * p`.
 ///
-/// Keyed on the ABSOLUTE world cell, so the texture is nailed to the world and
-/// does not crawl as the camera moves.
+/// Keyed on the ABSOLUTE world cell AT FINE RATE — `world` here is already
+/// `cell * GRAIN + sub` — so the texture is nailed to the world and does not
+/// crawl as the camera moves, at any grain.
 fn cell_pattern(
     tex_a: texture_2d<u32>,
     tex_b: texture_2d<u32>,
@@ -243,6 +248,7 @@ fn cell_color(
     tex_b: texture_2d<u32>,
     shade: texture_2d<f32>,
     cell: vec2<i32>,
+    sub: vec2<i32>,
     origin: vec2<i32>,
     id: u32,
     base: vec4<f32>,
@@ -257,7 +263,7 @@ fn cell_color(
 
     let dims = vec2<i32>(textureDimensions(ids));
     let edge = cell_edge_class(ids, dims, cell);
-    let pattern = cell_pattern(tex_a, tex_b, i32(base.w), origin + cell);
+    let pattern = cell_pattern(tex_a, tex_b, i32(base.w), (origin + cell) * GRAIN + sub);
 
     // A material that declares no shimmer reads the table `CellShades::new`
     // built; one that does has its slice recomputed here instead of on the CPU.

@@ -9,7 +9,7 @@
 // The 64 below is `cellmap::MATERIAL_SLOTS`, asserted equal on the Rust side.
 
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
-#import yugen::cells::{cell_color, CellShadeParams}
+#import yugen::cells::{cell_color, CellShadeParams, GRAIN}
 #import bevy_render::color_operations::srgb_to_linear
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var cell_ids: texture_2d<u32>;
@@ -23,8 +23,20 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // The quad spans the whole streaming window, so uv maps straight onto the
     // cell-id texture. `textureLoad`, not `textureSample`: a Uint texture has
     // no filtering, and one texel IS one cell — there is nothing to interpolate.
+    //
+    // The FINE coordinate is quantised once and the cell DERIVED from it —
+    // never a second `floor(uv * dims)`, because two independent float
+    // truncations can disagree by an ulp exactly on a cell boundary and draw a
+    // one-texel seam there. The pattern gets the fine grid; the id, the edge
+    // class and the shade row stay per cell.
     let dims = vec2<f32>(textureDimensions(cell_ids));
-    let cell = vec2<i32>(clamp(floor(mesh.uv * dims), vec2(0.0), dims - vec2(1.0)));
+    let fine = vec2<i32>(clamp(
+        floor(mesh.uv * dims * f32(GRAIN)),
+        vec2(0.0),
+        dims * f32(GRAIN) - vec2(1.0),
+    ));
+    let cell = fine / GRAIN;
+    let sub = fine - cell * GRAIN;
     let id = min(textureLoad(cell_ids, cell, 0).r, 63u);
 
     let color = cell_color(
@@ -33,6 +45,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         tex_b,
         shade,
         cell,
+        sub,
         params.origin,
         id,
         params.base[id],

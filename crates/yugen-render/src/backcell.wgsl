@@ -10,7 +10,7 @@
 // front covers us, and multiply by a tint.
 
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
-#import yugen::cells::{cell_color, CellShadeParams}
+#import yugen::cells::{cell_color, CellShadeParams, GRAIN}
 #import bevy_render::color_operations::srgb_to_linear
 
 // Binding 0 is the BACK plane, and that placement is load-bearing rather than
@@ -29,8 +29,16 @@
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    // Fine first, cell derived — the same single-quantisation rule as
+    // `cellmap.wgsl`, for the same ulp-seam reason.
     let dims = vec2<f32>(textureDimensions(back_ids));
-    let cell = vec2<i32>(clamp(floor(mesh.uv * dims), vec2(0.0), dims - vec2(1.0)));
+    let fine = vec2<i32>(clamp(
+        floor(mesh.uv * dims * f32(GRAIN)),
+        vec2(0.0),
+        dims * f32(GRAIN) - vec2(1.0),
+    ));
+    let cell = fine / GRAIN;
+    let sub = fine - cell * GRAIN;
 
     // Where the front plane is not air it is FULLY opaque — `cell_color` returns
     // alpha 1 for every id but 0, and the game's transparency lives in the
@@ -52,6 +60,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         tex_b,
         shade,
         cell,
+        sub,
         params.origin,
         id,
         params.base[id],

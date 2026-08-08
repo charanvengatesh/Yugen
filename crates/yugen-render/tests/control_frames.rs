@@ -58,7 +58,7 @@ use yugen_render::scenes::Scene;
 use yugen_render::world::{SimWorld, WorldFocus, WorldSave};
 
 mod common;
-use common::{Frame, capture_low_res, gpu_is_available, headless_game};
+use common::{Frame, capture_low_res, error_count, error_sources, gpu_is_available, headless_game};
 
 /// Frames to let the world stream and settle at a new focus.
 ///
@@ -207,6 +207,14 @@ fn the_control_set_is_captured_and_measured() {
     let mut problems: Vec<String> = Vec::new();
     let mut lumas: Vec<(&str, f64)> = Vec::new();
 
+    // A dead render pipeline still produces a plausible PNG — the sky draws,
+    // the UI draws, and the terrain silently is not there. That frame measures
+    // fine and photographs fine, which is exactly the failure this rig exists
+    // to refuse. So: any engine ERROR during the set (shader compile failures
+    // land in `bevy_render`'s pipeline cache as ERROR lines) voids every number
+    // above it.
+    let errors_before = error_count();
+
     for shot in SHOTS {
         let (frame, air, lava) = capture(shot);
         let (mean, stddev) = frame.luma_spread();
@@ -252,6 +260,19 @@ fn the_control_set_is_captured_and_measured() {
         problems.push(format!(
             "night ({night:.2}) is not darker than the morning default ({day:.2}) \
              — the clock is not being set and the night frames are daylight"
+        ));
+    }
+
+    let errors = error_count() - errors_before;
+    if errors > 0 {
+        let by_source: Vec<String> = error_sources()
+            .iter()
+            .map(|(target, n)| format!("{target}: {n}"))
+            .collect();
+        problems.push(format!(
+            "the engine logged {errors} ERROR lines while the set was captured \
+             — every number above is a measurement of a broken renderer:\n  {}",
+            by_source.join("\n  ")
         ));
     }
 
