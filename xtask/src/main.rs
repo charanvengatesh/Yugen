@@ -5,6 +5,8 @@
 //! cargo xtask check clippy   one gate by name, for the middle of a fix
 //! cargo xtask tuning         rewrite docs/TUNING.md from the source
 //! cargo xtask tuning --check exit 1 if it is stale, undocumented or shadowed
+//! cargo xtask font           rebake the typeface from content/fonts/
+//! cargo xtask font --check   exit 1 if the baked glyph table is stale
 //! ```
 //!
 //! # Why a binary and not a shell script
@@ -18,6 +20,7 @@
 //! maintain instead of five.
 
 mod check;
+mod font;
 mod tuning;
 
 use std::path::{Path, PathBuf};
@@ -41,6 +44,23 @@ fn main() -> ExitCode {
 
     match args.first().map(String::as_str) {
         Some("check") => check::run(&root, args.get(1).map(String::as_str)),
+        Some("font") => {
+            let mode = if args.iter().any(|a| a == "--check") {
+                font::Mode::Check
+            } else {
+                font::Mode::Write
+            };
+            match font::run(&root, mode) {
+                Ok(summary) => {
+                    print!("{summary}");
+                    ExitCode::SUCCESS
+                }
+                Err(report) => {
+                    eprint!("{report}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some("tuning") => {
             let mode = if args.iter().any(|a| a == "--check") {
                 tuning::Mode::Check
@@ -78,6 +98,8 @@ fn usage() -> String {
          \x20 check [gate]    run every gate, or just one of them\n\
          \x20 tuning          rewrite docs/TUNING.md from the source\n\
          \x20 tuning --check  fail if docs/TUNING.md is stale\n\
+         \x20 font            rebake the typeface from content/fonts/\n\
+         \x20 font --check    fail if the baked glyph table is stale\n\
          \n\
          gates, in the order `check` runs them:\n",
     );

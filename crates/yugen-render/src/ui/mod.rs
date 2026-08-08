@@ -7,7 +7,7 @@
 //! — and they are one module here for the same reason: they share a coordinate
 //! space, a paint order, and a font.
 //!
-//! # There was no bitmap font to port
+//! # The font is baked, not authored and not loaded
 //!
 //! The font was said to live in these three files. It did not. All three reach
 //! for the platform:
@@ -23,20 +23,30 @@
 //! own header admits what that cost: *"Text still upscales soft — that is the
 //! deal the whole game makes — but the chrome around it is exact."*
 //!
-//! That deal is not available here and should not be. There is no `fillText` in
-//! Bevy, there is no font asset in this repository, and this crate's own
-//! `Cargo.toml` already describes itself as owning a "bitmap font". So the font
-//! below is **authored, not ported**. What IS ported faithfully is everything
-//! the font is in service of: which tier of type each label is drawn at, what it
-//! is measured with, where measurement advances the cursor to, and the exact
-//! pixel geometry of every plate, well, frame, tab and pip around it.
+//! That deal is not available here and should not be. The port answered with an
+//! authored 5x7 face, ninety-three glyphs typed out as binary literals, because
+//! there was no typeface in the repository to use instead. There is now:
+//! **Departure Mono**, in `content/fonts/`, baked to one bit per pixel by
+//! `cargo xtask font` into [`font_table`]. See that xtask for why it is baked
+//! rather than rasterised at runtime, and for the measurement that fixes the
+//! design grid at fifty font units to the pixel.
 //!
-//! The one number that pins the new font to the old one is [`digits_w`]. The
-//! TypeScript refused to call `measureText` for a stack count and hard-coded the
-//! answer — *"the face is a fixed 10px sans, where digits advance at ~6px"*.
-//! [`Face::Regular`] is a 5px cell with a 1px gap: a 6px advance, exactly. So
-//! `TS 10px sans == Regular @ 1`, by construction and not by taste, and
-//! `digits_w(n) == COUNT.measure(&n.to_string())` is a test below.
+//! What that buys over the authored face: 219 glyphs instead of 93, so the whole
+//! of Latin-1 sets rather than tofuing; real descenders, so `g` and `y` are not
+//! sitting on the baseline pretending; box-drawing and block glyphs, which give
+//! panel frames and meters that snap to the text grid for nothing; and
+//! letterforms drawn by somebody who draws letterforms.
+//!
+//! What it costs is the one number that used to pin this font to the original.
+//! The TypeScript refused to call `measureText` for a stack count and hard-coded
+//! the answer — *"the face is a fixed 10px sans, where digits advance at ~6px"*
+//! — and the authored face was built to a 6px advance so that
+//! `TS 10px sans == Regular @ 1` held by construction. Departure Mono advances
+//! at **7**, because that is what its designer drew, and no amount of scaling
+//! makes it 6 without rasterising the face off its own grid. So that equivalence
+//! is gone, deliberately: [`digits_w`] is now anchored to THIS face, and the
+//! test below says so rather than pretending the old number still means
+//! something. Every run of text is a seventh wider than it was.
 //!
 //! # The size ladder
 //!
@@ -47,24 +57,26 @@
 //! | TS px | Here | Cap height |
 //! |---|---|---|
 //! | 8 | [`Face::Small`] @ 1 | 5 px |
-//! | 10, 11, 12, 13, 14 | [`Face::Regular`] @ 1 | 7 px |
-//! | 18 | `Regular` @ 2 | 14 px |
-//! | 52 | `Regular` @ 5 | 35 px |
-//! | 56 | `Regular` @ 6 | 42 px |
+//! | 10, 11, 12, 13, 14 | [`Face::Regular`] @ 1 | 8 px |
+//! | 18 | `Regular` @ 2 | 16 px |
+//! | 52 | `Regular` @ 5 | 40 px |
+//! | 56 | `Regular` @ 6 | 48 px |
 //!
 //! **The 10-to-14 band collapsing to one size is the biggest judgement call in
-//! this file.** The alternative is authoring four more faces one pixel apart,
-//! which at these sizes is four faces that differ by nothing a player can read.
-//! The hierarchy the label row actually depends on survives intact, because the
-//! TypeScript never leant on size to carry it: its own comment says *"Labels
-//! dim, values bright"* — the separation is in ALPHA, and alpha ports exactly.
-//! The one place size was doing real work is the 8px key tab versus the 13px
-//! item name, and that distinction is kept: `Small` is a genuinely different,
-//! genuinely smaller face.
+//! this file.** The alternative is four more faces one pixel apart, which at
+//! these sizes differ by nothing a player can read. The hierarchy the label row
+//! actually depends on survives intact, because the TypeScript never leant on
+//! size to carry it: its own comment says *"Labels dim, values bright"* — the
+//! separation is in ALPHA, and alpha ports exactly. The one place size was doing
+//! real work is the 8px key tab versus the 13px item name, and that distinction
+//! is kept: `Small` is a genuinely different, genuinely smaller face.
 //!
 //! [`Face::Small`] carries digits and two marks and nothing else, because the
 //! 8px tier in all three files draws exactly one thing: a single hotbar key
-//! digit. Anything else asked of it renders as a solid block — see [`Face`].
+//! digit. It stays AUTHORED — Departure Mono's smallest setting is seven pixels
+//! wide, and the whole point of this face is fitting a digit in a corner where
+//! seven pixels do not go. Anything else asked of it renders as a solid block —
+//! see [`Face`].
 //!
 //! # Whole pixels, everywhere, by construction
 //!
@@ -76,10 +88,16 @@
 //!   1. Every field of [`UiPrim`] is an `i32` in buffer pixels. There is no way
 //!      to spell a half-pixel rectangle or a half-pixel glyph run.
 //!   2. Alignment is resolved into a whole-pixel left edge *when the prim is
-//!      built*, by [`UiPrim::text`], not at paint time. Centring is exact and
-//!      not merely rounded: every advance is even (6 or 4 px times a whole
-//!      scale), so a measured run is even, so `measure / 2` has no remainder.
-//!      `a_centred_run_never_lands_a_glyph_on_a_half_pixel` asserts it.
+//!      built*, by [`UiPrim::text`], not at paint time. Note that centring is
+//!      now ROUNDED rather than exact, and that is a real change: the authored
+//!      face advanced at 6 px so every measured run was even and `measure / 2`
+//!      had no remainder, whereas [`Face::Regular`] advances at 7 and an
+//!      odd-length run halves to a `.5`. The division truncates, which moves
+//!      the left edge towards the anchor, so such a run sits half a pixel RIGHT
+//!      of true centre — deterministically, and by less than one pixel, which is
+//!      the most any integer grid can offer. What matters is
+//!      unchanged: the left edge is a whole number before the painter ever sees
+//!      it. `a_centred_run_never_lands_a_glyph_on_a_half_pixel` asserts that.
 //!   3. Vertical alignment goes through [`TextStyle::baseline_from_middle`] and
 //!      [`TextStyle::baseline_from_top`], which return `i32`.
 //!   4. [`quad_centre`] turns a whole-pixel rect into a sprite centre that lands
@@ -217,6 +235,8 @@ use yugen_core::items::registry::{ITEM_ICONS, ItemCode, item_by_code, item_for_b
 use yugen_core::items::{HOTBAR, Inventory};
 use yugen_core::sim::materials::{CellId, mat_by_code};
 
+pub mod font_table;
+
 use crate::input::Tool;
 use crate::items::Pack;
 use crate::lowres::{LowResTarget, WORLD_LAYERS, WorldCamera};
@@ -226,32 +246,28 @@ use crate::player::PlayerBody;
 // The font
 // ---------------------------------------------------------------------------
 
-/// Widest a glyph cell gets, in font pixels. [`Face::Regular`]'s width.
+/// Blank rows between one line's cap and the next, in font pixels.
 ///
-/// Five is the narrowest cell that holds a legible `M`, `W` and `%` without them
-/// collapsing into each other, and it is what nearly every pixel font since the
-/// LCD character generator has settled on for the same reason.
-const CELL_W: i32 = 5;
-
-/// Tallest a glyph cell gets, in font pixels. [`Face::Regular`]'s height.
-///
-/// Seven rows is what a 5-wide cell needs to give lowercase a 5-row x-height
-/// with a 2-row ascender. Six would put `b` and `h` at the same height as `o`.
-const CELL_H: i32 = 7;
-
-/// Blank columns between one glyph cell and the next, in font pixels.
-///
-/// One. It is what makes [`Face::Regular`]'s advance 6 px, which is the number
-/// the TypeScript hard-coded for its 10px face in `digitsW` — see the module
-/// header. It is also the minimum: at zero, `ll` and `rn` stop being two glyphs.
-const GLYPH_GAP: i32 = 1;
-
-/// Blank rows between one baseline's cell and the next, in font pixels.
-///
-/// Two, so [`Face::Regular`] lines are 9 px apart. Only used by
-/// [`TextStyle::line_h`]; every multi-line site in the original hard-coded its
-/// own leading, and those numbers are ported as they were.
+/// Two. Only used by [`TextStyle::line_h`]; every multi-line site in the port
+/// carries its own hard-coded leading, and those numbers are unchanged.
 const LINE_GAP: i32 = 2;
+
+/// Blank columns after a [`Face::Small`] cell, in font pixels.
+///
+/// One, which makes that face's advance 4 px. [`Face::Regular`] needs no such
+/// constant: its advance is authored INTO the typeface — Departure Mono is
+/// monospaced and carries its own side bearings — and is read from
+/// [`font_table::ADVANCE`] rather than reconstructed here. A gap added on top
+/// of a designed advance would be a second opinion about spacing the designer
+/// already had.
+const SMALL_GAP: i32 = 1;
+
+/// [`Face::Small`]'s cell width in font pixels.
+const SMALL_W: i32 = 3;
+
+/// [`Face::Small`]'s cell height in font pixels. It has no descenders, so this
+/// is also its cap height and its ascent.
+const SMALL_H: i32 = 5;
 
 /// Which of the two authored faces a run of text is set in.
 ///
@@ -280,45 +296,81 @@ impl Face {
     #[inline]
     pub const fn cell_w(self) -> i32 {
         match self {
-            Face::Small => 3,
-            Face::Regular => CELL_W,
+            Face::Small => SMALL_W,
+            Face::Regular => font_table::CELL_W,
         }
     }
 
-    /// Cell height in font pixels.
+    /// Cell height in font pixels: [`Face::ascent`] plus the descender.
     ///
-    /// Also the cap height: the baseline is the bottom edge of the cell, because
-    /// this font has no descenders.
+    /// No longer the same number as [`Face::cap`]. The authored 5x7 face this
+    /// replaces had no descenders, so its cell, its ascent and its cap height
+    /// were one value and every caller could use whichever it liked. They are
+    /// three values now, and the distinction is load-bearing: the painter needs
+    /// the CELL to size a quad, the baseline arithmetic needs the CAP to centre
+    /// a line, and only the atlas needs the ASCENT.
     #[inline]
     pub const fn cell_h(self) -> i32 {
         match self {
-            Face::Small => 5,
-            Face::Regular => CELL_H,
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::CELL_H,
         }
     }
 
-    /// This face's glyph table: the characters it covers, and their rows.
-    ///
-    /// The two are index-parallel; `a_face_has_one_row_set_per_character` is the
-    /// test that keeps them that way, and it is the only thing standing between
-    /// a mistyped table and every glyph after it being the wrong shape.
+    /// Rows of the cell above the baseline.
     #[inline]
-    const fn table(self) -> (&'static str, &'static [[u8; CELL_H as usize]]) {
+    pub const fn ascent(self) -> i32 {
         match self {
-            Face::Small => (SMALL_CHARS, &SMALL_ROWS),
-            Face::Regular => (REGULAR_CHARS, &REGULAR_ROWS),
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::ASCENT,
+        }
+    }
+
+    /// Baseline to the top of a capital, in font pixels.
+    ///
+    /// What vertical centring is done against — see [`font_table::CAP`].
+    #[inline]
+    pub const fn cap(self) -> i32 {
+        match self {
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::CAP,
+        }
+    }
+
+    /// Pen movement from one glyph's origin to the next, in font pixels.
+    #[inline]
+    pub const fn advance(self) -> i32 {
+        match self {
+            Face::Small => SMALL_W + SMALL_GAP,
+            Face::Regular => font_table::ADVANCE,
+        }
+    }
+
+    /// This face's glyph table: the characters it covers, their rows, and the
+    /// marker drawn for a character it does not cover.
+    ///
+    /// Rows are FLAT — [`Face::cell_h`] entries per glyph, in table order —
+    /// rather than an array of fixed-length arrays. The two faces no longer
+    /// have the same cell height, so there is no one array type that could hold
+    /// both without padding one of them, and the padding was what
+    /// `no_glyph_sets_a_bit_outside_its_own_cell` had to police.
+    #[inline]
+    const fn table(self) -> (&'static str, &'static [u16], &'static [u16]) {
+        match self {
+            Face::Small => (SMALL_CHARS, SMALL_ROWS, &SMALL_TOFU),
+            Face::Regular => (font_table::CHARS, font_table::ROWS, &font_table::TOFU),
         }
     }
 
     /// Index of `ch` in this face's table, or `None` for a character it has no
     /// glyph for.
     ///
-    /// A linear scan, and deliberately: the tables are 92 and 12 entries, this
-    /// runs once per DRAWN glyph and never once per measured one (measurement is
-    /// fixed-advance and needs no lookup at all), and a few hundred glyphs a
-    /// frame against a 92-char scan is not a number worth a hash map, a build
-    /// step, or a `OnceLock` that would have to be threaded through every test
-    /// of the pure layer.
+    /// A linear scan, and still deliberately: this runs once per DRAWN glyph
+    /// and never once per measured one (measurement is fixed-advance and needs
+    /// no lookup at all). The table is longer than the authored face's was —
+    /// 219 entries against 93 — which is still a few hundred pointer bumps a
+    /// frame against a hash map that would have to be built at startup and
+    /// threaded through every test of the pure layer.
     #[inline]
     fn index_of(self, ch: char) -> Option<usize> {
         self.table().0.chars().position(|c| c == ch)
@@ -326,18 +378,16 @@ impl Face {
 
     /// The rows of `ch`, or this face's missing-glyph marker.
     ///
-    /// Never `None`. A character with no glyph must still occupy its advance and
+    /// Never empty. A character with no glyph must still occupy its advance and
     /// still be visible — text that silently shortens itself is a bug that hides
-    /// until someone authors an item name with an accent in it.
+    /// until someone authors an item name this face cannot set.
     #[inline]
-    pub fn rows(self, ch: char) -> [u8; CELL_H as usize] {
-        let (_, rows) = self.table();
+    pub fn rows(self, ch: char) -> &'static [u16] {
+        let (_, rows, tofu) = self.table();
+        let h = self.cell_h() as usize;
         match self.index_of(ch) {
-            Some(i) => rows[i],
-            None => match self {
-                Face::Small => SMALL_TOFU,
-                Face::Regular => REGULAR_TOFU,
-            },
+            Some(i) => &rows[i * h..(i + 1) * h],
+            None => tofu,
         }
     }
 
@@ -350,14 +400,14 @@ impl Face {
     /// How many glyphs this face has, missing-glyph marker excluded.
     #[inline]
     pub fn glyph_count(self) -> usize {
-        self.table().1.len()
+        self.table().0.chars().count()
     }
 
     /// Is font pixel `(col, row)` of `ch` lit?
     ///
     /// Rows are stored with the leftmost column in the HIGH bit of the face's
-    /// own width, so a 3-wide glyph is written `0b111` and a 5-wide one
-    /// `0b11111` — both read as pixel art in the source, which is the entire
+    /// own width, so a 3-wide glyph is written `0b111` and a 7-wide one
+    /// `0b1111111` — both read as pixel art in the source, which is the entire
     /// reason for storing them as bits at all.
     #[inline]
     pub fn lit(self, ch: char, col: i32, row: i32) -> bool {
@@ -407,29 +457,54 @@ impl TextStyle {
     /// Buffer pixels from one glyph's left edge to the next's.
     ///
     /// Always EVEN, for either face at any scale, and the whole-pixel guarantee
-    /// for centred text rests on that — see the module header.
+    /// for centred text rests on that — see the module header. [`Face::Regular`]
+    /// is 7 font px and [`Face::Small`] 4, so this holds for `Small` at every
+    /// scale and for `Regular` at even ones; `centred_text_lands_on_whole_pixels`
+    /// is what checks the sizes actually used.
     #[inline]
     pub const fn advance(self) -> i32 {
-        (self.face.cell_w() + GLYPH_GAP) * self.scale
+        self.face.advance() * self.scale
     }
 
-    /// Cap height in buffer pixels. Also the full height of the glyph cell.
+    /// Cap height in buffer pixels: baseline to the top of a capital.
+    ///
+    /// NOT the height of the glyph cell any more. Departure Mono has room above
+    /// the cap for accents and room below the baseline for descenders, so a
+    /// quad is [`TextStyle::cell_h`] tall while the number every baseline is
+    /// worked out from is this one.
     #[inline]
     pub const fn cap_h(self) -> i32 {
+        self.face.cap() * self.scale
+    }
+
+    /// Full cell height in buffer pixels — what the painter sizes a quad to.
+    #[inline]
+    pub const fn cell_h(self) -> i32 {
         self.face.cell_h() * self.scale
     }
 
+    /// Baseline to the top of the cell, in buffer pixels.
+    #[inline]
+    pub const fn ascent(self) -> i32 {
+        self.face.ascent() * self.scale
+    }
+
     /// Baseline-to-baseline distance in buffer pixels.
+    ///
+    /// Cap plus leading, not cell plus leading: stacking whole cells would put
+    /// two lines a descender and an accent apart, which is a paragraph's worth
+    /// of air between rows of a stat panel.
     #[inline]
     pub const fn line_h(self) -> i32 {
-        (self.face.cell_h() + LINE_GAP) * self.scale
+        (self.face.cap() + LINE_GAP) * self.scale
     }
 
     /// Advance width of `text` in buffer pixels — the port's `measureText`.
     ///
-    /// Counts CHARACTERS, not bytes: `×`, `·`, `—` and the three arrows are all
-    /// multi-byte and all appear in ported strings, and measuring `"×3"` as four
-    /// glyphs would push the whole label row along by two cells.
+    /// Counts CHARACTERS, not bytes: the arrows, the dashes, `x` and the
+    /// accented letters are all multi-byte and all appear in ported strings,
+    /// and measuring `"x3"` as four glyphs would push the whole label row along
+    /// by two cells.
     ///
     /// Includes the trailing gap after the last glyph, which is what a Canvas2D
     /// advance width does too and what makes `measure` compose: the original's
@@ -473,9 +548,12 @@ pub enum Align {
 impl Align {
     /// The left edge of a `width`-wide run anchored at `x`.
     ///
-    /// Exact for all three variants: `width` is always even (see
-    /// [`TextStyle::advance`]) so the `Centre` division has no remainder, and
-    /// there is nothing to round.
+    /// Whole-pixel for all three variants, and exact for two of them. `Centre`
+    /// truncates when `width` is odd, which [`Face::Regular`]'s 7px advance now
+    /// allows: an odd number of glyphs at an odd scale halves to a `.5`, and
+    /// because the division moves the left edge towards `x` the run sits half a
+    /// pixel RIGHT of true centre. That is the most an integer grid can do, it
+    /// is deterministic, and it is under a pixel — see the module header.
     #[inline]
     const fn left_edge(self, x: i32, width: i32) -> i32 {
         match self {
@@ -486,154 +564,42 @@ impl Align {
     }
 }
 
-/// Characters [`Face::Regular`] has glyphs for, in [`REGULAR_ROWS`] order.
-const REGULAR_CHARS: &str = " !\"#%&'()*+,-./0123456789:;<=>?\
-    ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_\
-    abcdefghijklmnopqrstuvwxyz\
-    \u{2190}\u{2191}\u{2192}\u{00b7}\u{00d7}\u{2014}\u{016b}";
-
-/// [`Face::Regular`]'s glyphs: 7 rows of 5 bits, MSB leftmost, top row first.
-///
-/// Index-parallel with [`REGULAR_CHARS`]. Written as binary literals because at
-/// this size the literal IS the pixel art, and any other encoding would have to
-/// be decoded before it could be proofread.
-#[rustfmt::skip]
-const REGULAR_ROWS: [[u8; CELL_H as usize]; 93] = [
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000], // (space)
-    [0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000, 0b00100], // !
-    [0b01010, 0b01010, 0b01010, 0b00000, 0b00000, 0b00000, 0b00000], // "
-    [0b01010, 0b01010, 0b11111, 0b01010, 0b11111, 0b01010, 0b01010], // #
-    [0b11001, 0b11010, 0b00010, 0b00100, 0b01000, 0b01011, 0b10011], // %
-    [0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101], // &
-    [0b00100, 0b00100, 0b01000, 0b00000, 0b00000, 0b00000, 0b00000], // '
-    [0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010], // (
-    [0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000], // )
-    [0b00000, 0b10101, 0b01110, 0b11111, 0b01110, 0b10101, 0b00000], // *
-    [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000], // +
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00110, 0b00110, 0b01100], // ,
-    [0b00000, 0b00000, 0b00000, 0b01110, 0b00000, 0b00000, 0b00000], // -
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100], // .
-    [0b00001, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b10000], // /
-    [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110], // 0
-    [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // 1
-    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111], // 2
-    [0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110], // 3
-    [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010], // 4
-    [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110], // 5
-    [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110], // 6
-    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000], // 7
-    [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110], // 8
-    [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100], // 9
-    [0b00000, 0b01100, 0b01100, 0b00000, 0b01100, 0b01100, 0b00000], // :
-    [0b00000, 0b01100, 0b01100, 0b00000, 0b00110, 0b00110, 0b01100], // ;
-    [0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010], // <
-    [0b00000, 0b00000, 0b11111, 0b00000, 0b11111, 0b00000, 0b00000], // =
-    [0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000], // >
-    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b00000, 0b00100], // ?
-    [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], // A
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110], // B
-    [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110], // C
-    [0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100], // D
-    [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111], // E
-    [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000], // F
-    [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111], // G
-    [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], // H
-    [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // I
-    [0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100], // J
-    [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001], // K
-    [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111], // L
-    [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001], // M
-    [0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001], // N
-    [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // O
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000], // P
-    [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101], // Q
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001], // R
-    [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110], // S
-    [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100], // T
-    [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // U
-    [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100], // V
-    [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001], // W
-    [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001], // X
-    [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100], // Y
-    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111], // Z
-    [0b01110, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01110], // [
-    [0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110], // ]
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111], // _
-    [0b00000, 0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111], // a
-    [0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110], // b
-    [0b00000, 0b00000, 0b01111, 0b10000, 0b10000, 0b10000, 0b01111], // c
-    [0b00001, 0b00001, 0b01111, 0b10001, 0b10001, 0b10001, 0b01111], // d
-    [0b00000, 0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110], // e
-    [0b00110, 0b01001, 0b01000, 0b11100, 0b01000, 0b01000, 0b01000], // f
-    [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b01110], // g
-    [0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001], // h
-    [0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110], // i
-    [0b00010, 0b00000, 0b00110, 0b00010, 0b00010, 0b10010, 0b01100], // j
-    [0b10000, 0b10000, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010], // k
-    [0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // l
-    [0b00000, 0b00000, 0b11010, 0b10101, 0b10101, 0b10101, 0b10101], // m
-    [0b00000, 0b00000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001], // n
-    [0b00000, 0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110], // o
-    [0b00000, 0b00000, 0b11110, 0b10001, 0b11110, 0b10000, 0b10000], // p
-    [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b00001], // q
-    [0b00000, 0b00000, 0b10110, 0b11001, 0b10000, 0b10000, 0b10000], // r
-    [0b00000, 0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110], // s
-    [0b01000, 0b01000, 0b11100, 0b01000, 0b01000, 0b01001, 0b00110], // t
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101], // u
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100], // v
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10101, 0b10101, 0b01010], // w
-    [0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001], // x
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b01111, 0b00001, 0b01110], // y
-    [0b00000, 0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b11111], // z
-    [0b00000, 0b00100, 0b01000, 0b11111, 0b01000, 0b00100, 0b00000], // U+2190 left arrow
-    [0b00100, 0b01110, 0b10101, 0b00100, 0b00100, 0b00100, 0b00100], // U+2191 up arrow
-    [0b00000, 0b00100, 0b00010, 0b11111, 0b00010, 0b00100, 0b00000], // U+2192 right arrow
-    [0b00000, 0b00000, 0b00000, 0b01100, 0b01100, 0b00000, 0b00000], // U+00B7 middle dot
-    [0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001], // U+00D7 multiply
-    [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000], // U+2014 em dash
-    // U+016B ū — the one non-ASCII letter the game's own name needs. A macron
-    // in row 0 with a gap under it, over the same bowl-and-tail the plain `u`
-    // draws in rows 2-6. It exists because the title card is drawn by THIS
-    // font: the day the game became Yūgen, "Yūgen" had to be spellable in it
-    // or the menu would greet the player with a tofu box.
-    [0b01110, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101], // U+016B ū
-];
-
-/// [`Face::Regular`]'s missing-glyph marker: the conventional hollow box.
-#[rustfmt::skip]
-const REGULAR_TOFU: [u8; CELL_H as usize] =
-    [0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11111];
-
 /// Characters [`Face::Small`] has glyphs for, in [`SMALL_ROWS`] order.
 ///
 /// Ten digits, a space and a hyphen. See [`Face::Small`] on why that is the
 /// whole set.
 const SMALL_CHARS: &str = " -0123456789";
 
-/// [`Face::Small`]'s glyphs: 5 rows of 3 bits, MSB leftmost.
+/// [`Face::Small`]'s glyphs: [`SMALL_H`] rows of [`SMALL_W`] bits each, MSB
+/// leftmost, laid out flat in [`SMALL_CHARS`] order.
 ///
-/// Rows 5 and 6 of each entry are unused padding — the array is one type so that
-/// [`Face::table`] can return either face's rows, and
-/// `no_glyph_sets_a_bit_outside_its_own_cell` asserts the padding stays zero.
+/// Authored, and staying authored. Departure Mono has no 3x5 grid to bake from
+/// — the smallest thing it can set is [`Face::Regular`] at scale 1, which is
+/// seven pixels wide — and this face exists precisely to put a digit in a
+/// hotbar slot's corner where seven pixels do not fit.
 #[rustfmt::skip]
-const SMALL_ROWS: [[u8; CELL_H as usize]; 12] = [
-    [0b000, 0b000, 0b000, 0b000, 0b000, 0, 0], // (space)
-    [0b000, 0b000, 0b111, 0b000, 0b000, 0, 0], // -
-    [0b111, 0b101, 0b101, 0b101, 0b111, 0, 0], // 0
-    [0b010, 0b110, 0b010, 0b010, 0b111, 0, 0], // 1
-    [0b111, 0b001, 0b111, 0b100, 0b111, 0, 0], // 2
-    [0b111, 0b001, 0b111, 0b001, 0b111, 0, 0], // 3
-    [0b101, 0b101, 0b111, 0b001, 0b001, 0, 0], // 4
-    [0b111, 0b100, 0b111, 0b001, 0b111, 0, 0], // 5
-    [0b111, 0b100, 0b111, 0b101, 0b111, 0, 0], // 6
-    [0b111, 0b001, 0b001, 0b010, 0b010, 0, 0], // 7
-    [0b111, 0b101, 0b111, 0b101, 0b111, 0, 0], // 8
-    [0b111, 0b101, 0b111, 0b001, 0b111, 0, 0], // 9
+const SMALL_ROWS: &[u16] = &[
+    0b000, 0b000, 0b000, 0b000, 0b000, // (space)
+    0b000, 0b000, 0b111, 0b000, 0b000, // -
+    0b111, 0b101, 0b101, 0b101, 0b111, // 0
+    0b010, 0b110, 0b010, 0b010, 0b111, // 1
+    0b111, 0b001, 0b111, 0b100, 0b111, // 2
+    0b111, 0b001, 0b111, 0b001, 0b111, // 3
+    0b101, 0b101, 0b111, 0b001, 0b001, // 4
+    0b111, 0b100, 0b111, 0b001, 0b111, // 5
+    0b111, 0b100, 0b111, 0b101, 0b111, // 6
+    0b111, 0b001, 0b001, 0b010, 0b010, // 7
+    0b111, 0b101, 0b111, 0b101, 0b111, // 8
+    0b111, 0b101, 0b111, 0b001, 0b111, // 9
 ];
 
-/// [`Face::Small`]'s missing-glyph marker: a solid block. See [`Face::Small`].
+/// [`Face::Small`]'s missing-glyph marker: a solid block.
+///
+/// Solid, and not the hollow box [`Face::Regular`] uses: a hollow 3x5 box is the
+/// digit zero, and a missing-glyph marker that reads as a valid character is
+/// worse than no marker at all.
 #[rustfmt::skip]
-const SMALL_TOFU: [u8; CELL_H as usize] = [0b111, 0b111, 0b111, 0b111, 0b111, 0, 0];
+const SMALL_TOFU: [u16; SMALL_H as usize] = [0b111, 0b111, 0b111, 0b111, 0b111];
 
 // ---------------------------------------------------------------------------
 // Colour
@@ -945,10 +911,17 @@ pub fn icon_scale(cells_w: i32, cells_h: i32) -> i32 {
 ///
 /// The TypeScript kept this to avoid allocating a `TextMetrics` per occupied
 /// slot per frame. That reason is gone — measurement here is a multiplication —
-/// but the function is not, because it is the ANCHOR that pins this font's
-/// advance to the original's: `digits_w(n) == COUNT.measure(&n.to_string())`,
-/// asserted below. If someone retunes [`GLYPH_GAP`] or [`CELL_W`], that test is
-/// what tells them the 10px equivalence they inherited is gone.
+/// but the function is not, because it is the ANCHOR that keeps a stack count's
+/// reserved width and its drawn width the same number:
+/// `digits_w(n) == COUNT.measure(&n.to_string())`, asserted below.
+///
+/// It used to anchor something else as well, and no longer can. The original
+/// hard-coded ~6px per digit for its 10px sans, and the authored face was built
+/// to match; Departure Mono advances at 7. The equivalence is gone and the
+/// module header explains why it had to be. What this still catches is the
+/// failure that actually bites: a change to the face that moves the advance
+/// without moving the reservation, so every hotbar count starts overlapping the
+/// swatch beside it.
 pub fn digits_w(n: u32) -> i32 {
     let digits = if n >= 100 {
         3
@@ -1942,18 +1915,24 @@ pub struct FontAtlas {
 impl FontAtlas {
     /// Source rect for glyph `index` of `face`, in texture pixels.
     ///
-    /// Both faces stride by [`CELL_W`] even though `Small` is 3 wide, so that a
-    /// glyph index maps to an x with no per-face table. The two unused columns
-    /// are never sampled.
+    /// Both faces stride by [`ATLAS_STRIDE`] even though `Small` is 3 wide, so
+    /// that a glyph index maps to an x with no per-face table. The unused
+    /// columns are never sampled.
     fn rect(face: Face, index: usize) -> Rect {
-        let x = index as f32 * CELL_W as f32;
+        let x = index as f32 * ATLAS_STRIDE as f32;
         let top = match face {
             Face::Regular => 0.0,
-            Face::Small => CELL_H as f32,
+            Face::Small => font_table::CELL_H as f32,
         };
         Rect::new(x, top, x + face.cell_w() as f32, top + face.cell_h() as f32)
     }
 }
+
+/// Columns one glyph's atlas cell occupies, whichever face it belongs to.
+///
+/// The wider of the two faces, so a glyph index is an x multiplied by a
+/// constant and nothing has to know which face it came from.
+const ATLAS_STRIDE: i32 = font_table::CELL_W;
 
 /// The pooled quads every prim is painted with.
 ///
@@ -2084,21 +2063,20 @@ impl Plugin for UiPlugin {
 /// should not depend on a setting made somewhere else.
 fn bake_font(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let cells = Face::Regular.glyph_count().max(Face::Small.glyph_count());
-    let w = cells as i32 * CELL_W;
+    let w = cells as i32 * ATLAS_STRIDE;
     let h = Face::Regular.cell_h() + Face::Small.cell_h();
     let mut data = vec![0u8; (w * h) as usize * 4];
-
-    for (face, row_top) in [(Face::Regular, 0), (Face::Small, CELL_H)] {
+    for (face, row_top) in [(Face::Regular, 0), (Face::Small, font_table::CELL_H)] {
         for (index, ch) in face.chars().enumerate() {
             for row in 0..face.cell_h() {
                 for col in 0..face.cell_w() {
                     if !face.lit(ch, col, row) {
                         continue;
                     }
-                    let px = index as i32 * CELL_W + col;
+                    let px = index as i32 * ATLAS_STRIDE + col;
                     let py = row_top + row;
-                    let o = ((py * w + px) * 4) as usize;
-                    data[o..o + 4].copy_from_slice(&[255, 255, 255, 255]);
+                    let at = ((py * w + px) * 4) as usize;
+                    data[at..at + 4].copy_from_slice(&[255, 255, 255, 255]);
                 }
             }
         }
@@ -2270,7 +2248,10 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
             color,
             text,
         } => {
-            let top = baseline - style.cap_h();
+            // The CELL's top, not the cap's: the quad carries the whole glyph
+            // box, accents and descender included, and the baseline sits
+            // `ascent` rows down inside it.
+            let top = baseline - style.ascent();
             for (i, ch) in text.chars().enumerate() {
                 // A space has no lit pixels; skipping it here rather than
                 // emitting a transparent quad is worth roughly a fifth of the
@@ -2284,7 +2265,7 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
                         x: gx,
                         y: top,
                         w: style.face.cell_w() * style.scale,
-                        h: style.cap_h(),
+                        h: style.cell_h(),
                         color: *color,
                         art: Some(Sprite {
                             image: font.clone(),
@@ -2328,6 +2309,9 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
 fn tofu(x: i32, y: i32, style: TextStyle, color: Color, out: &mut Vec<Quad>) {
     let w = style.face.cell_w() * style.scale;
     let h = style.cap_h();
+    // `y` is the top of the CELL; the box is drawn where a capital would be, so
+    // it sits on the baseline rather than floating in the accent space above it.
+    let y = y + style.ascent() - h;
     let t = style.scale;
     for (qx, qy, qw, qh) in [
         (x, y, w, t),
@@ -2486,11 +2470,16 @@ mod tests {
     #[test]
     fn a_face_has_one_row_set_per_character() {
         for face in [Face::Small, Face::Regular] {
-            let (chars, rows) = face.table();
+            let (chars, rows, tofu) = face.table();
             assert_eq!(
-                chars.chars().count(),
+                chars.chars().count() * face.cell_h() as usize,
                 rows.len(),
                 "{face:?}'s character list and row table have drifted apart"
+            );
+            assert_eq!(
+                tofu.len(),
+                face.cell_h() as usize,
+                "{face:?}'s missing-glyph marker is not one cell tall"
             );
         }
     }
@@ -2621,11 +2610,14 @@ mod tests {
     }
 
     #[test]
-    fn the_regular_face_is_the_typescripts_ten_pixel_face() {
-        // The one measurable equivalence between the authored font and the
-        // browser one it replaces. See the module header.
+    fn a_stack_count_reserves_exactly_the_width_it_draws() {
+        // This used to assert `COUNT.advance() == 6`, pinning the authored face
+        // to the TypeScript's 10px sans. Departure Mono advances at 7 and that
+        // equivalence is retired — see the module header. What is worth keeping
+        // is the property the hotbar actually depends on: the width reserved
+        // for a count and the width drawn for it are one number.
         assert_eq!(TextStyle::for_px(10), COUNT);
-        assert_eq!(COUNT.advance(), 6);
+        assert_eq!(COUNT.advance(), font_table::ADVANCE);
         for n in [0u32, 1, 9, 10, 42, 99, 100, 999] {
             assert_eq!(
                 digits_w(n),
@@ -2686,13 +2678,24 @@ mod tests {
 
     #[test]
     fn a_glyph_always_lands_on_a_whole_pixel() {
-        // Every advance is even, at every scale, for both faces — which is what
-        // makes centring exact rather than rounded.
+        // Every metric is a whole number of buffer pixels at every scale. This
+        // is the property the nearest-sampler upscale needs; it is NOT the
+        // stronger "every advance is even" the authored face happened to have,
+        // which `Face::Regular`'s 7px advance retires. See `Align::left_edge`.
         for face in [Face::Small, Face::Regular] {
             for scale in 1..=8 {
                 let style = TextStyle { face, scale };
-                assert_eq!(style.advance() % 2, 0, "{face:?} @ {scale}");
-                assert_eq!(style.cap_h(), face.cell_h() * scale);
+                assert_eq!(style.advance(), face.advance() * scale);
+                assert_eq!(style.cap_h(), face.cap() * scale);
+                assert_eq!(style.cell_h(), face.cell_h() * scale);
+                // The cap is what a baseline is measured from, and it has to sit
+                // inside the cell it is drawn in — with room above for accents
+                // and below for descenders.
+                assert!(
+                    style.cap_h() <= style.ascent(),
+                    "{face:?} @ {scale}: the cap pokes out of the cell"
+                );
+                assert!(style.ascent() <= style.cell_h(), "{face:?} @ {scale}");
             }
         }
     }
@@ -2703,9 +2706,19 @@ mod tests {
             for n in 0..40 {
                 let text = "M".repeat(n);
                 let w = style.measure(&text);
-                assert_eq!(w % 2, 0, "{n} glyphs measured odd");
-                // The left edge is exact: `w / 2` has no remainder to round.
-                assert_eq!(Align::Centre.left_edge(321, w) * 2, 321 * 2 - w);
+                // The left edge is a whole buffer pixel — that is what the
+                // nearest-sampler upscale needs, and it holds by construction
+                // because every one of these is an `i32`.
+                let left = Align::Centre.left_edge(321, w);
+                // An odd-width run cannot be centred exactly on an integer
+                // grid. `w / 2` truncates, which moves the left edge TOWARDS
+                // `x`, so such a run sits half a pixel right of true centre and
+                // never left of it.
+                let err = 321 * 2 - w - left * 2;
+                assert!(
+                    err == 0 || err == -1,
+                    "{n} glyphs at {style:?} centre {err} half-pixels off"
+                );
             }
         }
     }
@@ -3281,8 +3294,10 @@ mod tests {
         // The space contributes no quad.
         assert_eq!(out.len(), 3);
         for (i, quad) in out.iter().enumerate() {
-            assert_eq!(quad.h, LABEL.cap_h());
-            assert_eq!(quad.y, 30 - LABEL.cap_h());
+            // The quad is the whole glyph CELL — accent space above the cap and
+            // descender below the baseline — not just the cap.
+            assert_eq!(quad.h, LABEL.cell_h());
+            assert_eq!(quad.y, 30 - LABEL.ascent());
             let art = quad.art.as_ref().expect("glyph {i} has no art");
             assert!(art.rect.is_some(), "glyph {i} has no atlas cell");
         }
@@ -3365,7 +3380,7 @@ mod tests {
     #[test]
     fn the_font_atlas_gives_every_glyph_a_distinct_cell_inside_the_texture() {
         let cells = Face::Regular.glyph_count().max(Face::Small.glyph_count());
-        let w = cells as f32 * CELL_W as f32;
+        let w = cells as f32 * ATLAS_STRIDE as f32;
         let h = (Face::Regular.cell_h() + Face::Small.cell_h()) as f32;
         let mut seen: Vec<(u32, u32)> = Vec::new();
         for face in [Face::Regular, Face::Small] {
