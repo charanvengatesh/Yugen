@@ -86,6 +86,11 @@ pub struct WindowManager {
     /// player loitering on the dead-zone boundary does not re-walk the same
     /// coordinates every tick.
     warmed_for: Option<(i32, i32)>,
+    /// The origin ONE MORE shift out that `warm_ahead` has covered, on a later
+    /// idle tick than [`WindowManager::warmed_for`]. Two fields rather than a
+    /// list because the ladder is exactly two rungs deep — see `warm_ahead` for
+    /// why a third would warm chunks that mostly get evicted unused.
+    warmed_next: Option<(i32, i32)>,
 }
 
 impl WindowManager {
@@ -112,6 +117,7 @@ impl WindowManager {
             incoming_slots: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
             incoming_chunks: Vec::with_capacity((WINDOW_CHUNKS_X * WINDOW_CHUNKS_Y) as usize),
             warmed_for: None,
+            warmed_next: None,
             store,
         }
     }
@@ -201,8 +207,11 @@ impl WindowManager {
             .evict_beyond(pcx, pcy, max2(EVICT_RADIUS_CHUNKS, Self::RESIDENT_RADIUS));
         grid.bump_shift_gen();
         // The window moved, so whatever was warmed for the old position describes
-        // a shift that has now happened.
+        // a shift that has now happened. The chunks themselves survive in the
+        // store's cache — only the bookkeeping resets, and re-walking an edge
+        // that is already cached is a contains_key sweep, not generation.
         self.warmed_for = None;
+        self.warmed_next = None;
         true
     }
 
@@ -247,17 +256,39 @@ impl WindowManager {
         };
         let (dcx, dcy) = (step(drift_x), step(drift_y));
         let ahead = (self.origin_chunk_x + dcx, self.origin_chunk_y + dcy);
-        if self.warmed_for == Some(ahead) {
+
+        // One edge per idle tick, never two: the whole point of warming is to
+        // move generation onto ticks that can afford it, and a tick that
+        // generates two edges is the spike this function exists to remove.
+        if self.warmed_for != Some(ahead) {
+            self.warmed_for = Some(ahead);
+            self.warm_edge(ahead, dcx, dcy);
             return;
         }
-        self.warmed_for = Some(ahead);
 
+        // The shift after next, on a LATER idle tick. A walking player has a
+        // couple of hundred idle ticks per shift, so the second rung costs
+        // nothing extra in practice — but it is what a SPRINT hits: consecutive
+        // shifts arriving with too few idle ticks between them to warm each
+        // edge as it comes. Two rungs cover that burst; a third would warm
+        // chunks two full shifts from being wanted, which `evict_beyond`
+        // reclaims mostly unused the moment the player turns.
+        let next = (self.origin_chunk_x + 2 * dcx, self.origin_chunk_y + 2 * dcy);
+        if self.warmed_next != Some(next) {
+            self.warmed_next = Some(next);
+            self.warm_edge(next, dcx, dcy);
+        }
+    }
+
+    /// Generate one predicted incoming edge into the store's cache: the chunks a
+    /// shift of `(dcx, dcy)` will load when the window origin reaches `origin`.
+    fn warm_edge(&mut self, origin: (i32, i32), dcx: i32, dcy: i32) {
         self.incoming_slots(dcx, dcy);
         self.incoming_chunks.clear();
         self.incoming_chunks.extend(
             self.incoming_slots
                 .iter()
-                .map(|&(ci, cj)| (ahead.0 + ci, ahead.1 + cj)),
+                .map(|&(ci, cj)| (origin.0 + ci, origin.1 + cj)),
         );
         self.store.prefetch(&self.incoming_chunks);
     }

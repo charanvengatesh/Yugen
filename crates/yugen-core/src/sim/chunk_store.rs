@@ -31,11 +31,19 @@ const PREFETCH_MIN_PARALLEL: usize = 8;
 
 /// Upper bound on retained diverged chunks. At CHUNK_CELLS² = 1024 cells × 8
 /// bytes (material 2 + flags 1 + aux 2 + temp 1 + back 2) a snapshot is ~8 KB, so
-/// 2048 chunks is ~16 MB — roughly a 45×45-chunk region of fully-edited world,
-/// far more than a player touches in a session. Past the cap the
-/// least-recently-used diverged chunk is dropped and that patch of world reverts
-/// to its generated state; losing the oldest edit is preferable to an unbounded
-/// heap.
+/// 8192 chunks is ~64 MB — roughly a 90×90-chunk region of fully-edited world.
+/// Past the cap the least-recently-used diverged chunk is dropped and that patch
+/// of world reverts to its generated state; losing the oldest edit is preferable
+/// to an unbounded heap.
+///
+/// Raised 2048 → 8192 when the streaming work made long traversals cheap enough
+/// to be the normal way to play: a session that ranges widely diverges chunks
+/// (liquids settle, sand slumps) far from where it started, and 16 MB began
+/// silently reverting the far end of a long walk. The costs that scale with the
+/// cap were checked before raising it: LRU eviction is a `BTreeMap::pop_first`
+/// (logarithmic, and paid only past the cap), and `evict_beyond`'s sort is over
+/// the chunks one shift evicts from the CACHE — the cap never enters it. Memory
+/// is the only real price, and 64 MB buys four times the remembered world.
 ///
 /// Two planes ride along in the snapshot without affecting how many are retained,
 /// and for opposite reasons. `temp` does not mark a chunk diverged at all — it is
@@ -48,7 +56,7 @@ const PREFETCH_MIN_PARALLEL: usize = 8;
 /// 8 KB. It is a count of retained player EDITS, not a byte budget, and shrinking
 /// it to hold 12 MB would have started silently dropping edits earlier — paying
 /// for a plane the player can see with a plane the player can see.
-pub const MAX_PERSISTED_CHUNKS: usize = 2048;
+pub const MAX_PERSISTED_CHUNKS: usize = 8192;
 
 /// Where diverged chunks live once they fall out of the hot cache. Deliberately
 /// the narrowest possible surface (read / write / len) so swapping the in-memory
@@ -370,7 +378,7 @@ impl ChunkStore {
     /// order it handed the LRU was deterministic; `HashMap` iteration order is
     /// unspecified and varies run to run, and letting that decide which edits
     /// survive the cap would make the world non-reproducible. One evict pass
-    /// produces at most a few hundred writes against a cap of 2048, so the two
+    /// produces at most a few hundred writes against a cap of 8192, so the two
     /// orders are indistinguishable in practice — but only one of them is
     /// deterministic.
     pub fn evict_beyond(&mut self, center_chunk_x: i32, center_chunk_y: i32, radius: i32) {
