@@ -874,8 +874,7 @@ impl Sweep<'_> {
         if target != EMPTY {
             let i = (y * self.cols + x) as usize;
             let self_id = self.grid.material[i] as usize;
-            let is_liquid = BEH[target as usize] >> BEH_STATE_SHIFT
-                == MaterialState::Liquid as u8;
+            let is_liquid = BEH[target as usize] >> BEH_STATE_SHIFT == MaterialState::Liquid as u8;
             if !(is_liquid && MAT_DENSITY[target as usize] > MAT_DENSITY[self_id]) {
                 return false;
             }

@@ -284,7 +284,7 @@ fn verdict(ok: bool) -> &'static str {
     if ok { "OK" } else { "FAIL" }
 }
 
-const SCENARIOS: [Scenario; 7] = [
+const SCENARIOS: [Scenario; 8] = [
     Scenario {
         // A pile forms and every grain ends up supported. The basic wake
         // contract, and the cheapest thing that breaks when it is wrong.
@@ -480,6 +480,45 @@ const SCENARIOS: [Scenario; 7] = [
             format!(
                 "steam-above-pool={above} steam-total={trapped} {}",
                 verdict(above > 0 || trapped == 0)
+            )
+        },
+    },
+    Scenario {
+        // Tar is the viscosity system's extreme case, so this is ITS scenario:
+        // a tar column dropped over a water pool must (a) still be moving well
+        // after water would have levelled -- the ooze -- and (b) end up UNDER
+        // the water, because it is denser and `flow_into` lets a heavy liquid
+        // fall through a lighter one. A tar that levels as fast as water means
+        // the gate is dead; a tar floating ON water means the density path
+        // broke; tar cells stranded in the air mean a skipped tick failed to
+        // wake -- three failure modes, one pour.
+        name: "tar-through-water",
+        ticks: 3000,
+        build: |grid| {
+            boxed(grid, 10, 80, 70, 130);
+            fill_rect(grid, 12, 112, 56, 16, block::WATER);
+            fill_rect(grid, 30, 84, 12, 8, block::TAR);
+        },
+        check: |grid| {
+            let lev = levitating_in(grid, 11, 81, 69, 129);
+            let tar = count_of(grid, block::TAR);
+            let cols = grid.cols();
+            let mean_row = |id: CellId| {
+                let (mut sum, mut n) = (0i64, 0i64);
+                for y in 81..129 {
+                    for x in 11..69 {
+                        if grid.material[(y * cols + x) as usize] == id {
+                            sum += i64::from(y);
+                            n += 1;
+                        }
+                    }
+                }
+                if n == 0 { 0.0 } else { sum as f64 / n as f64 }
+            };
+            let sink = mean_row(block::TAR) - mean_row(block::WATER);
+            format!(
+                "tar={tar} levitating={lev} sink={sink:.1} {}",
+                verdict(lev == 0 && tar == 96 && sink > 2.0)
             )
         },
     },

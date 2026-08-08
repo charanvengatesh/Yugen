@@ -107,13 +107,20 @@ makes a single mean interpretable only alongside the curve:
 ```
 swept cells as % of window:  t120=14.7%  t270=6.8%  t420=6.2%  t570=7.2%  t720=3.7%
 world: 52 531 non-empty cells, 43/88 chunks awake at t120
-digest: 53db6db8 at t120 -> e0438852 at t720
+digest: 524d76e0 at t120 -> c001ab2b at t720
 ```
 
 The digest is FNV-1a over all four cell planes. The automata is deterministic,
 so for any change meant to be behaviour-preserving it must not move. It is also
 the proof the timed loop was not optimised away: a deleted body cannot change a
 digest, and the bench asserts it changed.
+
+Re-recorded when viscosity landed (was `53db6db8 -> e0438852`): the viscosity
+gate draws from the one RNG stream for every liquid with a non-zero value, so
+the whole world evolves differently from the first oil cell onward. That is a
+DELIBERATE behaviour change, which is exactly the case where this digest is
+supposed to move and be re-recorded by hand -- an unexplained move is still a
+bug.
 
 ### Cost scales with swept area, linearly
 
