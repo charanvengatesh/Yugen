@@ -36,14 +36,18 @@ drops = [
 ]
 bands = ["cavern", "deep"]
 weight = 8.0
-
-# Twelve cells of nothing but mass, so the whole animation budget goes into
-# volume: the idle swells and settles, and the air pose compresses to a column
-# on the launch and fills the entire grid at the apex. Being able to HOLD that
-# apex frame (mode=once) for the length of the arc is what turns a hop from a
-# flicker into a weight being thrown.
+# Twelve cells of nothing but mass — now forty-eight texels of it, because
+# `grain = 2` buys resolution INSIDE the same 4x3 world cells and not one cell
+# more. The whole budget still goes into volume: the idle swells into a tall lit
+# dome and settles into a squat wider one, and the air pose compresses to a
+# column on the launch and fills the entire grid at the apex. Being able to HOLD
+# that apex frame (mode=once) for the length of the arc is what turns a hop from
+# a flicker into a weight being thrown. Tone 1 was declared and never drawn at
+# one texel per cell; at this grain it is the contact shadow along the bottom
+# edge, which is what plants twelve cells of jelly on the floor.
 art.cellsW = 4
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#241a3c", "#3b2a5c", "#6b4fa0", "#a688e0", "#c9a6ff"]
 art.fps = 5.0
 [[bloat.art.seq]]
@@ -52,47 +56,72 @@ mode = "ambient"
 blinkEvery = 3.4
 blinkFor = 0.18
 frames = '''
-.44.
-3333
-2332
+..4444..
+.344443.
+33444433
+33333333
+23333332
+12222221
 
-....
-3443
-2332
+........
+.444444.
+34444443
+33333333
+23333332
+12222221
 
-.55.
-3443
-2332
+..5555..
+.455554.
+33444433
+33333333
+23333332
+12222221
 '''
 [[bloat.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-....
-3443
-2332
+........
+44444444
+34444443
+33333333
+23333332
+12222221
 
-.44.
-3333
-3333
+..4444..
+.344443.
+33444433
+33333333
+33333333
+23333332
 
-.4..
-3433
-2332
+..44....
+.4444...
+33444333
+33333333
+23333332
+12222221
 '''
 [[bloat.art.seq]]
 state = "air"
 mode = "once"
 fps = 8.0
 frames = '''
-.44.
-.33.
-.22.
+..4444..
+..4444..
+..3443..
+..3333..
+..2332..
+..1221..
 
-4444
-3333
-.33.
+44444444
+44444444
+33444433
+33333333
+..3333..
+..2222..
 '''
+
 
 # --- Driftling --------------------------------------------------------------
 # A luminous spore-mote. Harmless, flees, and exists to be the thing that lights
@@ -115,13 +144,17 @@ xp = 2
 drops = [{ item = "crystal_shard", count = 1, chance = 0.5 }]
 bands = ["cavern", "deep"]
 weight = 12.0
-
-# Four cells and never more than two lit at once: the mote WANDERS around the
-# grid on the move loop instead of flapping in place, which at 4fps is a drift
-# rather than a walk cycle. The interrupt lights all four — the pulse that makes
-# it briefly the brightest thing in the room, which is its entire job.
+# Four cells, and at grain 2 the mote is a five-texel diamond that WANDERS the
+# grid on the move loop instead of flapping in place — at 4fps that is a drift,
+# not a walk cycle. The old drawing's dim companion pixel is now a single tone-1
+# wisp in the corner the mote just left, so the circuit reads as one thing
+# travelling rather than two things blinking on and off. The breath is the whole
+# diamond stepping down a tone, and the interrupt lights every texel in the
+# grid: the pulse that makes it briefly the brightest thing in the room, which
+# with `glow 0.55` and a second additive pass is its entire job.
 art.cellsW = 2
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#2c6070", "#3f7f8c", "#9ef2ff", "#e6ffff"]
 art.fps = 4.0
 [[driftling.art.seq]]
@@ -130,38 +163,55 @@ mode = "ambient"
 blinkEvery = 2.7
 blinkFor = 0.22
 frames = '''
-.4
-3.
+..3.
+.343
+.23.
+1...
 
-.3
-2.
+..2.
+.232
+.12.
+....
 
-44
-33
+3443
+4444
+4444
+3443
 '''
 [[driftling.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-.4
-3.
+..3.
+.343
+..3.
+1...
 
-4.
-.3
+.3..
+343.
+.3..
+...1
 
-.3
-4.
+...1
+.3..
+343.
+.3..
 
-3.
-.4
+1...
+..3.
+.343
+..3.
 '''
 [[driftling.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-.4
-.3
+..4.
+.343
+..3.
+..2.
 '''
+
 
 # --- Emberling --------------------------------------------------------------
 # Molten, lava-dwelling, and the most dangerous SMALL thing down here.
@@ -198,13 +248,17 @@ drops = [
 bands = ["shallow", "cavern", "deep"]
 needsLava = true
 weight = 14.0
-
-# Two columns and three rows: a head of flame over a charred torso over char
-# legs. Only the head burns — the body tones never brighten in the walk — so
-# the eye is dragged to the top of the sprite, which is where the fifth palette
-# tone (a white-hot flare) lands on the idle interrupt and on the leap.
+# Two columns and three rows of cells: a head of flame over a charred torso over
+# char legs. The finer grid pays for the flame to have a SHAPE — it stands up on
+# the breath and gutters down to a stub, and that is the whole idle. Only the
+# head burns, the body tones never brighten in the walk, so the eye is dragged
+# to the top of the sprite, which is where the fifth palette tone (a white-hot
+# flare) lands on the idle interrupt and on the leap. The torso is now ember (3)
+# cracking through char (2) over a cooled underside (1), and the legs are two
+# separate feet that alternate on the phase contacts instead of one solid bar.
 art.cellsW = 2
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#2b1a18", "#7a3320", "#ff8a3c", "#ffe08a", "#fff6d0"]
 art.fps = 9.0
 [[emberling.art.seq]]
@@ -213,51 +267,79 @@ mode = "ambient"
 blinkEvery = 2.5
 blinkFor = 0.12
 frames = '''
-.4
-32
-11
+..4.
+.343
+2332
+1221
+.11.
+1..1
 
-.3
-32
-11
+....
+.33.
+2332
+1221
+.11.
+1..1
 
-.5
-43
-11
+.55.
+4554
+3443
+2332
+.11.
+1..1
 '''
 [[emberling.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.4
-32
-1.
+..4.
+.343
+2332
+1221
+.11.
+1...
 
-.4
-32
-11
+..4.
+.343
+2332
+1221
+.11.
+1..1
 
-.4
-32
-.1
+..4.
+.343
+2332
+1221
+.11.
+...1
 
-.4
-32
-11
+..4.
+.343
+2332
+1221
+.11.
+1..1
 '''
 [[emberling.art.seq]]
 state = "air"
 mode = "once"
 fps = 11.0
 frames = '''
-.4
-33
-.1
+..4.
+.343
+3333
+2332
+.11.
+..1.
 
-.5
-43
-..
+.55.
+4554
+3443
+2332
+.11.
+....
 '''
+
 
 # --- Sentinel ---------------------------------------------------------------
 # The README's ice-throwing automaton, finally expressible: `ranged` gives it a
@@ -298,14 +380,18 @@ drops = [
 bands = ["cavern", "deep"]
 minDepth = 150
 weight = 7.0
-
 # THE OPTIC IS THE ANIMATION. A machine should not breathe, so the idle's two
-# cycling frames differ ONLY in the brightness of the single head pixel — a
-# scan, not a lung — and the interrupt swaps that pixel to red. Against a
-# ranged.range of 230 that red flash is genuinely actionable: it is visible
-# before the ice is, and it is the same grammar the skeleton uses.
+# cycling frames differ ONLY in the brightness of the optic — two texels now
+# rather than one, sunk into a housing that finally reads as a head — and the
+# interrupt swaps them to red. Against a ranged.range of 230 that red flash is
+# genuinely actionable: it is visible before the ice is, and it is the same
+# grammar the skeleton uses. Everything below the neck is deliberately inert:
+# one lit-top, shaded-bottom armour block over two legs that alternate on the
+# phase contacts, and the air pose (it has no jumpSpeed, so this only ever means
+# "walked off something") just pulls those legs up under it.
 art.cellsW = 3
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#2a2f38", "#3a3f4a", "#6b7488", "#9fe8ff", "#ff5a4a"]
 art.fps = 6.0
 [[sentinel.art.seq]]
@@ -314,46 +400,71 @@ mode = "ambient"
 blinkEvery = 2.1
 blinkFor = 0.16
 frames = '''
-.4.
-232
-2.2
+..33..
+.3443.
+233332
+122221
+22..22
+11..11
 
-.3.
-232
-2.2
+..33..
+.3333.
+233332
+122221
+22..22
+11..11
 
-.5.
-232
-2.2
+..33..
+.3553.
+233332
+122221
+22..22
+11..11
 '''
 [[sentinel.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.4.
-232
-2..
+..33..
+.3443.
+233332
+122221
+22..22
+11....
 
-.4.
-232
-2.2
+..33..
+.3443.
+233332
+122221
+22..22
+11..11
 
-.4.
-232
-..2
+..33..
+.3443.
+233332
+122221
+22..22
+....11
 
-.4.
-232
-2.2
+..33..
+.3443.
+233332
+122221
+22..22
+11..11
 '''
 [[sentinel.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-.4.
-232
-...
+..33..
+.3443.
+233332
+122221
+.2..2.
+......
 '''
+
 
 # --- Sporeling --------------------------------------------------------------
 # The fungal deep, in packs of two or three. Individually the weakest ranged
@@ -391,13 +502,17 @@ bands = ["deep"]
 minDepth = 240
 packSize = [2, 3]
 weight = 13.0
-
 # The cap swelling to fill both columns on the interrupt is the charge tell, and
 # because these arrive in threes the tells go off out of step with each other —
 # a pack visibly winding up in sequence is a much clearer "leave" than three
-# identical sprites all flashing at once.
+# identical sprites all flashing at once. At grain 2 the resting cap can be
+# narrow and right-leaning, so the swell is a real change of silhouette instead
+# of one pixel appearing. Tone 5 was declared and never drawn; it is now the
+# charged core inside that swell, which is what keeps the tell distinct from the
+# apex of a hop — same wide cap, no pale core.
 art.cellsW = 2
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#1e3418", "#2f4a2a", "#7fb04a", "#d8ff9a", "#f2ffd8"]
 art.fps = 7.0
 [[sporeling.art.seq]]
@@ -406,47 +521,72 @@ mode = "ambient"
 blinkEvery = 2.3
 blinkFor = 0.14
 frames = '''
-.4
-33
-22
+..44
+.334
+2332
+1221
+.22.
+2..2
 
-.3
-33
-22
+..33
+.333
+2332
+1221
+.22.
+2..2
 
-44
-33
-22
+4444
+4554
+2332
+1221
+.22.
+2..2
 '''
 [[sporeling.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-.4
-33
-22
+..44
+.334
+2332
+1221
+.22.
+2..2
 
-.4
-33
-2.
+..44
+.334
+2332
+1221
+.22.
+2...
 
-.4
-33
-.2
+..44
+.334
+2332
+1221
+.22.
+...2
 '''
 [[sporeling.art.seq]]
 state = "air"
 mode = "once"
 fps = 10.0
 frames = '''
-.4
-33
-..
+..44
+.334
+2332
+1221
+.22.
+....
 
-44
-33
-..
+4444
+4444
+2332
+1221
+....
+....
 '''
+
 
 # --- Bladeframe -------------------------------------------------------------
 # NEW, and the other half of the README's robot pair: "Robotic Melee Fighter:
@@ -489,16 +629,22 @@ drops = [
 bands = ["deep"]
 minDepth = 200
 weight = 6.0
-
-# The blade is COLUMN 2, held bright down the full height of the sprite, and it
-# is what tells this apart from the sentinel at a glance: same 3x3 machine
-# palette, but one of them is symmetrical and one of them is carrying something
-# on its leading edge. The interrupt lights the blade along its length rather
-# than changing the optic — the sentinel's tell means "it is aiming", this one
-# means "it is winding up", and the difference is legible.
+# The blade is the RIGHT-HAND COLUMNS, held bright down the full height of the
+# sprite, and it is what tells this apart from the sentinel at a glance: same
+# machine palette, same legs, but one of them is symmetrical and one of them is
+# carrying something on its leading edge. Its optic sits red in every ground
+# frame where the sentinel's only goes red as a tell, and the idle's breath is
+# that optic dropping to body tone and back. The interrupt lights the blade
+# along its length rather than changing the optic — the sentinel's tell means
+# "it is aiming", this one means "it is winding up", and the difference is
+# legible. Tone 6 is appended for exactly that: at one texel per cell the blade
+# already sat at the top of the palette with nowhere brighter to go, so the
+# wind-up had to borrow the torso instead; a hotter white-steel above tone 4
+# lets the edge itself brighten, and it is drawn in no other frame.
 art.cellsW = 3
 art.cellsH = 3
-art.pal = [".", "#24282f", "#4a5260", "#8a94a6", "#d8e0ec", "#ff5a4a"]
+art.grain = 2
+art.pal = [".", "#24282f", "#4a5260", "#8a94a6", "#d8e0ec", "#ff5a4a", "#f6fbff"]
 art.fps = 6.0
 [[bladeframe.art.seq]]
 state = "idle"
@@ -506,54 +652,84 @@ mode = "ambient"
 blinkEvery = 2.6
 blinkFor = 0.18
 frames = '''
-254
-334
-1.1
+.235.4
+.23344
+233344
+122344
+22..22
+11..11
 
-234
-334
-1.1
+.233.4
+.23344
+233344
+122344
+22..22
+11..11
 
-254
-344
-1.1
+.235.6
+.23366
+233366
+122366
+22..22
+11..11
 '''
 [[bladeframe.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-254
-334
-1..
+.235.4
+.23344
+233344
+122344
+22..22
+11....
 
-254
-334
-1.1
+.235.4
+.23344
+233344
+122344
+22..22
+11..11
 
-254
-334
-..1
+.235.4
+.23344
+233344
+122344
+22..22
+....11
 
-254
-334
-1.1
+.235.4
+.23344
+233344
+122344
+22..22
+11..11
 '''
 # A leaping overhead: the blade sweeps from the leading edge across the top of
 # the body and HOLDS there for the whole arc, so a bladeframe in the air is
-# already showing you where the hit lands.
+# already showing you where the hit lands. It is the SHAPE that carries it — a
+# horizontal bar where a vertical one was — so the apex stays at tone 4 and the
+# appended tone 6 stays unique to the wind-up.
 [[bladeframe.art.seq]]
 state = "air"
 mode = "once"
 fps = 10.0
 frames = '''
-254
-334
-.1.
+.235.4
+.23344
+233344
+122344
+.2..2.
+..11..
 
-244
-444
-...
+.44444
+244444
+233332
+122221
+.2..2.
+......
 '''
+
 
 # --- Slagworm ---------------------------------------------------------------
 # NEW. The Magma Chambers layer had exactly one resident (the emberling, a
@@ -598,16 +774,19 @@ bands = ["deep"]
 minDepth = 200
 needsLava = true
 weight = 4.0
-
-# Cooled crust on top (row 0), molten body under it (row 1), and the same
-# travelling belly contact the sandworm uses on row 2 — the peristalsis is the
-# family resemblance between the game's two burrowers, and the colour is the
-# difference. The interrupt cracks the crust open and shows the core, and the
-# eruption's second frame lights every cell it has: `glow 0.5` puts that frame
-# through the post-light overlay, so a slagworm coming out of the floor is the
-# brightest event in the deep.
+# Cooled crust across the top two rows, molten body under it, and the same
+# travelling belly contact the sandworm uses along the bottom — the peristalsis
+# is the family resemblance between the game's two burrowers, and the colour is
+# the difference. The extra rows split that belly into a bulge (2) and the point
+# actually pressed into the floor (1), so the wave has a leading edge instead of
+# being a patch that teleports one cell at a time. The interrupt cracks the
+# crust open along a hot seam and shows the core, and the eruption's second
+# frame lights every texel it has: `glow 0.5` puts that frame through the
+# post-light overlay, so a slagworm coming out of the floor is the brightest
+# event in the deep.
 art.cellsW = 4
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#2a120a", "#6b2410", "#d84a14", "#ff9a34", "#ffe27a"]
 art.fps = 6.0
 [[slagworm.art.seq]]
@@ -616,51 +795,79 @@ mode = "ambient"
 blinkEvery = 4.6
 blinkFor = 0.24
 frames = '''
-2112
-3443
-.22.
+22111122
+21111112
+33444433
+34444443
+..2222..
+...11...
 
-2112
-3343
-.22.
+22111122
+21111112
+33334433
+33444433
+..2222..
+...11...
 
-2552
-4554
-.22.
+22155122
+21555512
+34555543
+34444443
+..2222..
+...11...
 '''
 [[slagworm.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-1221
-3443
-22..
+11222211
+12222221
+33444433
+34444443
+2222....
+.11.....
 
-1221
-3443
-.22.
+11222211
+12222221
+33444433
+34444443
+..2222..
+...11...
 
-1221
-3443
-..22
+11222211
+12222221
+33444433
+34444443
+....2222
+.....11.
 
-1221
-3443
-.22.
+11222211
+12222221
+33444433
+34444443
+..2222..
+...11...
 '''
 [[slagworm.art.seq]]
 state = "air"
 mode = "once"
 fps = 9.0
 frames = '''
-1221
-3443
-....
+11222211
+12222221
+33444433
+34444443
+........
+........
 
-5445
-4554
-....
+44555544
+55555555
+55555555
+45555554
+........
+........
 '''
+
 
 # --- Mycelith ---------------------------------------------------------------
 # NEW. The Fungal Depths anchor. That layer is dirt rock with acid pockets and
@@ -705,14 +912,16 @@ bands = ["deep"]
 minDepth = 220
 packSize = [1, 2]
 weight = 7.0
-
-# Cap, stalk, roots — the same three-row division as the mushroom blocks it
-# grows among (content/blocks/flora.block), and the palette is lifted from the
-# same family so a mycelith standing still in a fungal chamber is genuinely hard
-# to pick out. The interrupt is the cap going pale and the stalk lifting: it is
-# the spore charge, and it is the only frame in which the silhouette grows.
+# Cap, stalk, roots — the same three-band division as the mushroom blocks it
+# grows among (content/blocks/flora.block), two rows each now, and the palette
+# is lifted from the same family so a mycelith standing still in a fungal
+# chamber is genuinely hard to pick out. The resting cap is a dome with empty
+# corners, which is what finally makes the interrupt's claim true: the cap goes
+# pale and fills those corners while the stalk lifts to tone 3, so the spore
+# charge is the only frame in which the silhouette actually GROWS.
 art.cellsW = 3
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#223018", "#46603a", "#8fbe58", "#d8ff9a", "#f4ffd8"]
 art.fps = 5.0
 [[mycelith.art.seq]]
@@ -721,43 +930,67 @@ mode = "ambient"
 blinkEvery = 3.0
 blinkFor = 0.2
 frames = '''
-343
-.2.
-1.1
+.3443.
+344443
+..22..
+.2222.
+11..11
+11..11
 
-233
-.2.
-1.1
+.3333.
+233332
+..22..
+.2222.
+11..11
+11..11
 
-454
-.3.
-1.1
+455554
+455554
+..33..
+.3333.
+11..11
+11..11
 '''
 [[mycelith.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-343
-.2.
-1..
+.3443.
+344443
+..22..
+.2222.
+11..11
+11....
 
-343
-.2.
-1.1
+.3443.
+344443
+..22..
+.2222.
+11..11
+11..11
 
-343
-.2.
-..1
+.3443.
+344443
+..22..
+.2222.
+11..11
+....11
 
-343
-.2.
-1.1
+.3443.
+344443
+..22..
+.2222.
+11..11
+11..11
 '''
 [[mycelith.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-343
-.2.
-...
+.3443.
+344443
+..22..
+.2222.
+.1..1.
+......
 '''

@@ -80,14 +80,20 @@ drops = [
 bands = ["surface", "shallow"]
 biomes = ["plains", "savanna", "jungle", "swamp", "tundra", "desert"]
 weight = 26.0
-
-# Four pixels, so the shell IS the creature: row 0 is plate, row 1 is legs, and
-# every frame differs only in which of those two is doing something. The added
-# ink tone (1) pulls the legs out of the shell colour they used to share, which
-# is what makes the two rows read as two different materials at this size.
+# Sixteen pixels now, and the shell is still the whole creature: rows 0-1 are
+# the domed plate, row 2 is its shaded rim, row 3 is the leg fringe, and every
+# frame differs only in which of those is doing something. The ink tone (1)
+# still pulls the legs out of the shell, and the added rim tone (5) is what the
+# finer grid earned — a brown darker than the plate but lighter than the leg
+# ink, so the shell can round off underneath without fusing with its own feet.
+# Facing is still carried by the dark-rear-to-lit-front gradient the two-pixel
+# plate had; the notched top corners are the only thing here that is shape
+# rather than shading. It does not glow, so 4 stays exactly what it was — the
+# interrupt, and nothing else.
 art.cellsW = 2
 art.cellsH = 2
-art.pal = [".", "#3a2617", "#6f4a2a", "#a9753d", "#ffd27a"]
+art.grain = 2
+art.pal = [".", "#3a2617", "#6f4a2a", "#a9753d", "#ffd27a", "#4e321c"]
 art.fps = 7.0
 [[grubling.art.seq]]
 state = "idle"
@@ -95,39 +101,61 @@ mode = "ambient"
 blinkEvery = 3.4
 blinkFor = 0.14
 frames = '''
-23
-11
+.33.
+2233
+5555
+1111
 
-22
-11
+.22.
+2222
+5555
+1111
 
-34
-11
+.44.
+3344
+5555
+1111
 '''
+# Contacts still land on the first and third frames, but at this grain the
+# fringe gaps ALTERNATE TEXELS instead of half the creature, so a crawler
+# crawls rather than rocking end to end.
 [[grubling.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-23
-1.
+.33.
+2233
+5555
+1.1.
 
-23
-11
+.33.
+2233
+5555
+1111
 
-23
-.1
+.33.
+2233
+5555
+.1.1
 
-23
-11
+.33.
+2233
+5555
+1111
 '''
-# No jumpSpeed, so this pose only ever means "walked off something".
+# No jumpSpeed, so this pose only ever means "walked off something": the fringe
+# goes entirely and the rim stays, the same tuck the two-pixel version drew by
+# emptying one row.
 [[grubling.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-23
-..
+.33.
+2233
+5555
+....
 '''
+
 
 # --- Critter ----------------------------------------------------------------
 # Small, bright, harmless, panics. fleePx (not aggroPx) is what flips the walker
@@ -152,14 +180,22 @@ drops = [{ item = "hide", count = 1, chance = 0.6 }]
 bands = ["surface"]
 biomes = ["plains", "savanna", "jungle", "swamp", "tundra", "glacier"]
 weight = 22.0
-
-# Head high, body low: column 0 of row 0 is EMPTY in most frames, which is the
-# whole silhouette — a small thing with its head up. The ear coming up (frame 1
-# of the idle) and the nose flaring pink (the interrupt) are the only two things
-# a two-by-two prey animal can say, and they are both alarm.
+# Head high, body low: the top-left QUADRANT is empty in most frames, which is
+# still the entire silhouette — a small thing with its head up. The finer grid
+# buys that head a face it could not have at four pixels: an ink eye (1) at the
+# back of the skull, a muzzle at the front, an ear tip that pricks up as ONE
+# texel above the shoulder line (frame 1 of the idle), and a nose that flares
+# pink across the whole muzzle (the interrupt). Both are still alarm, and they
+# are still the only two things a prey animal this small has to say. The near
+# leg now swings through the four-frame cycle instead of jumping between two
+# cells — extended back on 0, extended forward on 2, under the body on the
+# passes — so the contacts still land on the first and third. The added tone (5)
+# is a fur shade between the mid (2) and the ink (1), so the belly can sit in
+# shadow and the feet still read dark against it.
 art.cellsW = 2
 art.cellsH = 2
-art.pal = [".", "#3a2c22", "#c8b7a0", "#f2e3c8", "#ff9a9a"]
+art.grain = 2
+art.pal = [".", "#3a2c22", "#c8b7a0", "#f2e3c8", "#ff9a9a", "#8a7660"]
 art.fps = 12.0
 [[critter.art.seq]]
 state = "idle"
@@ -167,44 +203,65 @@ mode = "ambient"
 blinkEvery = 2.6
 blinkFor = 0.12
 frames = '''
-.3
-22
+..13
+..33
+2222
+1551
 
-23
-22
+.213
+..33
+2222
+1551
 
-.4
-22
+..13
+..44
+2222
+1551
 '''
 [[critter.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.3
-12
+..13
+..33
+2222
+1555
 
-.3
-22
+..13
+..33
+2222
+5155
 
-.3
-21
+..13
+..33
+2222
+5551
 
-.3
-22
+..13
+..33
+2222
+5515
 '''
 # A bound, not a fall: launch with the feet already gone, then the stretched
-# apex is held until it lands.
+# apex is held until it lands. At this grain the stretch is an actual diagonal —
+# the mass fills the top row and vacates the bottom-rear over two steps instead
+# of one — but it is the same move.
 [[critter.art.seq]]
 state = "air"
 mode = "once"
 fps = 14.0
 frames = '''
-.3
-22
+..13
+..33
+2222
+5555
 
-23
-.2
+2213
+2233
+.222
+..55
 '''
+
 
 # --- Sandworm ---------------------------------------------------------------
 # Travels inside the rock line and erupts. The long beat is the whole design:
@@ -236,15 +293,21 @@ drops = [
 bands = ["surface", "shallow"]
 biomes = ["desert", "savanna", "tundra", "glacier"]
 weight = 10.0
-
-# The back is a fixed banded gradient and the BELLY is what animates: a two-cell
-# contact patch travelling head-to-tail down row 1. That is peristalsis, it is
-# the one gait a legless thing has, and it is far more legible at four cells
-# wide than trying to bend the back. The maw (5) appears only on the idle's
-# interrupt and on the eruption, so seeing red means it is about to matter.
+# The back is a fixed banded gradient and the BELLY is what animates: a contact
+# patch travelling down the underside, four texels of bulge (1) over a two-texel
+# pressed line (6). That is peristalsis, it is the one gait a legless thing has,
+# and at eight texels long you can now see the patch flatten where it takes the
+# worm's weight instead of just switching cells on and off. The finer grid also
+# rounds the tube: row 0 is the lit ridge, row 1 is the same bands one step
+# down, rows 2-3 are the shadowed underside — which is what the added tone (6)
+# is for, a brown below the darkest band so the flank and the belly can sit
+# UNDER the ridge instead of beside it. The maw (5) still appears only on the
+# idle's interrupt and on the eruption, now a two-by-two block filling the head,
+# so seeing red still means it is about to matter.
 art.cellsW = 4
 art.cellsH = 2
-art.pal = [".", "#6b4a24", "#8a6a3c", "#c39a5a", "#e8cf9a", "#ff6b57"]
+art.grain = 2
+art.pal = [".", "#6b4a24", "#8a6a3c", "#c39a5a", "#e8cf9a", "#ff6b57", "#4a3117"]
 art.fps = 8.0
 [[sandworm.art.seq]]
 state = "idle"
@@ -252,42 +315,61 @@ mode = "ambient"
 blinkEvery = 4.2
 blinkFor = 0.18
 frames = '''
-1231
-1..1
+11223311
+66112266
+11....11
+.6....6.
 
-1221
-1..1
+11222211
+66111166
+11....11
+.6....6.
 
-1235
-1..1
+11223355
+66112255
+11....11
+.6....6.
 '''
 [[sandworm.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-1234
-11..
+11223344
+66112233
+1111....
+.66.....
 
-1234
-.11.
+11223344
+66112233
+..1111..
+...66...
 
-1234
-..11
+11223344
+66112233
+....1111
+.....66.
 
-1234
-.11.
+11223344
+66112233
+..1111..
+...66...
 '''
 [[sandworm.art.seq]]
 state = "air"
 mode = "once"
 fps = 10.0
 frames = '''
-1235
-....
+11223355
+66112255
+........
+........
 
-1234
-....
+11223344
+66112233
+........
+........
 '''
+
 
 # --- Frostmite --------------------------------------------------------------
 # The first pack animal: individually trivial (7hp, 5 damage), but packSize 2..4
@@ -320,15 +402,14 @@ biomes = ["glacier", "tundra"]
 packSize = [2, 4]
 weight = 18.0
 
-# A frost spike over a low body — and, deliberately, the game's one
-# finer-grain experiment. `art.grain = 2` packs a 4x4-texel drawing into the
-# same 2x2-CELL, 10x10-px rectangle every other creature draws at one texel per
-# cell. The palette is UNCHANGED and the silhouette language is unchanged, so
-# the only variable on screen is the grain: stand one of these next to a
-# grubling on the same snowfield and the question "does finer art read as
-# pasted onto a chunkier world, or just better?" is answerable by looking.
-# Whatever the answer, it is this field and this creature until a deliberate
-# fleet decision says otherwise — see the schema doc on `grain`.
+# A frost spike over a low body — and the creature the whole fleet's grain
+# decision was made on. This was the game's one `grain = 2` experiment, drawn
+# first so the question "does finer art read as pasted onto a chunkier world,
+# or just better?" could be answered by standing it next to a grubling and
+# looking. The answer was better, the fleet followed, and every creature is at
+# grain 2 now — but the player and the terrain are NOT, deliberately: creatures
+# are small and dense enough to reward the resolution, and the schema doc on
+# `grain` still says what stops the field drifting further.
 #
 # The drawing keeps what the 2x2 version established: the spike dulls and
 # brightens on the breath and flares across the whole crown on the interrupt,
@@ -431,15 +512,27 @@ bands = ["surface", "shallow"]
 biomes = ["jungle", "swamp"]
 packSize = [1, 2]
 weight = 14.0
-
-# The spore sac is the top-centre pixel, and it is the only thing in the sprite
-# that ever changes colour: pale on the interrupt means charged. `move` is a
-# three-frame shuffle rather than a phase cycle because a hopper on the ground
-# is not walking, it is waiting; the real locomotion is the `air` pose, which
-# tucks at launch and SPREADS at the apex and holds there for the whole arc.
+# The spore sac is still the top-centre of the sprite and still the only thing
+# that ever changes colour: 4 over the added 6 at rest, 5 over 4 charged — so
+# the pale no longer just appears on the interrupt, it CLIMBS the bulb. That
+# added tone is a spore green dark enough to shade the sac's underside; four
+# texels of flat 4 is a green square, not a sac. It is the only new entry here,
+# because tone 2 was already in the palette and had never once been drawn, and
+# it is exactly the purple the body wanted under the lit 3. Legs are one texel
+# wide now instead of two, which is the whole reason to draw finer; which of
+# them is folded (1) and which is extended (body colour) is unchanged. It does
+# not glow, so 5 is a pale tone and not a light.
+#
+# `move` is still a three-frame shuffle rather than a phase cycle because a
+# hopper on the ground is not walking, it is waiting; the middle frame drops the
+# top row and squashes the sac flat, which is the same crouch the three-pixel
+# version drew by emptying row 0. The real locomotion is the `air` pose, which
+# tucks to the centre column at launch and SPREADS at the apex and holds there
+# for the whole arc.
 art.cellsW = 3
 art.cellsH = 2
-art.pal = [".", "#2a1b38", "#3a2a4a", "#7a4f9a", "#c8ff7a", "#e8ffb4"]
+art.grain = 2
+art.pal = [".", "#2a1b38", "#3a2a4a", "#7a4f9a", "#c8ff7a", "#e8ffb4", "#8ac24a"]
 art.fps = 7.0
 [[thornhopper.art.seq]]
 state = "idle"
@@ -447,36 +540,52 @@ mode = "ambient"
 blinkEvery = 2.8
 blinkFor = 0.22
 frames = '''
-.4.
-131
+..44..
+..66..
+133331
+122221
 
-.4.
-133
+..44..
+..66..
+133333
+122222
 
-.5.
-131
+..55..
+..44..
+133331
+122221
 '''
 [[thornhopper.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-.4.
-131
+..44..
+..66..
+133331
+122221
 
-...
-331
+......
+..44..
+333331
+222221
 
-.4.
-133
+..44..
+..66..
+133333
+122222
 '''
 [[thornhopper.art.seq]]
 state = "air"
 mode = "once"
 fps = 10.0
 frames = '''
-.4.
-.3.
+..44..
+..66..
+..33..
+..22..
 
-4.4
-333
+44..44
+33..33
+333333
+.2222.
 '''

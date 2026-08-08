@@ -55,14 +55,19 @@ value = 2
 drops = [{ item = "slime_gel", count = [1, 2] }]
 bands = ["shallow", "cavern"]
 weight = 20.0
-
 # A blob has no limbs, so every frame is a change of VOLUME: the idle squashes
 # and rises, and the air pose compresses at launch and stretches at the apex.
-# Two extra palette tones (a dark base, a surface sheen) give it a bottom and a
-# top, which is the only thing that stopped the old two-frame version reading as
-# a green rectangle blinking.
+# `grain = 2` is spent entirely on that, because volume is the only thing this
+# creature can say: the crown now rises a HALF cell and the mass drops into the
+# base without the silhouette jumping a whole world cell, which is what the old
+# 3x2 version could only fake by blanking a row.
+# The palette is UNCHANGED and did not need to change — the dark base (1), the
+# flank (2), the body (3) and the surface sheen (4) were already a four-step
+# vertical ramp with nowhere to put it, and the finer grid is that place: 4 on
+# the crown, 3 through the belly, 1 under the contact edge, every frame.
 art.cellsW = 3
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#1e4a34", "#2c6f4a", "#49b077", "#a8f0c4"]
 art.fps = 6.0
 [[slime.art.seq]]
@@ -71,39 +76,56 @@ mode = "ambient"
 blinkEvery = 3.1
 blinkFor = 0.16
 frames = '''
-.4.
-232
+..44..
+.3443.
+333333
+122221
 
-...
-333
+......
+333333
+333333
+122221
 
-434
-333
+.4444.
+344443
+333333
+122221
 '''
 [[slime.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-...
-333
+......
+333333
+333333
+122221
 
-.4.
-232
+..44..
+.3443.
+233332
+122221
 
-.3.
-333
+..33..
+.3333.
+333333
+122221
 '''
 [[slime.art.seq]]
 state = "air"
 mode = "once"
 fps = 9.0
 frames = '''
-.4.
-.3.
+..44..
+..33..
+.3333.
+.1221.
 
-434
-333
+44..44
+443344
+333333
+122221
 '''
+
 
 # --- Cave bat ---------------------------------------------------------------
 # The only species eligible in every band, so its weight is held down to stop
@@ -130,15 +152,20 @@ drops = [{ item = "bat_wing", count = 1, chance = 0.4 }]
 bands = ["surface", "shallow", "cavern", "deep"]
 nocturnal = true
 weight = 12.0
-
 # A FOUR-frame wingbeat, which is the whole reason this redraw exists: the old
 # two-frame version was up/down with nothing between, so at 14fps it strobed.
 # Up, mid, down, mid gives the beat a direction, and the mid frames use the
-# darker wing tone so the wing reads as edge-on rather than as half-erased.
-# `air` is the dive: wings gone entirely, which is unmistakable against a pose
-# whose whole identity is wings.
+# darker wing tone (2) so the wing reads as edge-on rather than as half-erased.
+# `grain = 2` buys the one thing the 3x2 version could not draw: the down-stroke
+# now goes BELOW the body line instead of stopping level with it, so the beat
+# has travel on both sides of the shoulder rather than only above it. It also
+# finally uses tone 1 — the deepest ink was never painted before, and it is now
+# the tucked feet, so the sprite is lit at the head and dark at the bottom edge.
+# `air` is the dive: wings folded flush to the body, nothing above and nothing
+# below, which is unmistakable against a pose whose whole identity is wings.
 art.cellsW = 3
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#1a1424", "#2a2233", "#4a3d5c", "#ff9a6b"]
 art.fps = 14.0
 [[bat.art.seq]]
@@ -147,38 +174,55 @@ mode = "ambient"
 blinkEvery = 3.6
 blinkFor = 0.12
 frames = '''
-3.3
-.4.
+33..33
+.2332.
+.3443.
+..11..
 
-...
-343
+......
+333333
+.3443.
+..11..
 
-3.3
-.2.
+33..33
+.2332.
+.3223.
+..11..
 '''
 [[bat.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-3.3
-.4.
+3....3
+33..33
+.3443.
+..11..
 
-2.2
-343
+......
+22..22
+.3443.
+..11..
 
-...
-343
+......
+......
+334433
+3.11.3
 
-2.2
-343
+......
+22..22
+.3443.
+..11..
 '''
 [[bat.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-...
-343
+......
+.3333.
+.3443.
+..11..
 '''
+
 
 # --- Stoneback --------------------------------------------------------------
 # The armour test. 8 flat reduction against a PUNCH_DAMAGE of 5 means bare fists
@@ -211,14 +255,20 @@ drops = [
 ]
 bands = ["cavern", "deep"]
 weight = 9.0
-
-# Twelve cells and four of them are legs, so this is the one creature with room
-# for a real quadruped gait: four distinct footfall patterns on row 2 — planted,
-# front pair, passing, rear pair — under a shell that never moves. A heavy thing
-# should look like its mass is being carried, and the way to say that at this
-# grain is that the top two thirds are completely still.
+# Forty-eight texels and twelve of them are legs, so this is the one creature
+# with room for a real quadruped gait — and at `grain = 2` it is a literal one:
+# FOUR separate legs at columns 0, 2, 5 and 7, two rows tall, instead of two leg
+# cells asked to imply four. The four documented footfalls survive intact —
+# planted, front pair, passing, rear pair — with both contacts (frames 0 and 2)
+# putting all four feet on the bottom row, exactly like the player's run.
+# A heavy thing should look like its mass is being carried, and the way to say
+# that is still that the top two thirds are completely still: rows 0..3 are one
+# frozen shell in every `move` frame. The shell is what the finer grid actually
+# improved — a lit crown (4) over a body course (3) over a shaded lower flank
+# (2), which is a carapace curving away from the light rather than a grey bar.
 art.cellsW = 4
 art.cellsH = 3
+art.grain = 2
 art.pal = [".", "#262626", "#3a3a3a", "#6e6e6e", "#8f8f8f", "#b8b8b8"]
 art.fps = 4.0
 [[stoneback.art.seq]]
@@ -227,46 +277,71 @@ mode = "ambient"
 blinkEvery = 5.5
 blinkFor = 0.2
 frames = '''
-.44.
-3333
-1..1
+..4444..
+.444444.
+33333333
+23333332
+1.1..1.1
+1.1..1.1
 
-.44.
-3223
-.11.
+..4444..
+.433334.
+33222233
+23333332
+.11..11.
+.11..11.
 
-.54.
-3333
-1..1
+..5544..
+.454444.
+33333333
+23333332
+1.1..1.1
+1.1..1.1
 '''
 [[stoneback.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.44.
-3333
-1..1
+..4444..
+.444444.
+33333333
+23333332
+1.1..1.1
+1.1..1.1
 
-.44.
-3333
-.1.1
+..4444..
+.444444.
+33333333
+23333332
+1.1...11
+1.1.....
 
-.44.
-3333
-.11.
+..4444..
+.444444.
+33333333
+23333332
+.11..11.
+.11..11.
 
-.44.
-3333
-1.1.
+..4444..
+.444444.
+33333333
+23333332
+.11..1.1
+..1..1.1
 '''
 [[stoneback.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-.44.
-3333
-....
+..4444..
+.444444.
+33333333
+23333332
+1.1..1.1
+........
 '''
+
 
 # --- Cinder moth ------------------------------------------------------------
 # A flyer for the volcanic surface and the hot shallows: it glows, it is immune
@@ -304,13 +379,22 @@ bands = ["surface", "shallow", "cavern"]
 biomes = ["volcanic", "desert", "savanna"]
 nocturnal = true
 weight = 11.0
-
 # The interrupt frame is the fifth palette entry and nothing else in the sprite
 # ever uses it: the wings go white-hot for a tenth of a second, which is the
 # tell that an ember is coming. That is the single most useful thing `ambient`
 # bought this file — a ranged attacker that telegraphs, without a line of code.
+# `grain = 2` makes the tell a FLARE rather than a recolour: the white runs from
+# the tips inward along the membrane (six texels of 5) instead of swapping two
+# cells, and because `glow 0.35` draws a second additive pass from the same
+# tile, those six texels are the ones that actually bloom. Same reason the gold
+# (4) is still rationed to tips and the spread frame — on a glower, brights are
+# spent twice. The extra rows also give the wing real travel: up at row 0, dark
+# and edge-on across the middle, fully spread at the thorax line. No palette
+# change, deliberately — 5 sits at the top of a five-step ramp and any tone
+# appended above or beside it would blunt the one frame that matters.
 art.cellsW = 3
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#3a1408", "#4a1e10", "#ff7a2c", "#ffd68a", "#fff2c8"]
 art.fps = 13.0
 [[cinder_moth.art.seq]]
@@ -319,38 +403,55 @@ mode = "ambient"
 blinkEvery = 2.4
 blinkFor = 0.1
 frames = '''
-4.4
-.3.
+44..44
+.3333.
+..33..
+..11..
 
-2.2
-232
+......
+22..22
+.2332.
+..11..
 
-5.5
-.3.
+55..55
+.5335.
+..33..
+..11..
 '''
 [[cinder_moth.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-4.4
-.3.
+44..44
+.3333.
+..33..
+..11..
 
-2.2
-232
+......
+22..22
+.2332.
+..11..
 
-...
-434
+......
+443344
+..33..
+..11..
 
-2.2
-232
+......
+22..22
+.2332.
+..11..
 '''
 [[cinder_moth.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-...
-434
+......
+443344
+..33..
+..11..
 '''
+
 
 # --- Skeleton ---------------------------------------------------------------
 # NEW, and overdue: the README's whole first sentence about combat is "Defeat
@@ -399,65 +500,106 @@ drops = [
 bands = ["cavern", "deep"]
 packSize = [2, 4]
 weight = 15.0
-
+# Still the DARK MIRROR OF THE PLAYER: same 2x3 body, same head/torso/legs
+# thirds, same four-frame run with contacts on the first and third. `grain = 2`
+# does not change that reading, it just makes each third a real feature — a
+# cranium with a brow, a ribcage that tapers to the pelvis, and two legs that
+# actually swing instead of one leg cell sliding side to side. The near leg is
+# drawn in bone (2) and the far one in shadow (1), which is what tells the two
+# contacts apart at four texels wide and gives the walk a direction.
+# ONE tone appended, index 5: a near-black bone shadow for the eye sockets. The
+# old darkest tone (1) is the leg/shadow bone and reads as grey against the
+# skull, so a socket drawn in it was a smudge; 5 makes the skull a skull, and it
+# is what the red interrupt below now swaps out of. It is used for nothing else.
 art.cellsW = 2
 art.cellsH = 3
-art.pal = [".", "#6e6a5c", "#b8b098", "#e4dcc4", "#ff5a4a"]
+art.grain = 2
+art.pal = [".", "#6e6a5c", "#b8b098", "#e4dcc4", "#ff5a4a", "#3a382f"]
 art.fps = 8.0
 # The eye kindling red is the interrupt, and it is the same event as the
 # sentinel's optic: on the two creatures in the game that shoot at you, the
-# ambient tell means "it has seen you".
+# ambient tell means "it has seen you". At this grain it is two sockets going
+# red rather than a whole skull, which is a smaller change on screen and a much
+# louder one to read.
 [[skeleton.art.seq]]
 state = "idle"
 mode = "ambient"
 blinkEvery = 2.9
 blinkFor = 0.14
 frames = '''
-.3
-22
-11
+.333
+.535
+2222
+1221
+1..2
+1..2
 
-.3
-21
-11
+.333
+.535
+2222
+1111
+1..2
+1..2
 
-.4
-22
-11
+.333
+.434
+2222
+1221
+1..2
+1..2
 '''
 [[skeleton.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.3
-22
-1.
+.333
+.535
+2222
+1221
+1..2
+1..2
 
-.3
-22
-11
+.333
+.535
+2222
+1221
+.1.2
+...2
 
-.3
-22
-.1
+.333
+.535
+2222
+1221
+2..1
+2..1
 
-.3
-22
-11
+.333
+.535
+2222
+1221
+.2.1
+...1
 '''
 [[skeleton.art.seq]]
 state = "air"
 mode = "once"
 fps = 10.0
 frames = '''
-.3
-22
-.1
+.333
+.535
+2222
+1221
+...2
+...2
 
-.3
-23
-..
+.333
+.535
+2233
+1233
+.12.
+....
 '''
+
 
 # --- Glimmerback ------------------------------------------------------------
 # NEW. The Geode Hollows creature. That layer is the one with `veinRich` and
@@ -496,13 +638,20 @@ drops = [
 bands = ["cavern", "deep"]
 minDepth = 120
 weight = 8.0
-
-# Crystal on top, animal underneath. The spine is the only part that changes in
-# the idle and the body is the only part that changes in the walk, so the two
-# poses never compete — and `glow 0.4` means the spine survives the darkness
-# mask, which is what makes one of these visible across an unlit geode chamber.
+# Crystal on top, animal underneath. The spine is still the only part that
+# changes in the idle and the feet are the only part that changes in the walk,
+# so the two poses never compete — and `glow 0.4` means the spine survives the
+# darkness mask, which is what makes one of these visible across an unlit geode
+# chamber. `grain = 2` is what turns that spine from a lit cell into a growth: a
+# jagged two-row cluster over the shoulders, bare over the head, that dulls to
+# body tone (3) on the breath and then floods the whole crown with a white core
+# (5) on the interrupt. Because the glow pass redraws the same tile additively,
+# widening the flare rather than brightening one pixel is the cheap way to make
+# it carry. The walk also gets a real gait out of the extra columns: the loaded
+# foot goes to deep violet (1) and TRAVELS, instead of one body cell darkening.
 art.cellsW = 3
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#2e2450", "#5a4a92", "#a888e8", "#e8d8ff", "#ffffff"]
 art.fps = 5.0
 [[glimmerback.art.seq]]
@@ -511,38 +660,55 @@ mode = "ambient"
 blinkEvery = 3.8
 blinkFor = 0.16
 frames = '''
-.4.
-323
+.4.4..
+.44433
+333333
+.2..2.
 
-.3.
-323
+.3.3..
+.33333
+333333
+.2..2.
 
-454
-323
+445544
+445533
+333333
+.2..2.
 '''
 [[glimmerback.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.4.
-123
+.4.4..
+.44433
+333333
+1...2.
 
-.4.
-323
+.4.4..
+.44433
+333333
+.2..2.
 
-.4.
-321
+.4.4..
+.44433
+333333
+.2...1
 
-.4.
-323
+.4.4..
+.44433
+333333
+.2..2.
 '''
 [[glimmerback.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-.4.
-.3.
+.4.4..
+.44433
+.33333
+..22..
 '''
+
 
 # --- Gulper -----------------------------------------------------------------
 # NEW. The Flooded Grottos creature. That layer has caveScale 1.35 and a
@@ -580,14 +746,21 @@ bands = ["shallow", "cavern"]
 minDepth = 20
 maxDepth = 220
 weight = 10.0
-
-# The dorsal fin is a single lit pixel that TRAVELS head to tail across the four
-# move frames while the body tones alternate underneath it. That is an
-# undulation rather than a flap, and it is what distinguishes a swimmer from the
-# bat at a glance even though both are flyers holding a height. The maw (5)
-# appears on the idle interrupt and on the lunge, nowhere else.
+# The dorsal fin is a lit crest that TRAVELS head to tail across the four move
+# frames while the body tones alternate underneath it. That is an undulation
+# rather than a flap, and it is what distinguishes a swimmer from the bat at a
+# glance even though both are flyers holding a height. At `grain = 2` the wave
+# under the crest is a real one: a dark trough slides along the flank two texels
+# behind the fin every frame, so the alternation has a direction instead of
+# being an every-other-frame flicker. The extra rows are what finally make this
+# a fish and not a bar — a forked tail at the left, a shaded belly under a lit
+# back, and an eye (1), which is the tone the 4x2 version never painted.
+# The maw (5) appears on the idle interrupt and on the lunge, nowhere else. The
+# two are no longer the same picture: the tell is the jaw PARTING, two texels at
+# the mouth line, and the lunge opens it up through the whole head.
 art.cellsW = 4
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#1e4450", "#3f7f8c", "#6fb0c0", "#bfeaf2", "#ff8a6b"]
 art.fps = 9.0
 [[gulper.art.seq]]
@@ -596,35 +769,51 @@ mode = "ambient"
 blinkEvery = 3.2
 blinkFor = 0.14
 frames = '''
-.44.
-2332
+..4444..
+2.333133
+22333333
+2.22222.
 
-.34.
-2332
+..3344..
+2.333133
+22333333
+2.22222.
 
-.44.
-2335
+..4444..
+2.333133
+22333355
+2.222255
 '''
 [[gulper.art.seq]]
 state = "move"
 mode = "loop"
 frames = '''
-4...
-2332
+44......
+2.333133
+22223333
+2.22222.
 
-.4..
-3223
+..44....
+2.333133
+22322333
+2.22222.
 
-..4.
-2332
+....44..
+2.333133
+22332233
+2.22222.
 
-...4
-3223
+......44
+2.333133
+22333223
+2.22222.
 '''
 [[gulper.art.seq]]
 state = "air"
 mode = "hold"
 frames = '''
-.44.
-2335
+..4444..
+2.333155
+22333555
+2.222555
 '''
