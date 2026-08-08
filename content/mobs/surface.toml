@@ -320,12 +320,23 @@ biomes = ["glacier", "tundra"]
 packSize = [2, 4]
 weight = 18.0
 
-# A frost spike over a low body. The spike dulls and brightens on the breath and
-# flares across both columns on the interrupt, so a LINE of these twinkles out
-# of step with itself — which is what makes a pack read as several animals
-# rather than as one animal drawn four times.
+# A frost spike over a low body — and, deliberately, the game's one
+# finer-grain experiment. `art.grain = 2` packs a 4x4-texel drawing into the
+# same 2x2-CELL, 10x10-px rectangle every other creature draws at one texel per
+# cell. The palette is UNCHANGED and the silhouette language is unchanged, so
+# the only variable on screen is the grain: stand one of these next to a
+# grubling on the same snowfield and the question "does finer art read as
+# pasted onto a chunkier world, or just better?" is answerable by looking.
+# Whatever the answer, it is this field and this creature until a deliberate
+# fleet decision says otherwise — see the schema doc on `grain`.
+#
+# The drawing keeps what the 2x2 version established: the spike dulls and
+# brightens on the breath and flares across the whole crown on the interrupt,
+# so a LINE of these twinkles out of step with itself — which is what makes a
+# pack read as several animals rather than as one animal drawn four times.
 art.cellsW = 2
 art.cellsH = 2
+art.grain = 2
 art.pal = [".", "#2a5570", "#3c6f8a", "#7fd4e8", "#eaffff"]
 art.fps = 11.0
 [[frostmite.art.seq]]
@@ -334,41 +345,59 @@ mode = "ambient"
 blinkEvery = 2.2
 blinkFor = 0.1
 frames = '''
-.4
-32
+..3.
+..33
+2332
+1221
 
-.3
-32
+..4.
+..43
+2332
+1221
 
-44
-32
+.44.
+4334
+2332
+1221
 '''
 [[frostmite.art.seq]]
 state = "move"
 mode = "phase"
 frames = '''
-.4
-31
+..3.
+..32
+2332
+12.1
 
-.4
-32
+..4.
+..32
+2332
+1221
 
-.4
-13
+..3.
+..32
+2332
+1.21
 
-.4
-32
+..4.
+..32
+2332
+.221
 '''
 [[frostmite.art.seq]]
 state = "air"
 mode = "once"
 fps = 12.0
 frames = '''
-.4
-33
+....
+..33
+2332
+.12.
 
-44
-.3
+.4.4
+.433
+2332
+....
 '''
 
 # --- Thornhopper ------------------------------------------------------------

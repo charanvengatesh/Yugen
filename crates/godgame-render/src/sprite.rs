@@ -309,6 +309,11 @@ pub struct SeqSpec {
 pub struct SpriteArt {
     pub cells_w: u32,
     pub cells_h: u32,
+    /// Art pixels per world cell, per axis. 1 everywhere except an experiment:
+    /// the drawn rect stays `cells * CELL_SIZE` world px, so a grain of 2 packs
+    /// four texels into every cell of the SAME silhouette. See the schema's
+    /// field doc for why this exists and why it must not quietly spread.
+    pub grain: u32,
     /// `"#rrggbb"` per entry. Index 0 is the transparent slot and is never parsed
     /// — content writes `"."` there, and every existing art table does.
     pub pal: &'static [&'static str],
@@ -644,10 +649,13 @@ type TileGrid = Vec<Vec<Vec<u32>>>;
 /// [`BakedSprite::new`] returns — see the module header.
 #[derive(Clone, Debug)]
 pub struct BakedSprite {
-    /// Art grid width in cells. One texel per cell; see the module header.
+    /// Art grid width in cells. `grain` texels per cell; see the module header.
     pub cells_w: u32,
     /// Art grid height in cells.
     pub cells_h: u32,
+    /// Art pixels per cell, per axis. 1 for everything except a finer-grain
+    /// experiment; the TEXEL dimensions of every tile are `cells * grain`.
+    pub grain: u32,
     /// Art rect width in world px. For a mob this is also exactly the collision
     /// box.
     pub w_px: f32,
@@ -751,7 +759,13 @@ impl BakedSprite {
                         Some(t) => *t,
                         None => {
                             let name = format!("{who}.{:?}[{f}]", art.poses[s]);
-                            let px = bake_frame(frame, &pal, art.cells_w, art.cells_h, &name)?;
+                            let px = bake_frame(
+                                frame,
+                                &pal,
+                                art.cells_w * art.grain,
+                                art.cells_h * art.grain,
+                                &name,
+                            )?;
                             let t = tile_pixels.len() as u32;
                             tile_pixels.push(px);
                             cache.insert(key, t);
@@ -768,11 +782,18 @@ impl BakedSprite {
         Ok(BakedSprite {
             cells_w: art.cells_w,
             cells_h: art.cells_h,
+            grain: art.grain,
+            // The DRAWN rect is cells, not texels: a finer grain packs more
+            // texels into the same world rectangle, which is the entire point.
             w_px: (art.cells_w * CELL_SIZE as u32) as f32,
             h_px: (art.cells_h * CELL_SIZE as u32) as f32,
             variants: art.variants,
             bake_count: tile_pixels.len(),
-            pixels: assemble_strip(&tile_pixels, art.cells_w, art.cells_h),
+            pixels: assemble_strip(
+                &tile_pixels,
+                art.cells_w * art.grain,
+                art.cells_h * art.grain,
+            ),
             tiles,
             specs: art.seqs.clone(),
             poses: art.poses.clone(),
@@ -870,7 +891,10 @@ impl BakedSprite {
 
     /// The atlas texture size in texels.
     pub fn atlas_size(&self) -> UVec2 {
-        UVec2::new(self.cells_w * self.bake_count as u32, self.cells_h)
+        UVec2::new(
+            self.cells_w * self.grain * self.bake_count as u32,
+            self.cells_h * self.grain,
+        )
     }
 
     /// Variants are assigned from entity ids and hashes, so wrap rather than
@@ -926,7 +950,7 @@ impl BakedSprite {
     /// The atlas layout: `bake_count` tiles across, one down.
     pub fn layout(&self) -> TextureAtlasLayout {
         TextureAtlasLayout::from_grid(
-            UVec2::new(self.cells_w, self.cells_h),
+            UVec2::new(self.cells_w * self.grain, self.cells_h * self.grain),
             self.bake_count as u32,
             1,
             None,
@@ -935,7 +959,8 @@ impl BakedSprite {
     }
 }
 
-/// Rasterise one frame at one texel per cell, into a fresh RGBA8 tile.
+/// Rasterise one frame into a fresh RGBA8 tile. The dimensions arrive in
+/// TEXELS — `cells * grain` — and a frame's text must match them exactly.
 fn bake_frame(
     frame: &Frame,
     pal: &[[u8; 3]],
@@ -1128,6 +1153,11 @@ pub trait ContentArt {
     type Seq: ContentSeq + 'static;
     fn cells_w(&self) -> i32;
     fn cells_h(&self) -> i32;
+    /// Art pixels per world cell. Default 1 — the invariant — so a host whose
+    /// compiled record predates the field, or never authors it, is unchanged.
+    fn grain(&self) -> i32 {
+        1
+    }
     fn pal(&self) -> &'static [&'static str];
     /// The sprite-wide rate a sequence's `fps: 0` inherits.
     fn fps(&self) -> f32;
@@ -1157,6 +1187,9 @@ impl ContentSeq for SpriteSeq {
 }
 
 impl ContentArt for SpriteDef {
+    fn grain(&self) -> i32 {
+        self.grain
+    }
     type Seq = SpriteSeq;
     fn cells_w(&self) -> i32 {
         self.cells_w
@@ -1200,6 +1233,9 @@ impl ContentSeq for MobSpecSeq {
 }
 
 impl ContentArt for MobSpecArt {
+    fn grain(&self) -> i32 {
+        self.grain.unwrap_or(1)
+    }
     type Seq = MobSpecSeq;
     fn cells_w(&self) -> i32 {
         self.cells_w
@@ -1289,13 +1325,16 @@ pub fn sprite_art_from_content<A: ContentArt>(
         });
     }
     let (cells_w, cells_h) = (cw as u32, ch as u32);
+    // Clamped by the schema to 1..4; a 0 from a hand-built record would divide
+    // the art out of existence, so it is floored here too.
+    let grain = art.grain().max(1) as u32;
 
     let mut poses = Vec::new();
     let mut seqs = Vec::new();
 
     for s in art.seq() {
         let pose = s.pose();
-        let frames = split_frames(s.frames(), cells_h, &format!("{who}.{pose:?}"))?;
+        let frames = split_frames(s.frames(), cells_h * grain, &format!("{who}.{pose:?}"))?;
         if frames.is_empty() {
             return Err(SpriteError::EmptySequence {
                 who: who.to_string(),
@@ -1328,6 +1367,7 @@ pub fn sprite_art_from_content<A: ContentArt>(
     Ok(SpriteArt {
         cells_w,
         cells_h,
+        grain,
         pal: art.pal(),
         variants: opts
             .variants
@@ -1564,6 +1604,7 @@ mod tests {
         SpriteArt {
             cells_w: 2,
             cells_h: 2,
+            grain: 1,
             pal: &[".", "#102030", "#ff8000"],
             variants: 1,
             poses: vec![Pose::Idle],
@@ -2141,6 +2182,7 @@ mod tests {
             blink_for: 0.0,
         };
         SpriteArt {
+            grain: 1,
             cells_w: 2,
             cells_h: 2,
             pal: &[".", "#102030", "#ff8000"],
@@ -2308,6 +2350,38 @@ mod tests {
     }
 
     #[test]
+    fn a_finer_grain_packs_more_texels_into_the_same_world_rect() {
+        // The frostmite is the game's one grain-2 experiment (see its art
+        // comment). Both halves of the invariant it bends are asserted: the
+        // TEXELS double per axis, and the DRAWN rect does not move a pixel --
+        // the whole point is more resolution inside the same silhouette, and a
+        // grain that changed w_px would be a resize wearing an experiment's
+        // name.
+        let spec = godgame_data::mobs::MOBS
+            .iter()
+            .find(|m| m.id == "frostmite")
+            .expect("the frostmite exists");
+        let mob_art = spec.art.as_ref().expect("frostmite has art");
+        let art = sprite_art_from_content(mob_art, "frostmite", &FromContentOpts::default())
+            .expect("frostmite art builds");
+        assert_eq!(art.grain, 2, "the experiment's knob is set");
+        let baked = BakedSprite::new(&art, "frostmite").expect("frostmite bakes");
+        assert_eq!(
+            baked.atlas_size().y,
+            mob_art.cells_h as u32 * 2,
+            "texel height is cells * grain"
+        );
+        assert_eq!(
+            (baked.w_px, baked.h_px),
+            (
+                (mob_art.cells_w * CELL_SIZE) as f32,
+                (mob_art.cells_h * CELL_SIZE) as f32,
+            ),
+            "the drawn rect is still cells * CELL_SIZE -- grain must never touch it"
+        );
+    }
+
+    #[test]
     fn mob_art_bakes_through_the_same_bridge_as_the_sprite_table() {
         // The reason `ContentArt` is a trait: the identical schema fragment is
         // printed under two names, and binding the bridge to one would make it
@@ -2346,6 +2420,7 @@ mod tests {
         // `MobSpecArt` makes `seq` optional, so this is a shape the tables can
         // actually hold — and a sprite with no sequences has nothing to draw.
         let art = MobSpecArt {
+            grain: None,
             cells_w: 2,
             cells_h: 2,
             pal: &[".", "#102030"],

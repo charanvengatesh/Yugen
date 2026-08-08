@@ -77,6 +77,17 @@ pub struct SpriteDef {
     /// Art grid height in world cells. Every frame must have exactly this many
     /// rows.
     pub cells_h: i32,
+    /// Art pixels per world cell, per axis. 1 — the default, and the rule
+    /// everywhere — is ONE ART PIXEL IS ONE WORLD CELL. 2 doubles the art
+    /// resolution inside the SAME world rectangle: the grid is still `cellsW` x
+    /// `cellsH` CELLS, the drawn rect and every collision quantity are untouched,
+    /// but each frame row is `cellsW * grain` characters and there are `cellsH *
+    /// grain` rows. A finer-grained sprite is drawn on a finer grid than the
+    /// terrain it stands on, which is exactly the mismatch the invariant exists
+    /// to prevent — so this is an EXPERIMENT'S knob, not a default to drift
+    /// toward. It exists so one creature can be redrawn finer and judged against
+    /// its neighbours in a picture before any fleet-wide decision.
+    pub grain: i32,
     /// Palette, "#rrggbb" per index. Index 0 is the transparent slot and is
     /// written "." — it is never painted, so its value is a placeholder, not a
     /// colour. Frame characters are digits indexing this list.
@@ -163,6 +174,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "Player",
         cells_w: 4,
         cells_h: 5,
+        grain: 1,
         pal: &[
             ".", "#1b1220", "#3ec8b4", "#21877e", "#ffcf5c", "#ff6b57", "#fff3c4", "#14564f",
             "#e8913a",
@@ -310,6 +322,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_block_cube",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#5c5c66", "#8a8a95", "#b4b4c0", "#dcdce6"],
         fps: 8.0,
         variants: 1,
@@ -331,6 +344,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pick_traveler",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#553a22", "#8a6238", "#4e463c", "#6e6458", "#a89a86", "#3e2c1a",
             "#c4b8a4",
@@ -355,6 +369,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pick_copper",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#553a22", "#8a6238", "#7a4324", "#a35f36", "#e08a52", "#3e2c1a",
             "#ffc48a",
@@ -379,6 +394,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pick_iron",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#553a22", "#8a6238", "#5c5856", "#7e7a78", "#c8c4c0", "#3e2c1a",
             "#eceaea",
@@ -403,6 +419,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pick_gold",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#553a22", "#8a6238", "#7e5f18", "#b08a2e", "#f0d878", "#3e2c1a",
             "#fff6c0",
@@ -427,6 +444,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pick_gem",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#38202c", "#5c3a4a", "#6e2048", "#8e2f5e", "#e878b4", "#2a1620",
             "#ffd8f0",
@@ -451,6 +469,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_sword_traveler",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a2a1a", "#5a4630", "#8a8e96", "#c2c6ce", "#7d6a48", "#f2f6ff",
         ],
@@ -474,6 +493,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_sword_king",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a2c12", "#5c4820", "#c8a63e", "#f2dc94", "#9a7420", "#fff6cc",
             "#e0508c",
@@ -498,6 +518,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bow",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#6b4420", "#a5713a", "#d8c898"],
         fps: 8.0,
         variants: 1,
@@ -519,6 +540,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_sling",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#cdbb95", "#7a6c50", "#b8a884", "#9a9894"],
         fps: 8.0,
         variants: 1,
@@ -540,6 +562,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_arrow",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#7a5a2e", "#a0783f", "#9a98a2", "#6e6c74", "#b8b096", "#d8cfae",
         ],
@@ -563,6 +586,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_arrow_iron",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#7a5a2e", "#a0783f", "#dfe3eb", "#9aa0a8", "#b8b096", "#d8cfae",
         ],
@@ -586,6 +610,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_ore_copper",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#7a4526", "#c2703f", "#f09a5e",
         ],
@@ -609,6 +634,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_ore_iron",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#6e7682", "#aab2be", "#eaf0f6",
         ],
@@ -632,6 +658,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_ore_gold",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a3733", "#5e5a55", "#807a72", "#8a6a20", "#c8a038", "#f0d878",
             "#fff6c0",
@@ -656,6 +683,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_coal",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#26232c", "#3d3848", "#565064", "#7a7290"],
         fps: 8.0,
         variants: 1,
@@ -677,6 +705,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bar_copper",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6b3c1f", "#a35f36", "#c2703f", "#e08a52", "#f7b478",
         ],
@@ -700,6 +729,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bar_iron",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#4e535c", "#7c828c", "#a6acb6", "#ced4de", "#f0f4fa",
         ],
@@ -723,6 +753,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bar_gold",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6e5218", "#b08a2e", "#d0a838", "#f0d878", "#ffeaa0", "#fff6c0",
         ],
@@ -746,6 +777,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_gem",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#52123a", "#6e1e46", "#b8407e", "#e878b4", "#f0a0d0", "#ffe6f6",
         ],
@@ -769,6 +801,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_crystal_shard",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#322558", "#4a3a7a", "#6e52b0", "#8e6ce0", "#cfb4ff", "#f4ecff",
         ],
@@ -792,6 +825,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_flint",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#2e2c34", "#4e4c56", "#7a7884", "#b0aeba"],
         fps: 8.0,
         variants: 1,
@@ -813,6 +847,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_flask_fire",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#43384a", "#877a90", "#a83a14", "#e8763a", "#ffc06a", "#ffe8b0",
             "#7a5230",
@@ -837,6 +872,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_flask_light",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#4a3f5c", "#8f82a8", "#7a52a8", "#b48ad8", "#f0d8ff", "#fcf2ff",
             "#7a5230", "#3a2a52",
@@ -861,6 +897,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_flask_haste",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3f3a52", "#7e7898", "#5e4a92", "#8a72b8", "#cfc0f0", "#efe6ff",
             "#7a5230",
@@ -885,6 +922,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bandage",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#8a7a5c", "#a89878", "#d8d2c0", "#efe9dc"],
         fps: 8.0,
         variants: 1,
@@ -906,6 +944,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_stew",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#4a3a2c", "#6a5240", "#8a6a50", "#8a4e2a", "#b06a3c", "#d8935c",
             "#e8b878",
@@ -930,6 +969,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_roast",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#5c3620", "#9a5e34", "#c88a52", "#e6a86c", "#e4dcc4", "#b0a68c",
         ],
@@ -953,6 +993,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_cake",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#5e4478", "#8a6aa8", "#a888c0", "#d8b8f0", "#f2e2ff",
         ],
@@ -976,6 +1017,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_torch",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#5a3a20", "#7a5230", "#c85a1c", "#ff9a3a", "#ffd67e", "#a3521a",
         ],
@@ -999,6 +1041,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_lantern",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6e5418", "#c8a03c", "#e8a82e", "#ffdc88", "#fff8d8", "#8a6418",
         ],
@@ -1022,6 +1065,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_campfire",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#4e3018", "#7a4a2a", "#c04a12", "#ff9a3c", "#ffd070", "#8f3f0e",
         ],
@@ -1045,6 +1089,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_ladder",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#8a6234", "#c8a068"],
         fps: 8.0,
         variants: 1,
@@ -1066,6 +1111,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_rope",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#7d6640", "#a08858", "#d8c098"],
         fps: 8.0,
         variants: 1,
@@ -1087,6 +1133,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_platform",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#6a4a24", "#8a6234", "#c09050"],
         fps: 8.0,
         variants: 1,
@@ -1108,6 +1155,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_chest",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#4e3316", "#7a5228", "#a06e38", "#b8901f", "#e8c85a",
         ],
@@ -1131,6 +1179,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pearl",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6e6a84", "#9a94b0", "#c8c2d8", "#eae6f4", "#ffffff",
         ],
@@ -1154,6 +1203,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_pearl_shard",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6e6a84", "#9a94b0", "#c8c2d8", "#eae6f4", "#ffffff",
         ],
@@ -1177,6 +1227,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_bone",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#b0a68c", "#e4dcc4", "#f6f0dc"],
         fps: 8.0,
         variants: 1,
@@ -1198,6 +1249,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_scrap",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#454c5a", "#6e7686", "#b0b8c8", "#e2e8f2"],
         fps: 8.0,
         variants: 1,
@@ -1219,6 +1271,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_core_ember",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#5c1c08", "#8a3010", "#e86a20", "#ffc060", "#fff0c0", "#4a1c0c",
         ],
@@ -1242,6 +1295,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_core_frozen",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#1e4058", "#3a6a90", "#6ab0e0", "#a8dcf6", "#eafaff", "#142c44",
         ],
@@ -1265,6 +1319,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_gel",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#2e6640", "#4e9a62", "#8ee0a0", "#c8f6d4"],
         fps: 8.0,
         variants: 1,
@@ -1286,6 +1341,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_chitin",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#4a3c26", "#6e5a3c", "#a8895c", "#d0ae78"],
         fps: 8.0,
         variants: 1,
@@ -1307,6 +1363,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_hide",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#4a3626", "#6e523a", "#a07a52", "#c49a6c"],
         fps: 8.0,
         variants: 1,
@@ -1328,6 +1385,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_wing",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#3a2e3e", "#5a4a5e", "#9a86a2", "#c2b0c8"],
         fps: 8.0,
         variants: 1,
@@ -1349,6 +1407,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_dust",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#8a7a4e", "#b8a878", "#f0e2b0"],
         fps: 8.0,
         variants: 1,
@@ -1370,6 +1429,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_sac",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#45285e", "#6a4a86", "#b088d0", "#e8d4ff"],
         fps: 8.0,
         variants: 1,
@@ -1391,6 +1451,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_meat",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#6e3a3e", "#a86868", "#d89a94", "#eec4bc", "#f2ddc8",
         ],
@@ -1414,6 +1475,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_sapling",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3a2a18", "#6a4a2c", "#4e8a34", "#7ac04e", "#a8e070", "#8a6a44",
         ],
@@ -1437,6 +1499,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_anvil",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#33353a", "#4c4e54", "#72767e", "#b4b8c0"],
         fps: 8.0,
         variants: 1,
@@ -1458,6 +1521,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_furnace",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[
             ".", "#16121e", "#3e3c3a", "#5a5856", "#7a7674", "#c8601c", "#ffb04a", "#7e3a10",
         ],
@@ -1481,6 +1545,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_workbench",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#6a4a26", "#9a703e", "#c49a5c"],
         fps: 8.0,
         variants: 1,
@@ -1502,6 +1567,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_chitin_plate",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#4a3c24", "#6a5838", "#8a7450", "#c0a870"],
         fps: 8.0,
         variants: 1,
@@ -1523,6 +1589,7 @@ pub static SPRITES: [SpriteDef; 56] = [
         name: "icon_hide_jerkin",
         cells_w: 8,
         cells_h: 8,
+        grain: 1,
         pal: &[".", "#16121e", "#4e3620", "#6a4c30", "#8c6a44", "#c2a074"],
         fps: 8.0,
         variants: 1,

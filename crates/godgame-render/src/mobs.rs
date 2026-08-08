@@ -279,6 +279,7 @@ const _: () = assert!(
 /// [`POSE_FALLBACK`] is applied to every creature, and a fallback naming a
 /// sequence that does not exist is a construction error.
 static REMOVED_ART: MobSpecArt = MobSpecArt {
+    grain: None,
     cells_w: 1,
     cells_h: 1,
     pal: &[".", "#ff00ff"],

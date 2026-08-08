@@ -19,7 +19,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | `content/blocks/` | 8 | 56 | 40 |
 | `content/items/` | 8 | 84 | 32 |
-| `content/mobs/` | 3 | 20 | 51 |
+| `content/mobs/` | 3 | 20 | 52 |
 | `content/sprites/` | 2 | 56 | 12 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
@@ -310,7 +310,7 @@ only the exported surface is held to the rule.
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `EPS` (private) | `1e-4` | Slack used to keep a box that ends exactly on a cell boundary out of the next cell along. | 55 |
-| `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 84 |
+| `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 88 |
 
 ### `crates/godgame-core/src/script.rs`
 
@@ -900,7 +900,7 @@ only the exported surface is held to the rule.
 | `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 190 |
 | `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 192 |
 | `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 199 |
-| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 325 |
+| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 326 |
 
 ### `crates/godgame-render/src/particles.rs`
 

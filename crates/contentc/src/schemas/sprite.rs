@@ -146,6 +146,33 @@ pub fn sprite_art_fields(opts: SpriteArtOpts) -> Vec<(String, Field)> {
                 .check(cells),
         ),
         (
+            format!("{p}grain"),
+            Field::new("int")
+                .doc(
+                    "Art pixels per world cell, per axis. 1 — the default, and the \
+                     rule everywhere — is ONE ART PIXEL IS ONE WORLD CELL. 2 doubles \
+                     the art resolution inside the SAME world rectangle: the grid is \
+                     still `cellsW` x `cellsH` CELLS, the drawn rect and every \
+                     collision quantity are untouched, but each frame row is \
+                     `cellsW * grain` characters and there are `cellsH * grain` rows. \
+                     A finer-grained sprite is drawn on a finer grid than the terrain \
+                     it stands on, which is exactly the mismatch the invariant \
+                     exists to prevent — so this is an EXPERIMENT'S knob, not a \
+                     default to drift toward. It exists so one creature can be \
+                     redrawn finer and judged against its neighbours in a picture \
+                     before any fleet-wide decision.",
+                )
+                .default_int(1)
+                .check(|v| {
+                    let n = v.as_num().unwrap_or(0.0);
+                    if (1.0..=4.0).contains(&n) {
+                        None
+                    } else {
+                        Some("must be 1..4".to_string())
+                    }
+                }),
+        ),
+        (
             format!("{p}pal"),
             Field::new("list<string>")
                 .doc(

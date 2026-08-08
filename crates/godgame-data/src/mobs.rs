@@ -129,6 +129,17 @@ pub struct MobSpecArt {
     /// Art grid height in world cells. Every frame must have exactly this many
     /// rows.
     pub cells_h: i32,
+    /// Art pixels per world cell, per axis. 1 — the default, and the rule
+    /// everywhere — is ONE ART PIXEL IS ONE WORLD CELL. 2 doubles the art
+    /// resolution inside the SAME world rectangle: the grid is still `cellsW` x
+    /// `cellsH` CELLS, the drawn rect and every collision quantity are untouched,
+    /// but each frame row is `cellsW * grain` characters and there are `cellsH *
+    /// grain` rows. A finer-grained sprite is drawn on a finer grid than the
+    /// terrain it stands on, which is exactly the mismatch the invariant exists
+    /// to prevent — so this is an EXPERIMENT'S knob, not a default to drift
+    /// toward. It exists so one creature can be redrawn finer and judged against
+    /// its neighbours in a picture before any fleet-wide decision.
+    pub grain: Option<i32>,
     /// Palette, "#rrggbb" per index. Index 0 is the transparent slot and is
     /// written "." — it is never painted, so its value is a placeholder, not a
     /// colour. Frame characters are digits indexing this list.
@@ -319,6 +330,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#3a2617", "#6f4a2a", "#a9753d", "#ffd27a"],
             fps: Some(7.0),
             variants: Some(1),
@@ -392,6 +404,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#3a2c22", "#c8b7a0", "#f2e3c8", "#ff9a9a"],
             fps: Some(12.0),
             variants: Some(1),
@@ -472,6 +485,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 4,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#6b4a24", "#8a6a3c", "#c39a5a", "#e8cf9a", "#ff6b57"],
             fps: Some(8.0),
             variants: Some(1),
@@ -547,6 +561,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 2,
+            grain: Some(2),
             pal: &[".", "#2a5570", "#3c6f8a", "#7fd4e8", "#eaffff"],
             fps: Some(11.0),
             variants: Some(1),
@@ -557,7 +572,10 @@ pub static MOBS: [MobSpec; 20] = [
                     fps: 0.0,
                     blink_every: 2.2,
                     blink_for: 0.1,
-                    frames: &[".4", "32", "", ".3", "32", "", "44", "32"],
+                    frames: &[
+                        "..3.", "..33", "2332", "1221", "", "..4.", "..43", "2332", "1221", "",
+                        ".44.", "4334", "2332", "1221",
+                    ],
                 },
                 MobSpecSeq {
                     state: MobSpecSeqState::Move,
@@ -565,7 +583,10 @@ pub static MOBS: [MobSpec; 20] = [
                     fps: 0.0,
                     blink_every: 0.0,
                     blink_for: 0.1,
-                    frames: &[".4", "31", "", ".4", "32", "", ".4", "13", "", ".4", "32"],
+                    frames: &[
+                        "..3.", "..32", "2332", "12.1", "", "..4.", "..32", "2332", "1221", "",
+                        "..3.", "..32", "2332", "1.21", "", "..4.", "..32", "2332", ".221",
+                    ],
                 },
                 MobSpecSeq {
                     state: MobSpecSeqState::Air,
@@ -573,7 +594,9 @@ pub static MOBS: [MobSpec; 20] = [
                     fps: 12.0,
                     blink_every: 0.0,
                     blink_for: 0.1,
-                    frames: &[".4", "33", "", "44", ".3"],
+                    frames: &[
+                        "....", "..33", "2332", ".12.", "", ".4.4", ".433", "2332", "....",
+                    ],
                 },
             ]),
         }),
@@ -625,6 +648,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#2a1b38", "#3a2a4a", "#7a4f9a", "#c8ff7a", "#e8ffb4"],
             fps: Some(7.0),
             variants: Some(1),
@@ -698,6 +722,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#1e4a34", "#2c6f4a", "#49b077", "#a8f0c4"],
             fps: Some(6.0),
             variants: Some(1),
@@ -776,6 +801,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#1a1424", "#2a2233", "#4a3d5c", "#ff9a6b"],
             fps: Some(14.0),
             variants: Some(1),
@@ -863,6 +889,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 4,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#262626", "#3a3a3a", "#6e6e6e", "#8f8f8f", "#b8b8b8"],
             fps: Some(4.0),
             variants: Some(1),
@@ -958,6 +985,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#3a1408", "#4a1e10", "#ff7a2c", "#ffd68a", "#fff2c8"],
             fps: Some(13.0),
             variants: Some(1),
@@ -1040,6 +1068,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 4,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#241a3c", "#3b2a5c", "#6b4fa0", "#a688e0", "#c9a6ff"],
             fps: Some(5.0),
             variants: Some(1),
@@ -1119,6 +1148,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#2c6070", "#3f7f8c", "#9ef2ff", "#e6ffff"],
             fps: Some(4.0),
             variants: Some(1),
@@ -1203,6 +1233,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#2b1a18", "#7a3320", "#ff8a3c", "#ffe08a", "#fff6d0"],
             fps: Some(9.0),
             variants: Some(1),
@@ -1301,6 +1332,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#2a2f38", "#3a3f4a", "#6b7488", "#9fe8ff", "#ff5a4a"],
             fps: Some(6.0),
             variants: Some(1),
@@ -1391,6 +1423,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#1e3418", "#2f4a2a", "#7fb04a", "#d8ff9a", "#f2ffd8"],
             fps: Some(7.0),
             variants: Some(1),
@@ -1476,6 +1509,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 2,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#6e6a5c", "#b8b098", "#e4dcc4", "#ff5a4a"],
             fps: Some(8.0),
             variants: Some(1),
@@ -1559,6 +1593,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#2e2450", "#5a4a92", "#a888e8", "#e8d8ff", "#ffffff"],
             fps: Some(5.0),
             variants: Some(1),
@@ -1641,6 +1676,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 4,
             cells_h: 2,
+            grain: Some(1),
             pal: &[".", "#1e4450", "#3f7f8c", "#6fb0c0", "#bfeaf2", "#ff8a6b"],
             fps: Some(9.0),
             variants: Some(1),
@@ -1728,6 +1764,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#24282f", "#4a5260", "#8a94a6", "#d8e0ec", "#ff5a4a"],
             fps: Some(6.0),
             variants: Some(1),
@@ -1823,6 +1860,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 4,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#2a120a", "#6b2410", "#d84a14", "#ff9a34", "#ffe27a"],
             fps: Some(6.0),
             variants: Some(1),
@@ -1919,6 +1957,7 @@ pub static MOBS: [MobSpec; 20] = [
         art: Some(MobSpecArt {
             cells_w: 3,
             cells_h: 3,
+            grain: Some(1),
             pal: &[".", "#223018", "#46603a", "#8fbe58", "#d8ff9a", "#f4ffd8"],
             fps: Some(5.0),
             variants: Some(1),
