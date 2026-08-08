@@ -58,6 +58,22 @@ growth.onto = ["empty"]
 growth.downward = true
 growth.maxGen = 12
 
+# ---- WHY EVERY CANOPY IS ONE-WAY -------------------------------------------
+# `collides = false` + `oneWay = true` on all four leaf blocks, and it is a
+# movement fix, not a flora opinion. Pine branches alternate sides at
+# alternating heights, which makes every tree a spiral staircase of 1-cell
+# steps -- and step-up (the thing that lets a body walk over rubble) treats a
+# staircase as a ramp it can take at one cell per stride. Measured before this
+# change: a body walking into a pine CLIMBED it, 10 cells in 42 frames, with no
+# jump pressed; walkers did the same on patrol, because `turn_on_wall` only
+# fires when the mover reports BLOCKED and step-up prevents "blocked". Dense
+# canopy also formed sheer 10-cell walls, which is why a quarter of seeds spawned
+# the player into a pocket it could not walk out of.
+#
+# One-way keeps what solid foliage was buying: you can still LAND on a canopy
+# and stand there, still climb a tree by jumping. What it removes is the
+# sideways wall and the staircase -- a walking body passes through leaves, which
+# is what leaves are.
 [leaves]
 name = "Leaves"
 state = "solid"
@@ -66,7 +82,8 @@ colorVar = 30
 texture = "fibrous"
 edge = 60
 density = 0.5
-collides = true
+collides = false
+oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -85,7 +102,8 @@ colorVar = 24
 texture = "fibrous"
 edge = 60
 density = 0.5
-collides = true
+collides = false
+oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -104,7 +122,8 @@ colorVar = 32
 texture = "fibrous"
 edge = 60
 density = 0.5
-collides = true
+collides = false
+oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -122,7 +141,8 @@ colorVar = 32
 texture = "fibrous"
 edge = 60
 density = 0.5
-collides = true
+collides = false
+oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]

@@ -1462,14 +1462,14 @@ pub static BLOCKS: [BlockDef; 56] = [
         color_var: 30,
         emissive: 0.0,
         density: 0.5,
-        collides: true,
+        collides: false,
         liquid_spread: 0,
         texture: BlockTexture::Fibrous,
         shimmer: 0,
         edge: 60,
         surface: None,
         climb: None,
-        one_way: None,
+        one_way: Some(true),
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1505,14 +1505,14 @@ pub static BLOCKS: [BlockDef; 56] = [
         color_var: 24,
         emissive: 0.0,
         density: 0.5,
-        collides: true,
+        collides: false,
         liquid_spread: 0,
         texture: BlockTexture::Fibrous,
         shimmer: 0,
         edge: 60,
         surface: None,
         climb: None,
-        one_way: None,
+        one_way: Some(true),
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1548,14 +1548,14 @@ pub static BLOCKS: [BlockDef; 56] = [
         color_var: 32,
         emissive: 0.0,
         density: 0.5,
-        collides: true,
+        collides: false,
         liquid_spread: 0,
         texture: BlockTexture::Fibrous,
         shimmer: 0,
         edge: 60,
         surface: None,
         climb: None,
-        one_way: None,
+        one_way: Some(true),
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -1587,14 +1587,14 @@ pub static BLOCKS: [BlockDef; 56] = [
         color_var: 32,
         emissive: 0.0,
         density: 0.5,
-        collides: true,
+        collides: false,
         liquid_spread: 0,
         texture: BlockTexture::Fibrous,
         shimmer: 0,
         edge: 60,
         surface: None,
         climb: None,
-        one_way: None,
+        one_way: Some(true),
         container: None,
         damage: None,
         flammable: Some(BlockFlammable {
@@ -2449,7 +2449,7 @@ pub static MAT_DENSITY: [f32; 56] = [
 /// 1 = blocks the player.
 pub static MAT_COLLIDE: [u8; 56] = [
     0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+    1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
 ];
 
 /// Liquid horizontal reach.
@@ -2490,7 +2490,7 @@ pub static MAT_CLIMB: [u8; 56] = [
 /// 1 = collides only from above.
 pub static MAT_ONEWAY: [u8; 56] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+    0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
 ];
 
 /// 1 = opening yields loot.

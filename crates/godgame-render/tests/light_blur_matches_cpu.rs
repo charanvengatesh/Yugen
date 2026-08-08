@@ -624,7 +624,26 @@ fn the_shader_reproduces_the_cpu_blur() {
 fn a_fused_triangle_would_be_wrong_at_the_border() {
     let view = view();
     let (lw, lh, field) = unblurred_field(view);
-    let (_, dequantised) = quantised(&field);
+    let (_, mut dequantised) = quantised(&field);
+
+    // A bright one-texel ring on the outermost edge, stamped AFTER the real
+    // field is built. The border disagreement this control exists to show only
+    // appears when bright content sits inside the blur margin of the edge, and
+    // this test used to get that for free from the worldgen window -- canopy
+    // skylight made the border sharp. Then the canopy stopped being solid, the
+    // skylight flooded through it, the border went flat, and the control's gap
+    // collapsed from 10.3 8-bit steps to 1.6: the fault injection almost
+    // stopped injecting, because its fault was borrowed from CONTENT. A control
+    // must construct what it demonstrates. This ring is that construction, and
+    // it is immune to every future change in what a block is made of.
+    for y in 0..lh {
+        for x in 0..lw {
+            if x == 0 || y == 0 || x == lw - 1 || y == lh - 1 {
+                let at = ((y * lw + x) * 4) as usize;
+                dequantised[at..at + 4].copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
+            }
+        }
+    }
 
     let reference = cpu_blur(&dequantised, lw, lh);
     let fused = fused_triangle(&dequantised, lw, lh);
