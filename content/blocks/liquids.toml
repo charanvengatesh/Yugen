@@ -69,3 +69,32 @@ hardness = inf
 tags = ["liquid", "hazard"]
 heat.conduct = 46
 heat.cool = 2
+
+# Tar: the viscosity system's extreme case, and the deep world's burnable
+# hazard. Skips six moves in seven and spreads one cell at a time, so a tar
+# fall is a slow black rope and a tar pool barely levels; denser than water, so
+# it sinks through a pool and coats the floor of it. Long-burning when lit —
+# the fire keeps the wake alive, per `update_fire` — which is what makes a tar
+# seam a decision rather than scenery: light it and the gallery burns for a
+# long time.
+# ramp: earth.0-adjacent, near-black with a warm cast so it reads against oil
+# (which is browner and floats where this sinks).
+[tar]
+name = "Tar"
+state = "liquid"
+color = [18, 14, 11]
+colorVar = 12
+texture = "flat"
+edge = 45
+density = 1.2
+liquidSpread = 2
+viscosity = 0.85
+hardness = 0.4
+blastResist = 0.4
+tags = ["liquid", "diggable"]
+flammable.igniteChance = 0.10
+flammable.burnTime = 220
+flammable.burnsInto = "smoke"
+heat.conduct = 25
+heat.igniteAt = 90
+drop = [{ item = "tar_glob", count = 1 }]

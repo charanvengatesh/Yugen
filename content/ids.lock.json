@@ -55,7 +55,9 @@
     "chest": 52,
     "anvil": 53,
     "furnace": 54,
-    "workbench": 55
+    "workbench": 55,
+    "mist": 56,
+    "tar": 57
   },
   "feature": {
     "floating_island": 0,
@@ -150,7 +152,8 @@
     "furnace": 80,
     "workbench": 81,
     "chitin_plate": 82,
-    "hide_jerkin": 83
+    "hide_jerkin": 83,
+    "tar_glob": 84
   },
   "mob": {
     "grubling": 0,

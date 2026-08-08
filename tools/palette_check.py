@@ -24,7 +24,10 @@ import sys
 import tomllib
 
 # Gases never occupy a rim or occlusion class, so `edge` does nothing for them.
-GASES = {"fire", "ember", "smoke", "steam"}
+# Derived from each block's own `state` rather than a name list -- a hardcoded
+# set silently flagged the first gas added after it was written.
+def is_gas(rec):
+    return rec.get("state") == "gas"
 # A flame has no meaningful rim either.
 E1 = {"fire", "ember", "lava", "torch", "campfire", "lantern"}
 # The rock every ore is embedded in. I5 is measured against it.
@@ -85,7 +88,7 @@ def main():
 
     # I4 -- total internal form is 0.1998*edge, so edge 8 is 1.6 RGB of shape.
     bad = sorted(
-        ((k, edge(v)) for k, v in blocks.items() if k not in GASES and k not in E1 and edge(v) < 40),
+        ((k, edge(v)) for k, v in blocks.items() if not is_gas(v) and k not in E1 and edge(v) < 40),
         key=lambda x: x[1],
     )
     if bad:

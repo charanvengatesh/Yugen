@@ -54,3 +54,18 @@ hardness = inf
 tags = ["gas"]
 heat.conduct = 28
 heat.cool = 3
+
+# Mist: the hanging gas. Steam is an EVENT — water met something hot and the
+# plume is the report. Mist is a PLACE: it pools in low wet air, lives three
+# times as long as steam, and beads back into water far more readily, so a
+# misty gallery stays misty and its floor stays damp. Cool and dim where steam
+# is bright: mist is what you walk into, not what erupts at you.
+[mist]
+name = "Mist"
+state = "gas"
+color = [94, 106, 116]
+colorVar = 14
+texture = "flat"
+density = 0.08
+hardness = 0.0
+tags = ["gas"]

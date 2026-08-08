@@ -80,6 +80,7 @@ use super::rng::SimRng;
 const WATER: CellId = block::WATER;
 const STEAM: CellId = block::STEAM;
 const SMOKE: CellId = block::SMOKE;
+const MIST: CellId = block::MIST;
 const FIRE: CellId = block::FIRE;
 const LAVA: CellId = block::LAVA;
 
@@ -87,10 +88,14 @@ const LAVA: CellId = block::LAVA;
 const FIRE_LIFE: u16 = 30;
 const SMOKE_LIFE: u16 = 120;
 const STEAM_LIFE: u16 = 140;
+/// Mist hangs. It is the long-lived gas — a gallery that filled overnight
+/// should still be misty when the player walks in, not gone in two seconds.
+const MIST_LIFE: u16 = 420;
 
 // Tunable chances (per tick) for the stochastic bits of gas/fire behaviour.
 const GAS_WANDER: f64 = 0.35; // sideways drift when a gas can't rise
 const STEAM_CONDENSE: f64 = 0.008; // steam collapsing back to water on expiry
+const MIST_CONDENSE: f64 = 0.05; // mist beads into water far more readily
 const FIRE_SMOKE: f64 = 0.06; // fire puffing smoke upward
 const LAVA_IGNITE: f64 = 0.04; // lava lighting an adjacent flammable
 
@@ -811,10 +816,19 @@ impl Sweep<'_> {
         let i = self.grid.idx(x, y);
         // Seed the lifetime the first time we see this gas cell (aux still 0).
         if self.grid.aux[i] == 0 {
-            self.grid.aux[i] = if id == STEAM { STEAM_LIFE } else { SMOKE_LIFE };
+            self.grid.aux[i] = match id {
+                STEAM => STEAM_LIFE,
+                MIST => MIST_LIFE,
+                _ => SMOKE_LIFE,
+            };
         }
         if self.tick_down(i) == 0 {
-            if id == STEAM && self.rng.chance(STEAM_CONDENSE) {
+            let condense = match id {
+                STEAM => STEAM_CONDENSE,
+                MIST => MIST_CONDENSE,
+                _ => 0.0,
+            };
+            if condense > 0.0 && self.rng.chance(condense) {
                 self.grid.set(x, y, WATER);
             } else {
                 self.grid.set(x, y, EMPTY);
@@ -841,13 +855,30 @@ impl Sweep<'_> {
     }
 
     /// Move a gas cell into empty air or displace a denser fluid above it.
+    ///
+    /// The second clause was a lie for the whole life of this file: the doc
+    /// promised it, the body only accepted `EMPTY`, and a steam pocket sealed
+    /// under a water pool stayed sealed forever — the `steam-under-water`
+    /// scenario in the sim bench was written against the PROMISE and printed
+    /// FAIL until this landed. The displacement test is `EMPTY`-first and only
+    /// then density, because `MAT_DENSITY[0]` is 1.0 (the schema default), so
+    /// a bare density compare would happily "displace" air and hide the empty
+    /// fast path. Only LIQUIDS are displaced: a gas bubbling through another
+    /// gas is churn nobody can see, and powders above a gas are resting on it.
     fn rise_into(&mut self, x: i32, y: i32, tx: i32, ty: i32) -> bool {
         if tx < 0 || ty < 0 || tx >= self.cols || ty >= self.rows {
             return false;
         }
         let ti = (ty * self.cols + tx) as usize;
-        if self.grid.material[ti] != EMPTY {
-            return false;
+        let target = self.grid.material[ti];
+        if target != EMPTY {
+            let i = (y * self.cols + x) as usize;
+            let self_id = self.grid.material[i] as usize;
+            let is_liquid = BEH[target as usize] >> BEH_STATE_SHIFT
+                == MaterialState::Liquid as u8;
+            if !(is_liquid && MAT_DENSITY[target as usize] > MAT_DENSITY[self_id]) {
+                return false;
+            }
         }
         self.grid.swap(x, y, tx, ty);
         self.grid.flags[ti].insert(CellFlags::MOVED);
