@@ -1,0 +1,17 @@
+[package]
+name = "yugen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The binary: Bevy app, scene state, input, and the wiring between sim and render."
+
+[dependencies]
+yugen-core.workspace = true
+yugen-data.workspace = true
+yugen-render.workspace = true
+bevy.workspace = true
+
+[[bin]]
+name = "yugen"
+path = "src/main.rs"

@@ -1,4 +1,4 @@
-# godgame-rs
+# Yūgen
 
 An infinite falling-sand sandbox. A native Rust port of the TypeScript/Canvas2D
 original, on Bevy and wgpu.
@@ -12,21 +12,21 @@ cargo run --release
 ```
 content/               authored TOML       ->  compiled by crates/contentc
    |
-crates/godgame-data/   generated tables        (never edited by hand)
+crates/yugen-data/   generated tables        (never edited by hand)
    |
-crates/godgame-core/   the simulation          (no Bevy, no wgpu, no window)
+crates/yugen-core/   the simulation          (no Bevy, no wgpu, no window)
    |
-crates/godgame-render/ every draw pass
+crates/yugen-render/ every draw pass
    |
-crates/godgame/        the binary
+crates/yugen/        the binary
 xtask/                 the repo gates
 ```
 
-The arrow points one way. `godgame-core` reads `godgame-data`; nothing in
+The arrow points one way. `yugen-core` reads `yugen-data`; nothing in
 `crates/` writes to `content/`. That is what makes adding a block a content
 change rather than a code change.
 
-`godgame-core` carries no Bevy, no wgpu and no windowing. That boundary is
+`yugen-core` carries no Bevy, no wgpu and no windowing. That boundary is
 load-bearing: it keeps the simulation headless-testable and means the worldgen
 purity suite and the benches never link a renderer.
 
@@ -51,11 +51,11 @@ the primary documentation; the files above are the map to them.
 | `cargo run --release` | play it |
 | `cargo xtask check` | the full gate — run this before committing |
 | `cargo test --workspace` | everything, including the parity suites |
-| `cargo run -p contentc` | recompile `content/` into `godgame-data` |
+| `cargo run -p contentc` | recompile `content/` into `yugen-data` |
 | `cargo run -p contentc -- --check` | fail if the generated tables are stale |
 | `cargo bench` | the worldgen and sim benchmarks |
 
-Never hand-edit anything under `crates/godgame-data/src/` — edit `content/` and
+Never hand-edit anything under `crates/yugen-data/src/` — edit `content/` and
 recompile.
 
 ### Running it headless
@@ -98,7 +98,7 @@ Two rules:
   mobs are appended above the boundary; they cannot renumber or overwrite what is
   below. This is what makes new content possible — the suites used to assert an
   exact record count, and one new block failed three of them.
-- **Blessing is deliberate.** `GODGAME_BLESS=1 cargo test -p godgame-data --test
+- **Blessing is deliberate.** `YUGEN_BLESS=1 cargo test -p yugen-data --test
   registry_golden` rewrites a baseline and leaves the diff to read. It is never
   how a red test is made green: if one goes red and you did not mean to move
   anything, the code is wrong.

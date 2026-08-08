@@ -38,7 +38,7 @@ pub fn find_root() -> Result<Layout> {
                 root: dir.to_path_buf(),
                 content: dir.join("content"),
                 lock: dir.join("content").join("ids.lock.json"),
-                data_src: dir.join("crates").join("godgame-data").join("src"),
+                data_src: dir.join("crates").join("yugen-data").join("src"),
             });
         }
         match dir.parent() {
@@ -149,12 +149,12 @@ pub fn run() -> Result<RunResult> {
         warnings.extend(result.warnings);
         counts.push((kind.schema.kind.clone(), result.count));
         files.push((
-            format!("crates/godgame-data/src/{}.rs", kind.out),
+            format!("crates/yugen-data/src/{}.rs", kind.out),
             result.source,
         ));
     }
 
-    files.push(("crates/godgame-data/src/lib.rs".to_string(), lib_rs(&all)));
+    files.push(("crates/yugen-data/src/lib.rs".to_string(), lib_rs(&all)));
 
     // Format the generated Rust before anyone compares it to disk.
     //
@@ -214,7 +214,7 @@ fn rustfmt(source: &str) -> String {
     }
 }
 
-/// `godgame-data`'s root module. Generated too, so adding a kind is still one
+/// `yugen-data`'s root module. Generated too, so adding a kind is still one
 /// row in `schemas::kinds()`.
 fn lib_rs(all: &[Kind]) -> String {
     let mut out = String::new();
@@ -227,9 +227,7 @@ fn lib_rs(all: &[Kind]) -> String {
     out.push_str(
         "//! The arrow points one way: `content/` describes what things ARE, this crate\n",
     );
-    out.push_str(
-        "//! is the compiled form of that, and `godgame-core` reads it and never writes\n",
-    );
+    out.push_str("//! is the compiled form of that, and `yugen-core` reads it and never writes\n");
     out.push_str("//! it. That is what makes adding a block a content change rather than a code\n");
     out.push_str("//! change.\n\n");
     for kind in all {

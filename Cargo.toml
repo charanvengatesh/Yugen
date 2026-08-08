@@ -2,10 +2,10 @@
 resolver = "3"
 members = [
     "crates/contentc",
-    "crates/godgame-data",
-    "crates/godgame-core",
-    "crates/godgame-render",
-    "crates/godgame",
+    "crates/yugen-data",
+    "crates/yugen-core",
+    "crates/yugen-render",
+    "crates/yugen",
     "xtask",
 ]
 
@@ -16,9 +16,9 @@ rust-version = "1.93"
 license = "MIT"
 
 [workspace.dependencies]
-godgame-data = { path = "crates/godgame-data" }
-godgame-core = { path = "crates/godgame-core" }
-godgame-render = { path = "crates/godgame-render" }
+yugen-data = { path = "crates/yugen-data" }
+yugen-core = { path = "crates/yugen-core" }
+yugen-render = { path = "crates/yugen-render" }
 
 bevy = "0.19"
 bitflags = "2"

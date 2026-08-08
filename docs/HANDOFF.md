@@ -38,10 +38,10 @@ sub-agents, one file or module each. Practical consequences for a reviewer:
 | Toolchain | pinned by `rust-toolchain.toml` |
 | Tests | **943 passing**, 0 failing |
 | `unsafe` | **zero** (the one grep hit is the literal string in `contentc`'s Rust-keyword list) |
-| `#[allow]` | 10, all pre-existing in `sim/worldgen`, `sim/decor`, `contentc`, generated data. `godgame-render` and `xtask` have none |
+| `#[allow]` | 10, all pre-existing in `sim/worldgen`, `sim/decor`, `contentc`, generated data. `yugen-render` and `xtask` have none |
 | Source | ~84k lines across six crates |
 
-The original was at `../GodGame` (TypeScript). **It is no longer a reference for
+The original was at `../Yūgen` (TypeScript). **It is no longer a reference for
 anything.** Five test suites still carry fixtures dumped from it; they have been
 renamed to `*_golden` and are now baselines of this project against itself. See
 §6.
@@ -50,14 +50,14 @@ renamed to `*_golden` and are now baselines of this project against itself. See
 
 ```
 crates/contentc        content compiler: TOML -> generated Rust tables   (6.8k)
-crates/godgame-data    the generated tables. Never hand-edit.           (10.0k)
-crates/godgame-core    sim, entities, physics, items. NO BEVY.          (33.7k)
-crates/godgame-render  every Bevy-facing thing                          (31.0k)
-crates/godgame         the binary: window, CLI flags                    (0.4k)
+crates/yugen-data    the generated tables. Never hand-edit.           (10.0k)
+crates/yugen-core    sim, entities, physics, items. NO BEVY.          (33.7k)
+crates/yugen-render  every Bevy-facing thing                          (31.0k)
+crates/yugen         the binary: window, CLI flags                    (0.4k)
 xtask                  the gate runner and the tuning index             (2.0k)
 ```
 
-The dependency arrow is one-way and `godgame-core` **may not know what a
+The dependency arrow is one-way and `yugen-core` **may not know what a
 `KeyCode` is**. That is the load-bearing constraint. What falls out of it:
 
 - the sim is testable headlessly and benchable without a GPU;
@@ -127,7 +127,7 @@ Three `Arc<Mutex<_>>` types went with it. See §9.1 and `ARCHITECTURE.md` §3.
 A's method. In a single-schedule game, an `Arc<Mutex<_>>` is usually a borrow
 that has not been threaded far enough.
 
-`crates/godgame-render/src/glue.rs` is the composition root and its header states
+`crates/yugen-render/src/glue.rs` is the composition root and its header states
 the principle. When you add a cross-module dependency, put it there.
 
 ## 5. Running and debugging
@@ -142,7 +142,7 @@ cargo run --release -- --screenshot out.png --warmup 400
 cargo run --release -- --edit dig 0 20 6 --screenshot out.png
 ```
 
-**Build release before launching the binary directly.** `./target/release/godgame`
+**Build release before launching the binary directly.** `./target/release/yugen`
 does not rebuild. This cost real time during development: the binary sat frozen
 at an older milestone while every test passed, because the tests build their own.
 `cargo run` avoids it entirely.
@@ -154,7 +154,7 @@ armour**, Enter/Space leaves the menu, **`F3` shows the debug panel.**
 
 ### The F3 panel — read this before adding a `println!`
 
-`crates/godgame-render/src/debug.rs`. Frame time, seed, focus, cell, chunk,
+`crates/yugen-render/src/debug.rs`. Frame time, seed, focus, cell, chunk,
 depth, the resolved biome and underground layer with their weights, the mob
 count, banked XP, and the material / wall plane / solved light under the pointer
 — or under the CAMERA FOCUS when there is no pointer, which is what makes it
@@ -180,7 +180,7 @@ milestones. The panel is the cheapest instrument that would have shown all three
 ### Saving: `--world DIR`
 
 Without it nothing is durable, which is what every milestone up to this one did.
-With it, `godgame_core::sim::save` puts each edited chunk in its own ~8 KB file
+With it, `yugen_core::sim::save` puts each edited chunk in its own ~8 KB file
 under `DIR/chunks/`, and the hole you dug is there when you come back.
 
 `ChunkPersistence`'s doc has said since the port that "there is no durable save
@@ -208,8 +208,8 @@ which is headless and needs no renderer. To check the whole path instead, dig
 with a script and reload in a fresh process:
 
 ```
-godgame --play --world /tmp/w --script scenarios/dig-a-shaft.txt --warmup 300 --dump-state a.json
-godgame --play --world /tmp/w --warmup 300 --dump-state b.json     # a second process
+yugen --play --world /tmp/w --script scenarios/dig-a-shaft.txt --warmup 300 --dump-state a.json
+yugen --play --world /tmp/w --warmup 300 --dump-state b.json     # a second process
 ```
 
 Compare `cells` by ABSOLUTE coordinate — the window moves between runs, so
@@ -288,7 +288,7 @@ cargo run --release -- --play --script scenarios/dig-a-shaft.txt \
 ```
 
 `--script` is a verb-per-line file (`right 2s`, `jump`, `aim 0 20`, `dig 3s`,
-`hold punch 1s`, `wait 90f`) parsed by `godgame_core::script`. `--dump-state`
+`hold punch 1s`, `wait 90f`) parsed by `yugen_core::script`. `--dump-state`
 writes what the simulation believes — player, inventory, creatures, clock, and a
 21x21 block of both cell planes around the body — as JSON.
 
@@ -316,7 +316,7 @@ above was confirmed to have removed exactly the two cells it aimed at.
 
 ### Scenarios are gated, and the scene path is shared
 
-`crates/godgame-render/src/scene.rs` owns `StartAt`, `StartupEdit` and
+`crates/yugen-render/src/scene.rs` owns `StartAt`, `StartupEdit` and
 `arrange_the_scene`. It used to live in the binary, which meant a scenario proved
 at a terminal could never become a gate: an integration test would have had to
 reimplement it, including three orderings that took three attempts to get right.
@@ -342,7 +342,7 @@ Two things to know before adding one:
 ### Jumping straight to a situation: `--at`, `--time`, `--edit`
 
 ```
-godgame --play --at 0,900 --edit dig 0 0 12 --time 0.5 --warmup 300 --screenshot cave.png
+yugen --play --at 0,900 --edit dig 0 0 12 --time 0.5 --warmup 300 --screenshot cave.png
 ```
 
 That is a lit chamber 900 px underground at noon, in three flags. It is the
@@ -372,9 +372,9 @@ Three rigs, in increasing order of how much they tell you:
 
 ```
 cargo xtask check                                          # all five gates
-cargo test -p godgame-render --test frame_capture -- --nocapture
-cargo test -p godgame-render --test lit_scene -- --nocapture
-cargo bench -p godgame-core -p godgame-render
+cargo test -p yugen-render --test frame_capture -- --nocapture
+cargo test -p yugen-render --test lit_scene -- --nocapture
+cargo bench -p yugen-core -p yugen-render
 ```
 
 **`frame_capture`** boots the whole plugin group headlessly with `WinitPlugin`
@@ -396,7 +396,7 @@ one was built and thrown away three times before it was kept.
 
 ### When something looks wrong on screen
 
-Bisect by plugin. `GodGameRenderPlugin` in `lib.rs` is a `PluginGroup`; comment
+Bisect by plugin. `YugenRenderPlugin` in `lib.rs` is a `PluginGroup`; comment
 one out and re-capture. That is how the smooth-glow complaint was traced to the
 light grid rather than the bloom (§7.3).
 
@@ -439,13 +439,13 @@ one is new:
 - A baseline going red when you did not mean to move anything means the CODE is
   wrong. That has not changed.
 - Changing a baseline is a deliberate act with a diff to read
-  (`GODGAME_BLESS=1 cargo test -p godgame-data --test registry_golden`), in its
+  (`YUGEN_BLESS=1 cargo test -p yugen-data --test registry_golden`), in its
   own commit. It is never how a red test is made green.
 - **New:** the baseline is a PREFIX. New blocks, items, mobs, sprites and
   structures are appended above the boundary and are not compared; they cannot
   renumber or overwrite anything below it. Before this, the suites asserted an
   exact record count and a single new block failed three of them, which is why
-  the game could not grow. `crates/godgame-data/tests/registry_golden.rs` has the
+  the game could not grow. `crates/yugen-data/tests/registry_golden.rs` has the
   argument in full.
 
 ## 7. Findings
@@ -690,7 +690,7 @@ This was the largest item in `docs/PERF.md` for three milestones: the blur is
 measured against a whole frame, and **reverted**.
 
 **The finding is worth more than the change would have been.** A new instrument,
-`crates/godgame-render/tests/frame_cost.rs`, times whole headless frames. Three
+`crates/yugen-render/tests/frame_cost.rs`, times whole headless frames. Three
 builds, interleaved on a quiet machine, medians:
 
 | build | median | vs base |

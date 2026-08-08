@@ -1,0 +1,43 @@
+[package]
+name = "yugen-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The engine: config, cell sim, worldgen, entities, physics, items. No Bevy, no wgpu, no windowing."
+
+[dependencies]
+yugen-data.workspace = true
+bitflags.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+# `preserve_order` so the golden blessers write keys back in the order the
+# fixtures already use. Without it serde_json sorts them and a bless reorders
+# every chunk key, which hides the handful of lines that actually moved.
+serde_json = { version = "1", features = ["preserve_order"] }
+# Test-only, for the `Serialize` trait the golden-baseline blesser needs to drive
+# a `PrettyFormatter` at the fixtures' own one-space indent. The runtime
+# dependency list above is deliberately short and this does not touch it.
+serde = "1"
+
+# The worldgen microbench is a criterion binary, not a libtest one: chunk
+# generation is measured in microseconds and libtest's timer cannot see it.
+[[bench]]
+name = "worldgen"
+harness = false
+
+# The automata's hot loop. Criterion for the same reason, and for one this bench
+# needs more: a sim tick is sub-millisecond, the whole question is where it sits
+# against a 16.6 ms budget, and that wants a confidence interval rather than a
+# single stopwatch reading.
+[[bench]]
+name = "sim"
+harness = false
+
+# The streaming window shift, against the ordinary tick it has to hide behind.
+# Two benchmarks whose RATIO is the answer, so both have to come off one timer.
+[[bench]]
+name = "window"
+harness = false

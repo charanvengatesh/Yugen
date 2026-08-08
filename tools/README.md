@@ -45,7 +45,7 @@ Diff two `--dump-state` JSONs. The workflow it serves is: run a scenario twice
 with one thing changed, and read off what that change did.
 
 ```
-./target/release/godgame --play --script scenarios/dig-a-shaft.txt \
+./target/release/yugen --play --script scenarios/dig-a-shaft.txt \
     --warmup 300 --dump-state /tmp/dug.json
 python3 tools/statediff.py /tmp/nodig.json /tmp/dug.json
 ```
@@ -74,7 +74,7 @@ than reporting zero.
 The ASCII map is there because the count cannot tell a dug shaft from a
 landslide and the shape can.
 
-Material names are parsed out of `crates/godgame-data/src/blocks.rs` at run
+Material names are parsed out of `crates/yugen-data/src/blocks.rs` at run
 time. A table copied in here would go stale the first time a block was added,
 and would fail no gate while doing it. Unknown codes print as numbers.
 

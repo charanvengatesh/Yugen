@@ -11,7 +11,7 @@
 #
 # ---- ADDRESSING THE UNDERGROUND LAYERS -------------------------------------
 # `biomes` names a SURFACE biome, and the six underground layers in
-# crates/godgame-core/src/sim/biomes.rs (caverns, grottos, magma, geode, fungal,
+# crates/yugen-core/src/sim/biomes.rs (caverns, grottos, magma, geode, fungal,
 # rime) are chosen from their own climate field at their own frequency — so a
 # Desert can sit on top of flooded grottos and nothing in a `biomes` list can
 # express "down there".

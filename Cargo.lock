@@ -2885,49 +2885,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "godgame"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "godgame-core",
- "godgame-data",
- "godgame-render",
-]
-
-[[package]]
-name = "godgame-core"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.13.1",
- "criterion",
- "godgame-data",
- "rayon",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "godgame-data"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.13.1",
- "serde_json",
-]
-
-[[package]]
-name = "godgame-render"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bitflags 2.13.1",
- "criterion",
- "godgame-core",
- "godgame-data",
- "serde_json",
- "wgpu",
-]
-
-[[package]]
 name = "gpu-allocator"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6230,6 +6187,49 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "synstructure",
+]
+
+[[package]]
+name = "yugen"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "yugen-core",
+ "yugen-data",
+ "yugen-render",
+]
+
+[[package]]
+name = "yugen-core"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.1",
+ "criterion",
+ "rayon",
+ "serde",
+ "serde_json",
+ "yugen-data",
+]
+
+[[package]]
+name = "yugen-data"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.1",
+ "serde_json",
+]
+
+[[package]]
+name = "yugen-render"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bitflags 2.13.1",
+ "criterion",
+ "serde_json",
+ "wgpu",
+ "yugen-core",
+ "yugen-data",
 ]
 
 [[package]]

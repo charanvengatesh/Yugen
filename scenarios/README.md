@@ -1,7 +1,7 @@
 # Scenarios
 
 > **Five of these rows are now gated.**
-> `crates/godgame-render/tests/scenarios.rs` runs the carved chamber, the lava
+> `crates/yugen-render/tests/scenarios.rs` runs the carved chamber, the lava
 > sea, the wall plane, the clock and "lava kills a body" through
 > `scene::ScenePlugin` — the same code path `--at` and `--edit` use — and
 > asserts the claim each row makes. The numbers below are still exact
@@ -33,7 +33,7 @@ undercut-in-daylight.txt   sink a shaft at noon, then cut sideways off its floor
 Every command below was run and its `--dump-state` JSON read before it was
 written down. The numbers in the "what the dump says" column are from those runs.
 They are written as `cargo run --release --`, which is the repo's convention;
-`./target/release/godgame` is the same binary and is what these were actually
+`./target/release/yugen` is the same binary and is what these were actually
 verified with.
 
 `--dump-state` on its own **does not end the run** — it writes and carries on, by
@@ -220,7 +220,7 @@ left** and 2 of `steam`. Laying a stone plug under the room first — a third ru
 where the pool crossed some sand on the way down. Neither is a lit scene; both
 are a photograph of an unlit hole.
 
-This is the exact hazard `crates/godgame-render/tests/lit_scene.rs` documents in
+This is the exact hazard `crates/yugen-render/tests/lit_scene.rs` documents in
 its `carve_and_light` header: 900 px down, the floor is as likely to be a void as
 rock, and the pool drains through it. That test solves it by *stating* the floor
 rather than hoping for it, which `--edit`'s one-disc-per-run brush cannot do —

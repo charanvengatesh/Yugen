@@ -28,7 +28,7 @@ pub struct Kind {
     pub dir: &'static str,
     /// File extension, without the dot.
     pub ext: &'static str,
-    /// Output module name under `godgame-data/src/`.
+    /// Output module name under `yugen-data/src/`.
     pub out: &'static str,
 }
 

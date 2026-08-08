@@ -1,5 +1,5 @@
 # Ecotone blocks: transitional ground painted at specific biome adjacencies.
-# Each is named by the ECOTONES table in crates/godgame-core/src/sim/biomes.rs,
+# Each is named by the ECOTONES table in crates/yugen-core/src/sim/biomes.rs,
 # so adding these records is what promotes a seam off its fallback material.
 #
 # Not ONLY ecotones any more: Badlands caps in gravel and floors on clay, so two

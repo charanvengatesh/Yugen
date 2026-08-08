@@ -16,7 +16,7 @@ are pinned in `ids.lock.json` so a saved world does not change meaning when a
 new record is added; ids are assigned once and never reused, and a deleted
 record leaves a tombstone.
 
-`cargo run -p contentc` compiles `content/` into `crates/godgame-data/src/`.
+`cargo run -p contentc` compiles `content/` into `crates/yugen-data/src/`.
 `cargo run -p contentc -- --check` is the gate that fails if the generated
 tables are stale.
 
@@ -166,7 +166,7 @@ round-trips a file and never rewrites one.
 
 ## 7. What the compiler emits
 
-One Rust module per kind under `crates/godgame-data/src/`, containing:
+One Rust module per kind under `crates/yugen-data/src/`, containing:
 
 - a `struct` per record shape, plus an `enum` per closed variant set and a
   `bitflags` type per declared bit set;

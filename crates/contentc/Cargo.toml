@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Compiler for the GodGame content format: content/**/*.toml into Rust tables"
+description = "Compiler for the Yūgen content format: content/**/*.toml into Rust tables"
 
 [dependencies]
 thiserror.workspace = true

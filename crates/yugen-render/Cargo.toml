@@ -1,0 +1,54 @@
+[package]
+name = "yugen-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Every draw pass: the cell material, light, sky, weather, particles, sprite atlas, bitmap font."
+
+[dependencies]
+yugen-core.workspace = true
+yugen-data.workspace = true
+bevy.workspace = true
+bitflags.workspace = true
+
+# The cell-rasteriser parity suite reads a frozen JSON artefact of the
+# TypeScript original. Test-only, exactly as in `yugen-core`.
+[dev-dependencies]
+criterion.workspace = true
+# `preserve_order` so `cells_golden`'s blesser writes keys back in the order the
+# fixture already uses. Without it `serde_json::Map` is a `BTreeMap`, which
+# reorders `meta` (`source, producedBy, howProduced, seed, matCount, pa, pb,
+# shadeStride` — not alphabetical) and every `grids` object, turning a bless that
+# changed four values into a diff of the whole 164 KB file.
+#
+# Declared HERE and not left to feature unification, which is the subtler half:
+# `yugen-core` enables it too, so `cargo test --workspace` would switch it on
+# for this crate while `cargo test -p yugen-render` left it off, and the bless
+# would write a different file depending on how it was invoked.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# `tests/shader_matches_cpu.rs` drives the cell shader on a HEADLESS adapter and
+# reads the framebuffer back, so it needs wgpu directly rather than through
+# Bevy's app loop — there is no window in a test and there does not need to be.
+#
+# The feature list is exactly `bevy_render`'s, so this adds no compilation: it
+# resolves to the same `wgpu` build the engine already links.
+[dev-dependencies.wgpu]
+version = "29"
+default-features = false
+features = [
+    "wgsl",
+    "dx12",
+    "metal",
+    "vulkan",
+    "naga-ir",
+    "fragile-send-sync-non-atomic-wasm",
+]
+
+# The per-frame CPU render work. Criterion for the same reason `yugen-core`
+# gives: the cell blit and the light solve are tens of microseconds against an
+# 8.3 ms frame, and libtest's timer cannot resolve either.
+[[bench]]
+name = "render"
+harness = false

@@ -1,4 +1,4 @@
-//! Code generation: content records -> `godgame-data/src/<kind>.rs`.
+//! Code generation: content records -> `yugen-data/src/<kind>.rs`.
 //!
 //! Three jobs, in order:
 //!  1. assign stable numeric codes through `content/ids.lock.json`;

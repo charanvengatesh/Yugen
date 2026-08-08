@@ -10,10 +10,10 @@ because node has no criterion. Each bench module's header says what it ported,
 what it deliberately did not, and why; this document is the numbers.
 
 ```
-crates/godgame-core/benches/worldgen.rs   chunk generation by depth band   (pre-existing)
-crates/godgame-core/benches/sim.rs        the cellular automata            (bench-sim.ts)
-crates/godgame-core/benches/window.rs     the streaming window shift       (bench-window.ts)
-crates/godgame-render/benches/render.rs   the per-frame CPU render work    (bench-render.ts)
+crates/yugen-core/benches/worldgen.rs   chunk generation by depth band   (pre-existing)
+crates/yugen-core/benches/sim.rs        the cellular automata            (bench-sim.ts)
+crates/yugen-core/benches/window.rs     the streaming window shift       (bench-window.ts)
+crates/yugen-render/benches/render.rs   the per-frame CPU render work    (bench-render.ts)
 ```
 
 ---
@@ -37,7 +37,7 @@ instead of microseconds at `opt-level = 0`.
 Reproduce with:
 
 ```
-cargo bench -p godgame-core -p godgame-render
+cargo bench -p yugen-core -p yugen-render
 ```
 
 ### Run-to-run variance
@@ -81,7 +81,7 @@ so that stays checkable rather than asserted.
 
 ## 3. The simulation
 
-`crates/godgame-core/benches/sim.rs`. A hand-painted 352×256 window
+`crates/yugen-core/benches/sim.rs`. A hand-painted 352×256 window
 (11×8 chunks of 32 cells), deliberately unsettled: mostly inert rock, a minority
 of powder and liquid in motion, and fire/lava fronts driving the heat field, the
 reaction table and the burn timers at once. Painted rather than generated
@@ -156,7 +156,7 @@ not woken, the grain hangs in mid-air forever.
 
 ## 4. The streaming window
 
-`crates/godgame-core/benches/window.rs`. A real worldgen window centred on the
+`crates/yugen-core/benches/window.rs`. A real worldgen window centred on the
 surface cell row, ticked 240 times until it has gone to sleep, then walked
 sideways.
 
@@ -235,7 +235,7 @@ it is 34/88 chunks and 20.5%, because a shift wakes everything it loads.
 
 ## 5. Worldgen
 
-`crates/godgame-core/benches/worldgen.rs`, pre-existing, re-run here so the
+`crates/yugen-core/benches/worldgen.rs`, pre-existing, re-run here so the
 shift arithmetic above has a source. Per chunk, by depth band:
 
 | Band | Run A | Run B |
@@ -255,7 +255,7 @@ worst case in the game and worth knowing.
 
 ## 6. The per-frame CPU render work
 
-`crates/godgame-render/benches/render.rs`. **These are CPU-side costs, not a
+`crates/yugen-render/benches/render.rs`. **These are CPU-side costs, not a
 frame time.** Nothing here measures the shader, the texture upload or the
 compositor. The boundary is the same one the TypeScript drew with its canvas
 stub, except that the port already draws it in the source: every pass benched
@@ -315,7 +315,7 @@ already been made once in this document's history.
 | `cells/paint_cells` — 24.2 µs at 2560×1440 | **No** | `cells.wgsl` draws the frame. `paint_cells` is the verified CPU reference `shader_matches_cpu` diffs against, and the function `cells_golden` freezes. |
 
 `light/pass/blur` (97.9 µs) is the opposite case and belongs in the frame budget:
-it IS what the frame runs. `crates/godgame-render/src/lightblur.wgsl` is a
+it IS what the frame runs. `crates/yugen-render/src/lightblur.wgsl` is a
 verified GPU implementation of it that the game deliberately does not use — §8.6
 is why, and the short version is that wiring it in cost 237 µs of frame time to
 save CPU work worth 1 µs of it.
@@ -486,7 +486,7 @@ None of these were changed. Each is reported with the measurement.
 > legible, and the failure mode — paying a full scan to learn what a counter
 > already knew — is worth recognising the next time it appears somewhere else.
 
-`crates/godgame-render/src/particles.rs`, `claim()` around line 917.
+`crates/yugen-render/src/particles.rs`, `claim()` around line 917.
 
 `claim` walks the ring cursor over up to `MAX_PARTICLES` slots looking for a
 dead one. On a **saturated** pool there is no dead one, so the walk runs to its
@@ -525,7 +525,7 @@ cost of discovering there is no room in it.
 > still right — but it now rests on the measurement instead of on a guess that
 > happened to point the same way.
 
-`crates/godgame-render/src/sprite.rs`, the doc comment on `SpriteAtlases`
+`crates/yugen-render/src/sprite.rs`, the doc comment on `SpriteAtlases`
 (around line 1416) says the `Clone` derive duplicates the baked CPU pixels, that
 this is "a few megabytes of waste for data already uploaded to the GPU", and
 that "if the atlas ever grows a real budget this is the first thing to reach
@@ -614,12 +614,12 @@ All still true. None of it mattered.
 
 Enough to ship, and it is all still in the tree:
 
-- `crates/godgame-render/src/lightblur.wgsl` — the same kernel as `blur_one`, one
+- `crates/yugen-render/src/lightblur.wgsl` — the same kernel as `blur_one`, one
   axis per pass. Nested boxes rather than the nine-tap fused triangle, because
   both implementations clamp reads to the edge texel and the CPU clamps
   *between* its two boxes; a fused triangle is identical in the interior and
   wrong by **10.3 8-bit steps** on the border.
-- `crates/godgame-render/tests/light_blur_matches_cpu.rs` — the oracle this
+- `crates/yugen-render/tests/light_blur_matches_cpu.rs` — the oracle this
   section used to say did not exist. `blur_one` is the reference, exactly as
   `cells.rs` is for `cells.wgsl`. Measured agreement: **9.1e-4**, under a quarter
   of one 8-bit step.
@@ -678,7 +678,7 @@ start from the middle row of that table — not from the 97.9 µs.
 
 ### 8.5 `place_bloom` mutating up to 120 material assets per frame — not measured
 
-`crates/godgame-render/src/light.rs`, `place_bloom` (around line 1982) calls
+`crates/yugen-render/src/light.rs`, `place_bloom` (around line 1982) calls
 `materials.get_mut(handle.id())` once per pooled bloom sprite, up to
 `BLOOM_BUDGET` = 120 of them, and `Assets::get_mut` marks the asset modified —
 which queues a re-extract and a uniform re-upload per sprite per frame.
@@ -792,7 +792,7 @@ One scenario could **not** be reproduced faithfully and is reported as such:
 
 - Zero `#[allow(...)]` added. There is not one in this tree and these files did
   not introduce the first.
-- `cargo clippy -p godgame-core -p godgame-render --all-targets` is silent.
+- `cargo clippy -p yugen-core -p yugen-render --all-targets` is silent.
 - No `unsafe`.
 - `std::hint::black_box` on every timed body, and where black-boxing alone is
   not proof (the sim tick), an assertion on observable state after the run.

@@ -10,7 +10,7 @@ the checks in §4 are meant to be run by a script rather than read by a reviewer
 ## 1. The engine arithmetic, which decides everything else
 
 A material is ONE flat colour and five modifiers. There is no texture map. The
-rendered value of a cell is, from `crates/godgame-render/src/cells.rs`:
+rendered value of a cell is, from `crates/yugen-render/src/cells.rs`:
 
 ```
 pixel = color
@@ -363,13 +363,13 @@ judged on its own, and `registry_golden`'s diff stays readable.
 
 Every step: `cargo run -p contentc`, then bless `registry_golden` and read that
 diff — it is the human-readable record — then bless `cells_golden` and paste its
-report. No step may touch `crates/godgame-render/src/`.
+report. No step may touch `crates/yugen-render/src/`.
 
 **`emissive` and `lightEmit` are not palette fields and must not move in any of
 these steps.** They create light sources, change the lighting solve, and
 `the_bloom_threshold_admits_lamps_and_rejects_glints` asserts `goldOre`'s bloom
 weight is exactly 0.0. Glow comes from `shimmer` and from the bloom constants,
-which live in `crates/godgame-render/src/light.rs` and are a separate commit.
+which live in `crates/yugen-render/src/light.rs` and are a separate commit.
 
 Two inconsistencies found while writing this, neither acted on:
 

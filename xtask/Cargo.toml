@@ -9,7 +9,7 @@ publish = false
 
 # NOTHING FROM THE WORKSPACE. `cargo xtask check` has to be able to run when the
 # tree does not compile — that is the whole situation it exists for. Depending on
-# `godgame-core` would mean a broken sim crate stops the gate runner from
+# `yugen-core` would mean a broken sim crate stops the gate runner from
 # starting, and the developer gets a build error for xtask instead of the clippy
 # output that would tell them what is actually wrong. The gates reach the
 # workspace by shelling out to cargo, never by linking it.

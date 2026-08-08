@@ -33,7 +33,7 @@ pub fn page(index: &Index) -> String {
             ],
             vec![
                 "2 — config".into(),
-                "`crates/godgame-core/src/config/`".into(),
+                "`crates/yugen-core/src/config/`".into(),
                 format!("{} constants", index.tier2_count()),
                 "the WHOLE GAME: geometry, physics, worldgen".into(),
             ],
@@ -68,7 +68,7 @@ pub fn page(index: &Index) -> String {
         "`crates/contentc/src/schemas/`. Numeric ids are pinned in `content/ids.lock.json`.\n",
     );
 
-    s.push_str("\n## Tier 2 — `crates/godgame-core/src/config/`\n\n");
+    s.push_str("\n## Tier 2 — `crates/yugen-core/src/config/`\n\n");
     s.push_str("Every `pub` item here must carry a doc comment; `cargo xtask check` fails\n");
     s.push_str("otherwise. Private constants are indexed too — they are still tuning — but\n");
     s.push_str("only the exported surface is held to the rule.\n\n");
@@ -144,7 +144,7 @@ mod tests {
             }],
             tier2: vec![Domain {
                 module: "world".into(),
-                path: "crates/godgame-core/src/config/world.rs".into(),
+                path: "crates/yugen-core/src/config/world.rs".into(),
                 consts: vec![Konst {
                     name: "CELL_SIZE".into(),
                     value: "5".into(),
@@ -155,7 +155,7 @@ mod tests {
                 }],
             }],
             tier3: vec![SourceFile {
-                path: "crates/godgame-core/src/sim/caves.rs".into(),
+                path: "crates/yugen-core/src/sim/caves.rs".into(),
                 consts: vec![Konst {
                     name: "MASK".into(),
                     value: "A | B".into(),
@@ -198,6 +198,6 @@ mod tests {
     fn every_file_and_domain_gets_its_own_heading() {
         let out = page(&sample());
         assert!(out.contains("### `world`"));
-        assert!(out.contains("### `crates/godgame-core/src/sim/caves.rs`"));
+        assert!(out.contains("### `crates/yugen-core/src/sim/caves.rs`"));
     }
 }

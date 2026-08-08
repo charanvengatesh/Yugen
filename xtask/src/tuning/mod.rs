@@ -11,9 +11,9 @@
 //! decided by WHAT THE NUMBER IS ABOUT, never by who happens to read it:
 //!
 //! 1. `content/` describes one THING — a block's hardness, a mob's speed, a
-//!    weapon's damage. Compiled by `contentc` into `crates/godgame-data/`.
+//!    weapon's damage. Compiled by `contentc` into `crates/yugen-data/`.
 //!    Adding a thing is adding a record.
-//! 2. `crates/godgame-core/src/config/` describes the WHOLE GAME — the cell
+//! 2. `crates/yugen-core/src/config/` describes the WHOLE GAME — the cell
 //!    grid, gravity, sea level, the swing window. Anything two modules must
 //!    agree on, or that a designer would reach for. One domain per file.
 //! 3. A module constant describes ONE ALGORITHM — an fBm octave count, a
@@ -68,17 +68,17 @@ use std::path::{Path, PathBuf};
 use rust_consts::Konst;
 
 /// Where tier 2 lives. The one path in the tree with a rule attached to it.
-const CONFIG_DIR: &str = "crates/godgame-core/src/config";
+const CONFIG_DIR: &str = "crates/yugen-core/src/config";
 
 /// Crates the tier-3 sweep does not read.
 ///
-/// - `godgame-data` is `contentc` output. Its numbers are tier 1 already, seen
+/// - `yugen-data` is `contentc` output. Its numbers are tier 1 already, seen
 ///   through the compiler; indexing the emitted form would double-count the
 ///   whole content tier and invite someone to edit a generated file.
 /// - `contentc` and `xtask` are build tooling, not the game. The TypeScript drew
 ///   this line by keeping its compiler under `tools/` and scanning only `src/`.
 ///   A schema's internal enum encoding (`STATE_SOLID = 1.0`) is not a knob.
-const SKIP_CRATES: &[&str] = &["godgame-data", "contentc", "xtask"];
+const SKIP_CRATES: &[&str] = &["yugen-data", "contentc", "xtask"];
 
 /// Where the page is written. Also the path `--check` compares against.
 const OUT: &str = "docs/TUNING.md";
@@ -421,7 +421,7 @@ mod tests {
                 consts: config.iter().map(|n| konst(n)).collect(),
             }],
             tier3: vec![SourceFile {
-                path: "crates/godgame-core/src/sim/caves.rs".into(),
+                path: "crates/yugen-core/src/sim/caves.rs".into(),
                 consts: module.iter().map(|n| konst(n)).collect(),
             }],
             config_names: config
@@ -470,7 +470,7 @@ mod tests {
     fn the_generated_crate_and_the_build_tooling_are_out_of_the_tier_three_sweep() {
         // Naming them here so removing one from the list breaks a test rather
         // than silently doubling the content tier into the page.
-        assert!(SKIP_CRATES.contains(&"godgame-data"));
+        assert!(SKIP_CRATES.contains(&"yugen-data"));
         assert!(SKIP_CRATES.contains(&"contentc"));
         assert!(SKIP_CRATES.contains(&"xtask"));
     }

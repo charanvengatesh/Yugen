@@ -18,37 +18,37 @@ paraphrasing it badly.
 ```
 content/               authored TOML       ->  compiled by crates/contentc
    |
-crates/godgame-data/   generated tables        (never edited by hand)
+crates/yugen-data/   generated tables        (never edited by hand)
    |
-crates/godgame-core/   the simulation          (no Bevy, no wgpu, no window)
+crates/yugen-core/   the simulation          (no Bevy, no wgpu, no window)
    |
-crates/godgame-render/ every Bevy-facing thing
+crates/yugen-render/ every Bevy-facing thing
    |
-crates/godgame/        the binary
+crates/yugen/        the binary
 ```
 
-The arrow points one way, and `Cargo.toml` is what enforces it. `godgame-data`
-depends on `bitflags` and nothing else. `godgame-core` depends on
-`godgame-data`, `bitflags` and `rayon` — **not on `bevy`**. `godgame-render` is
+The arrow points one way, and `Cargo.toml` is what enforces it. `yugen-data`
+depends on `bitflags` and nothing else. `yugen-core` depends on
+`yugen-data`, `bitflags` and `rayon` — **not on `bevy`**. `yugen-render` is
 the first crate in the graph that has heard of Bevy.
 
 | Crate | Owns |
 |---|---|
 | `contentc` | the content compiler: TOML front end -> schema resolution -> Rust emitter |
-| `godgame-data` | the compiled tables. Generated. Never hand-edited. |
-| `godgame-core` | `config`, `sim`, `entities`, `items`, `physics`, `interact`, `input` |
-| `godgame-render` | every draw pass, every plugin, every `KeyCode` |
-| `godgame` | the window, `ImagePlugin::default_nearest()`, and the CLI flags |
+| `yugen-data` | the compiled tables. Generated. Never hand-edited. |
+| `yugen-core` | `config`, `sim`, `entities`, `items`, `physics`, `interact`, `input` |
+| `yugen-render` | every draw pass, every plugin, every `KeyCode` |
+| `yugen` | the window, `ImagePlugin::default_nearest()`, and the CLI flags |
 | `xtask` | the repo gates |
 
 ### The `core` / `render` boundary is the load-bearing one
 
-`godgame-core` may not know what a `KeyCode` is. That is not stylistic. Three
+`yugen-core` may not know what a `KeyCode` is. That is not stylistic. Three
 things fall out of it, and each one is a thing a test or a bench depends on:
 
-- **The simulation is headless-testable.** `crates/godgame-core/tests/` runs a
+- **The simulation is headless-testable.** `crates/yugen-core/tests/` runs a
   world, a player and 4 048 fixed steps without linking a renderer.
-- **The benches never link a GPU.** `crates/godgame-core/benches/` measures
+- **The benches never link a GPU.** `crates/yugen-core/benches/` measures
   worldgen and the sim, not Bevy startup.
 - **The seams are forced into the open.** A thing that needs both sides has to
   be named, because it cannot simply reach across. That is §3.
@@ -56,13 +56,13 @@ things fall out of it, and each one is a thing a test or a bench depends on:
 The boundary shows up as a consistent amputation: `Player.draw`,
 `Projectiles.draw`, `WorldItems.draw` and the whole DOM `Input` class did not
 come across. What each of them *read* is published as an accessor, and the
-drawing is reassembled in `godgame-render` — see the headers on
-`crates/godgame-core/src/entities/mod.rs`, `items/mod.rs` and `input.rs`, each
+drawing is reassembled in `yugen-render` — see the headers on
+`crates/yugen-core/src/entities/mod.rs`, `items/mod.rs` and `input.rs`, each
 of which lists exactly what it dropped and where the reader went.
 
-`godgame-render::input` is in the render crate for the same reason and not in
+`yugen-render::input` is in the render crate for the same reason and not in
 `main.rs`: something has to translate `ButtonInput<KeyCode>` into
-`godgame_core::input::KeyState`, and that translation belongs with the other
+`yugen_core::input::KeyState`, and that translation belongs with the other
 Bevy-facing translations.
 
 ---
@@ -73,7 +73,7 @@ Three real departures. These are the parts worth reading the source for.
 
 ### The Web Worker is gone
 
-`crates/godgame-render/src/world.rs` carries the full argument in its header;
+`crates/yugen-render/src/world.rs` carries the full argument in its header;
 `sim/grid.rs` and `sim/window.rs` carry the consequences. In summary:
 
 The TypeScript ran the automata on a `Worker`, with the grid's four cell planes
@@ -93,7 +93,7 @@ What that deletes, in order of how much code it was:
 - **The brush's two exits.** `Game.handleBuildInput` either posted to the worker
   or applied directly, and that asymmetry is why `Game.ts` documented a one-tick
   window in which a dug cell was still there to be dug again. There is one path
-  now, so `crates/godgame-core/src/interact.rs` compensates for nothing.
+  now, so `crates/yugen-core/src/interact.rs` compensates for nothing.
 - **Whole-viewport repaint.** This is the interesting one. The dirty masks were
   per-`CellGrid`-instance and the live ones were the *worker's*, on the far side
   of a buffer that carried only cells. The main thread could not see which
@@ -108,7 +108,7 @@ chunk is a pure function (§6).
 
 ### Canvas2D became wgpu, and the rasteriser exists twice
 
-`crates/godgame-render/src/lib.rs`'s header states this; `cells.rs` and
+`crates/yugen-render/src/lib.rs`'s header states this; `cells.rs` and
 `cellmap.rs` each argue their own half.
 
 - **`cells.rs`** is the CPU rasteriser, ported byte-for-byte from
@@ -165,7 +165,7 @@ other.** The answer is always the same shape — **a small trait, declared on th
 needs the *answer*, implemented on the side that has it, and BORROWED for the
 length of the call that needs it.**
 
-`crates/godgame-render/src/glue.rs` states the principle in its header, and
+`crates/yugen-render/src/glue.rs` states the principle in its header, and
 states the cost of not following it: three separate modules in that crate each
 grew their own world clock, and wiring all three would have run the day at
 triple speed.
@@ -314,7 +314,7 @@ Three tiers, unchanged from the original in principle. Which tier is decided by
 | Tier | Where | It describes |
 |---|---|---|
 | 1 | `content/` | one THING — a block's hardness, a mob's speed |
-| 2 | `crates/godgame-core/src/config/` | the WHOLE GAME — `CELL_SIZE`, `GRAVITY` |
+| 2 | `crates/yugen-core/src/config/` | the WHOLE GAME — `CELL_SIZE`, `GRAVITY` |
 | 3 | a module constant | ONE ALGORITHM — an fBm octave count, a hysteresis band |
 
 `config/` is split by domain: `world`, `view`, `worldgen`, `physics`, `combat`,
@@ -348,10 +348,10 @@ port is wrong, not the test.
 
 | Suite | Fixture | What only it can see |
 |---|---|---|
-| `godgame-data/tests/registry_golden.rs` | `registry.golden.json` | the compiler agrees: 224 id->code maps, 79 flat tables, 1 pair matrix |
-| `godgame-core/tests/noise_golden.rs` | `noise.golden.json` | the noise *primitives* agree, at every entry point, for four seeds |
-| `godgame-core/tests/worldgen_golden.rs` | `worldgen.golden.json` | the whole *pipeline* agrees — 357 chunks hashed, cell for cell |
-| `godgame-render/tests/cells_golden.rs` | `cells.golden.json` | the *rasteriser* agrees, pixel for pixel, over two real windows |
+| `yugen-data/tests/registry_golden.rs` | `registry.golden.json` | the compiler agrees: 224 id->code maps, 79 flat tables, 1 pair matrix |
+| `yugen-core/tests/noise_golden.rs` | `noise.golden.json` | the noise *primitives* agree, at every entry point, for four seeds |
+| `yugen-core/tests/worldgen_golden.rs` | `worldgen.golden.json` | the whole *pipeline* agrees — 357 chunks hashed, cell for cell |
+| `yugen-render/tests/cells_golden.rs` | `cells.golden.json` | the *rasteriser* agrees, pixel for pixel, over two real windows |
 
 Noise parity says the primitives agree; worldgen parity says heightmap, biome
 blend, cave lattice, depth bands, cap, shore, veins, strata and all four
@@ -388,7 +388,7 @@ into "does the shader match this verified table".
 
 **`frame_capture.rs`** is the last link, and it catches the failure every suite
 above is blind to: *the arithmetic can be perfect and the composite can still be
-a black rectangle.* It boots the real `GodGameRenderPlugin` group headlessly,
+a black rectangle.* It boots the real `YugenRenderPlugin` group headlessly,
 lets the world live for 90 frames, captures `LowResTarget::canvas` — the actual
 shipping buffer, not a re-render through a private path — writes the PNG where a
 human can look at it, and asserts floors: varied, correctly oriented, not blank.
@@ -442,18 +442,18 @@ Every one of these is a real trade with a visible consequence.
 |---|---|
 | a block, item, mob, sprite, structure, worldgen feature | add a record under `content/`, run `cargo run -p contentc` |
 | a FIELD on one of those | add a row to the schema in `crates/contentc/src/schemas/`, then use it — see `SCHEMA-AUTHORING.md` |
-| a game-wide knob | a `pub` item in the right `crates/godgame-core/src/config/` module, **with a doc comment**, then `cargo xtask tuning` |
+| a game-wide knob | a `pub` item in the right `crates/yugen-core/src/config/` module, **with a doc comment**, then `cargo xtask tuning` |
 | a coefficient for one algorithm | a `const` in that module, next to the code, with its derivation written out |
-| simulation behaviour | `godgame-core`. If you reach for `bevy::`, you are in the wrong crate. |
-| a draw pass | a module + `Plugin` in `godgame-render`, added to `GodGameRenderPlugin` in `lib.rs` in paint order |
+| simulation behaviour | `yugen-core`. If you reach for `bevy::`, you are in the wrong crate. |
+| a draw pass | a module + `Plugin` in `yugen-render`, added to `YugenRenderPlugin` in `lib.rs` in paint order |
 | a join between two modules that must not know each other | `glue.rs` — or a trait on the side that needs the answer, borrowed for the call |
-| a mob brain | a case in `godgame-core/src/entities/mobs/brain.rs`, selected by `brain` in the `.toml` |
+| a mob brain | a case in `yugen-core/src/entities/mobs/brain.rs`, selected by `brain` in the `.toml` |
 | anything the renderer must know about a body | an accessor on the core type. The simulation never gains a pixel of knowledge about how it looks. |
 
 The rule behind all of it is the original's, and it still holds: **if it
 describes a thing, it is content; if it describes the game, it is config; if it
 describes an algorithm, it lives with the algorithm.** The port adds one more:
-**if it needs Bevy, it is not in `godgame-core`.**
+**if it needs Bevy, it is not in `yugen-core`.**
 
 ---
 
@@ -462,11 +462,11 @@ describes an algorithm, it lives with the algorithm.** The port adds one more:
 ```
 cargo xtask check                       # the full gate — run this before committing
 cargo test --workspace                  # everything, including the parity suites
-cargo run -p contentc                   # recompile content/ into godgame-data
+cargo run -p contentc                   # recompile content/ into yugen-data
 cargo run -p contentc -- --check        # fail if the generated tables are stale
 cargo clippy --workspace --all-targets  # must be zero findings
 cargo fmt --all --check
 ```
 
-Never hand-edit anything under `crates/godgame-data/src/` — edit `content/` and
+Never hand-edit anything under `crates/yugen-data/src/` — edit `content/` and
 recompile. `contentc` formats its own output, so `--check` is idempotent.

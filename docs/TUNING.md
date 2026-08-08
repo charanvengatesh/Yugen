@@ -10,7 +10,7 @@ what the sweep can and cannot see.
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
 | 1 — content | `content/` | 237 records | one THING: a block, a mob, an item |
-| 2 — config | `crates/godgame-core/src/config/` | 99 constants | the WHOLE GAME: geometry, physics, worldgen |
+| 2 — config | `crates/yugen-core/src/config/` | 99 constants | the WHOLE GAME: geometry, physics, worldgen |
 | 3 — module | `crates/*/src/**` | 592 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
@@ -20,14 +20,14 @@ what the sweep can and cannot see.
 | `content/blocks/` | 8 | 56 | 40 |
 | `content/items/` | 8 | 84 | 32 |
 | `content/mobs/` | 3 | 20 | 52 |
-| `content/sprites/` | 2 | 56 | 12 |
+| `content/sprites/` | 2 | 56 | 13 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
 
 Field-by-field definitions live in `content/FORMAT.md` and the schemas under
 `crates/contentc/src/schemas/`. Numeric ids are pinned in `content/ids.lock.json`.
 
-## Tier 2 — `crates/godgame-core/src/config/`
+## Tier 2 — `crates/yugen-core/src/config/`
 
 Every `pub` item here must carry a doc comment; `cargo xtask check` fails
 otherwise. Private constants are indexed too — they are still tuning — but
@@ -35,7 +35,7 @@ only the exported surface is held to the rule.
 
 ### `combat`
 
-`crates/godgame-core/src/config/combat.rs`
+`crates/yugen-core/src/config/combat.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -55,7 +55,7 @@ only the exported surface is held to the rule.
 
 ### `interact`
 
-`crates/godgame-core/src/config/interact.rs`
+`crates/yugen-core/src/config/interact.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -65,7 +65,7 @@ only the exported surface is held to the rule.
 
 ### `mechanics`
 
-`crates/godgame-core/src/config/mechanics.rs`
+`crates/yugen-core/src/config/mechanics.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -83,7 +83,7 @@ only the exported surface is held to the rule.
 
 ### `physics`
 
-`crates/godgame-core/src/config/physics.rs`
+`crates/yugen-core/src/config/physics.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -134,7 +134,7 @@ only the exported surface is held to the rule.
 
 ### `render`
 
-`crates/godgame-core/src/config/render.rs`
+`crates/yugen-core/src/config/render.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -142,7 +142,7 @@ only the exported surface is held to the rule.
 
 ### `view`
 
-`crates/godgame-core/src/config/view.rs`
+`crates/yugen-core/src/config/view.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -154,7 +154,7 @@ only the exported surface is held to the rule.
 
 ### `world`
 
-`crates/godgame-core/src/config/world.rs`
+`crates/yugen-core/src/config/world.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -171,7 +171,7 @@ only the exported surface is held to the rule.
 
 ### `worldgen`
 
-`crates/godgame-core/src/config/worldgen.rs`
+`crates/yugen-core/src/config/worldgen.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -190,7 +190,7 @@ only the exported surface is held to the rule.
 
 ## Tier 3 — module constants
 
-### `crates/godgame-core/src/entities/mobs/brain.rs`
+### `crates/yugen-core/src/entities/mobs/brain.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -204,7 +204,7 @@ only the exported surface is held to the rule.
 | `DIVE_TIME` (private) | `0.7` | Seconds a committed dive runs before the flyer pulls out and climbs again. | 81 |
 | `INV_2_POW_32` (private) | `2.3283064365386963e-10` | 2^-32, the scale that turns a raw `u32` into a float in `[0, 1)`. | 89 |
 
-### `crates/godgame-core/src/entities/mobs/defs.rs`
+### `crates/yugen-core/src/entities/mobs/defs.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -214,7 +214,7 @@ only the exported surface is held to the rule.
 | `RAW_GRAVITY` (private) | `2400.0` | Reference gravity, matching the player's raw tunable in `config::physics`. | 163 |
 | `RAW_MAX_FALL` (private) | `1400.0` | Reference terminal fall speed, likewise. | 165 |
 
-### `crates/godgame-core/src/entities/mobs/system.rs`
+### `crates/yugen-core/src/entities/mobs/system.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -233,7 +233,7 @@ only the exported surface is held to the rule.
 | `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 326 |
 | `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 328 |
 
-### `crates/godgame-core/src/entities/player.rs`
+### `crates/yugen-core/src/entities/player.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -257,14 +257,14 @@ only the exported surface is held to the rule.
 | `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 313 |
 | `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 316 |
 
-### `crates/godgame-core/src/entities/projectiles.rs`
+### `crates/yugen-core/src/entities/projectiles.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `MAX_SHOTS` | `24` | Hard cap on player shots in flight. | 73 |
 | `SHOT_STYLE_ARROW` | `0` | The projectile style a player's arrow is drawn in. | 79 |
 
-### `crates/godgame-core/src/interact.rs`
+### `crates/yugen-core/src/interact.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -275,20 +275,20 @@ only the exported surface is held to the rule.
 | `TOOL_DEFAULT_BRUSH_MAX` (private) | `1` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 189 |
 | `PALETTE_SLOTS` | `8` | How many palette groups there are, i.e. how many digit keys the host scans. | 288 |
 
-### `crates/godgame-core/src/items/drops.rs`
+### `crates/yugen-core/src/items/drops.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `INV_2_POW_32` (private) | `2.3283064365386963e-10` | 2^-32, the scale that turns a raw `u32` into a float in `[0, 1)`. | 39 |
 
-### `crates/godgame-core/src/items/inventory.rs`
+### `crates/yugen-core/src/items/inventory.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `SLOT_COUNT` | `30` | Total slots. | 34 |
 | `HOTBAR` | `10` | Slots the hotbar shows, and the number keys reach. | 37 |
 
-### `crates/godgame-core/src/items/world_items.rs`
+### `crates/yugen-core/src/items/world_items.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -305,21 +305,21 @@ only the exported surface is held to the rule.
 | `LIFETIME` (private) | `180.0` | Seconds a stack survives untouched. | 67 |
 | `DROP_SIZE_PX` | `3.0` | Drawn edge in px for an item with NO icon — still the size of most of the game's drops until every item has art. | 88 |
 
-### `crates/godgame-core/src/physics/collision.rs`
+### `crates/yugen-core/src/physics/collision.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `EPS` (private) | `1e-4` | Slack used to keep a box that ends exactly on a cell boundary out of the next cell along. | 55 |
 | `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 88 |
 
-### `crates/godgame-core/src/script.rs`
+### `crates/yugen-core/src/script.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `SCRIPT_HZ` | `60.0` | Frames per second the script's durations are measured in. | 96 |
 | `MAX_DURATION_FRAMES` (private) | `60 * 60 * 60` | Ceiling on a single duration, in frames: one hour. | 103 |
 
-### `crates/godgame-core/src/sim/automata.rs`
+### `crates/yugen-core/src/sim/automata.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -336,7 +336,7 @@ only the exported surface is held to the rule.
 | `BEH_GROW` (private) | `1 << 2` | spreads onto a substrate | 141 |
 | `BEH_STATE_SHIFT` (private) | `4` | MaterialState of a MOVING material; 0 = static | 142 |
 
-### `crates/godgame-core/src/sim/biomes.rs`
+### `crates/yugen-core/src/sim/biomes.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -364,14 +364,14 @@ only the exported surface is held to the rule.
 | `UG_JITTER_FREQ` (private) | `0.013` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 956 |
 | `UG_JITTER_ANCHOR` (private) | `317.4` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 957 |
 
-### `crates/godgame-core/src/sim/chunk_store.rs`
+### `crates/yugen-core/src/sim/chunk_store.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `PREFETCH_MIN_PARALLEL` (private) | `8` | How many chunks [`ChunkStore::prefetch`] wants to see before it reaches for a thread pool. | 30 |
 | `MAX_PERSISTED_CHUNKS` | `2048` | Upper bound on retained diverged chunks. | 51 |
 
-### `crates/godgame-core/src/sim/decor/ores.rs`
+### `crates/yugen-core/src/sim/decor/ores.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -400,7 +400,7 @@ only the exported surface is held to the rule.
 | `N_ORES` (private) | `ORES.len()` |  | 241 |
 | `MEMO_N` (private) | `8` | Per-column memo | 322 |
 
-### `crates/godgame-core/src/sim/decor/structures.rs`
+### `crates/yugen-core/src/sim/decor/structures.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -425,7 +425,7 @@ only the exported surface is held to the rule.
 | `BAND_BOT` (private) | `ceil_i(SURFACE_ANCHOR_Y as f64 + SURF_SPAN) + SURF_DOWN` | Rows the ground line can possibly occupy, with slack: the largest amp_scale in BIOMES is 1.45 and the largest \|height_offset\| is 6. | 125 |
 | `SUB_BAND_TOP` (private) | `floor_i(SURFACE_ANCHOR_Y as f64 - SURF_SPAN) + SUB_MIN_DEPTH - SUB_REACH_Y` | No chamber can reach above this row, whatever the terrain does. | 127 |
 
-### `crates/godgame-core/src/sim/decor/trees.rs`
+### `crates/yugen-core/src/sim/decor/trees.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -468,7 +468,7 @@ only the exported surface is held to the rule.
 | `SP_SHROOM` (private) | `7` |  | 152 |
 | `SP_SHRUB` (private) | `8` |  | 153 |
 
-### `crates/godgame-core/src/sim/noise.rs`
+### `crates/yugen-core/src/sim/noise.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -476,7 +476,7 @@ only the exported surface is held to the rule.
 | `G2_NORM` (private) | `std::f64::consts::SQRT_2` | 2D Perlin with unit gradients peaks at +/- sqrt(2)/2. | 61 |
 | `GFBM3_INV` (private) | `1.0 / 1.75` | 1 + 0.5 + 0.25 — precomputed so the hot path does no division. | 64 |
 
-### `crates/godgame-core/src/sim/reactions.rs`
+### `crates/yugen-core/src/sim/reactions.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -489,13 +489,13 @@ only the exported surface is held to the rule.
 | `K` (private) | `MAT_COUNT` | Stride of the rule table: the material count. | 85 |
 | `ENTRIES` (private) | `K * K` | Stride of the rule table: the material count. | 86 |
 
-### `crates/godgame-core/src/sim/rng.rs`
+### `crates/yugen-core/src/sim/rng.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `INV_2_POW_32` (private) | `2.3283064365386963e-10` | 2^-32, the scale that turns a raw `u32` into a float in `[0, 1)`. | 30 |
 
-### `crates/godgame-core/src/sim/save.rs`
+### `crates/yugen-core/src/sim/save.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -507,7 +507,7 @@ only the exported surface is held to the rule.
 | `META_VERSION` (private) | `1` | Identity-file version. | 390 |
 | `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 397 |
 
-### `crates/godgame-core/src/sim/worldgen/caves.rs`
+### `crates/yugen-core/src/sim/worldgen/caves.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -566,7 +566,7 @@ only the exported surface is held to the rule.
 | `LAT` (private) | `CHUNK_CELLS as usize / STRIDE + 1` |  | 360 |
 | `LAT_N` (private) | `LAT * LAT` |  | 361 |
 
-### `crates/godgame-core/src/sim/worldgen/chunk.rs`
+### `crates/yugen-core/src/sim/worldgen/chunk.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -577,14 +577,14 @@ only the exported surface is held to the rule.
 | `SPAWN_STEP_UP` (private) | `1` | How far the ground may RISE between two adjacent columns and still be walked. | 528 |
 | `SPAWN_GROUND_SCAN` (private) | `24` | How far below the spawn row to look for the ground. | 537 |
 
-### `crates/godgame-core/src/sim/worldgen/features.rs`
+### `crates/yugen-core/src/sim/worldgen/features.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `SHAFT_FREQ` (private) | `0.011` | Abandoned mineshaft. | 542 |
 | `SHAFT_ANCHOR` (private) | `517.3` | Abandoned mineshaft. | 543 |
 
-### `crates/godgame-core/src/sim/worldgen/fields.rs`
+### `crates/yugen-core/src/sim/worldgen/fields.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -606,7 +606,7 @@ only the exported surface is held to the rule.
 | `WARP_ANCHOR` (private) | `6673.11` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 80 |
 | `FIELD_SPREAD` (private) | `1.8` | Contrast gain applied to the raw fBm before it becomes a world field. | 94 |
 
-### `crates/godgame-core/src/sim/worldgen/heightmap.rs`
+### `crates/yugen-core/src/sim/worldgen/heightmap.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -618,7 +618,7 @@ only the exported surface is held to the rule.
 | `MEMO_SIZE` (private) | `4096` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 307 |
 | `MEMO_MASK` (private) | `MEMO_SIZE as i32 - 1` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 308 |
 
-### `crates/godgame-core/src/sim/worldgen/layers.rs`
+### `crates/yugen-core/src/sim/worldgen/layers.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -629,13 +629,13 @@ only the exported surface is held to the rule.
 | `CAP_DITHER_ANCHOR` (private) | `71.5` |  | 82 |
 | `VEIN_FREQ` (private) | `0.2` | Vein field frequency — high enough to read as a seam, not a region. | 203 |
 
-### `crates/godgame-core/src/sim/worldgen/loot.rs`
+### `crates/yugen-core/src/sim/worldgen/loot.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `MAX_CONTAINER_STACKS` | `4` | Pool size — the largest [`PICKS_HI`]. | 196 |
 
-### `crates/godgame-core/src/sim/worldgen/structs.rs`
+### `crates/yugen-core/src/sim/worldgen/structs.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -649,7 +649,7 @@ only the exported surface is held to the rule.
 | `SUB_DENSITY` (private) | `0.24` |  | 521 |
 | `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 523 |
 
-### `crates/godgame-render/src/ambience.rs`
+### `crates/yugen-render/src/ambience.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -684,7 +684,7 @@ only the exported surface is held to the rule.
 | `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 406 |
 | `HOT_STRIDE_CELLS` (private) | `4` | Cells between hot-list samples. | 772 |
 
-### `crates/godgame-render/src/cellmap.rs`
+### `crates/yugen-render/src/cellmap.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -692,7 +692,7 @@ only the exported surface is held to the rule.
 | `ID_BYTES` (private) | `2` | Bytes per texel of the cell-id texture. | 101 |
 | `BACK_Z` (private) | `-1.0` | Where the wall quad sits: behind the cell quad, in front of everything else. | 129 |
 
-### `crates/godgame-render/src/cells.rs`
+### `crates/yugen-render/src/cells.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -735,7 +735,7 @@ only the exported surface is held to the rule.
 | `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1236 |
 | `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1239 |
 
-### `crates/godgame-render/src/craftscreen.rs`
+### `crates/yugen-render/src/craftscreen.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -744,14 +744,14 @@ only the exported surface is held to the rule.
 | `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 191 |
 | `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 497 |
 
-### `crates/godgame-render/src/daynight.rs`
+### `crates/yugen-render/src/daynight.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `DAY_LENGTH_S` | `300.0` | Real seconds in one in-game day. | 41 |
 | `DEFAULT_START` | `0.34` | Where the cycle starts a fresh world. | 48 |
 
-### `crates/godgame-render/src/debug.rs`
+### `crates/yugen-render/src/debug.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -761,13 +761,13 @@ only the exported surface is held to the rule.
 | `LINE` (private) | `13` | Line pitch. | 147 |
 | `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 149 |
 
-### `crates/godgame-render/src/dump.rs`
+### `crates/yugen-render/src/dump.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `CELL_WINDOW` (private) | `10` | Half-width, in cells, of the square of terrain the dump carries. | 58 |
 
-### `crates/godgame-render/src/effects.rs`
+### `crates/yugen-render/src/effects.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -789,7 +789,7 @@ only the exported surface is held to the rule.
 | `LAND_SHAKE_SCALE` (private) | `0.34` | Trauma per unit of landing impact, and the cap on it. | 172 |
 | `LAND_SHAKE_MAX` (private) | `0.5` | See [`LAND_SHAKE_SCALE`]. | 174 |
 
-### `crates/godgame-render/src/input.rs`
+### `crates/yugen-render/src/input.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -797,19 +797,19 @@ only the exported surface is held to the rule.
 | `CAMERA_BOOST` (private) | `4.0` | Extra multiplier on the free camera while shift is held. | 63 |
 | `PREVIEW_ALPHA` (private) | `0.18` | How solid the brush preview is over the cells it covers. | 70 |
 
-### `crates/godgame-render/src/interact_reach.rs`
+### `crates/yugen-render/src/interact_reach.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `STATION_REACH_CELLS` | `4` | How far a station may be from the body and still be usable, in cells. | 30 |
 
-### `crates/godgame-render/src/items.rs`
+### `crates/yugen-render/src/items.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `DROP_Z` (private) | `0.4` | Where a dropped stack sits in z: over the terrain, under everything alive. | 65 |
 
-### `crates/godgame-render/src/light.rs`
+### `crates/yugen-render/src/light.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -878,13 +878,13 @@ only the exported surface is held to the rule.
 | `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2268 |
 | `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2270 |
 
-### `crates/godgame-render/src/lowres.rs`
+### `crates/yugen-render/src/lowres.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `INTEGER_SNAP_EPS` (private) | `1.0e-3` | How close to a whole number a zoom has to be to be treated as one. | 64 |
 
-### `crates/godgame-render/src/mobs.rs`
+### `crates/yugen-render/src/mobs.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -902,7 +902,7 @@ only the exported surface is held to the rule.
 | `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 199 |
 | `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 326 |
 
-### `crates/godgame-render/src/particles.rs`
+### `crates/yugen-render/src/particles.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -921,7 +921,7 @@ only the exported surface is held to the rule.
 | `FADE_IN` | `2` | Ease alpha in as well as out. | 378 |
 | `COLLIDE` | `4` | Test against the cell grid on every step. | 380 |
 
-### `crates/godgame-render/src/player.rs`
+### `crates/yugen-render/src/player.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -935,7 +935,7 @@ only the exported surface is held to the rule.
 | `AIR_JUMP_COUNT` (private) | `8` | Motes in the air-jump ring. | 147 |
 | `SCRAPE_INTERVAL` (private) | `0.05` | Seconds between scrape puffs while sliding down a wall. | 177 |
 
-### `crates/godgame-render/src/player_art.rs`
+### `crates/yugen-render/src/player_art.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -953,20 +953,20 @@ only the exported surface is held to the rule.
 | `LEAN_DEADBAND` (private) | `0.005` | Below this the lean is treated as no lean at all. | 170 |
 | `POSE_COUNT` | `12` | How many poses there are. | 294 |
 
-### `crates/godgame-render/src/scene.rs`
+### `crates/yugen-render/src/scene.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `ARRANGE_FRAMES` | `8` | Frames a caller should allow for [`arrange_the_scene`] to finish. | 199 |
 
-### `crates/godgame-render/src/shear.rs`
+### `crates/yugen-render/src/shear.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `CORNERS` (private) | `4` | Vertices in one quad, and the length of one `corners`/`uv` array. | 71 |
 | `INDICES_PER_QUAD` (private) | `6` | Indices one quad contributes: two triangles. | 74 |
 
-### `crates/godgame-render/src/sky.rs`
+### `crates/yugen-render/src/sky.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -996,14 +996,14 @@ only the exported surface is held to the rule.
 | `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 1056 |
 | `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 1059 |
 
-### `crates/godgame-render/src/sprite.rs`
+### `crates/yugen-render/src/sprite.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `VARIANT_COUNT` | `VARIANT_TINT.len()` | Ceiling for [`SpriteArt::variants`]. | 127 |
 | `POSE_COUNT` (private) | `14` | How many [`Pose`] variants there are — the width of a sprite's id table. | 167 |
 
-### `crates/godgame-render/src/ui.rs`
+### `crates/yugen-render/src/ui.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -1011,21 +1011,21 @@ only the exported surface is held to the rule.
 | `CELL_H` (private) | `7` | Tallest a glyph cell gets, in font pixels. | 240 |
 | `GLYPH_GAP` (private) | `1` | Blank columns between one glyph cell and the next, in font pixels. | 247 |
 | `LINE_GAP` (private) | `2` | Blank rows between one baseline's cell and the next, in font pixels. | 254 |
-| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 823 |
-| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 826 |
-| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 833 |
-| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 839 |
-| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 847 |
-| `BAR_W` (private) | `220` | Health bar width in buffer px. | 850 |
-| `BAR_H` (private) | `20` | Health bar height in buffer px. | 853 |
-| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 856 |
-| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 862 |
-| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 868 |
-| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 874 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1802 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1814 |
+| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 829 |
+| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 832 |
+| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 839 |
+| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 845 |
+| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 853 |
+| `BAR_W` (private) | `220` | Health bar width in buffer px. | 856 |
+| `BAR_H` (private) | `20` | Health bar height in buffer px. | 859 |
+| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 862 |
+| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 868 |
+| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 874 |
+| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 880 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1808 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1820 |
 
-### `crates/godgame-render/src/weather.rs`
+### `crates/yugen-render/src/weather.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
@@ -1038,20 +1038,20 @@ only the exported surface is held to the rule.
 | `HAZE_Z` | `-50.0` | Where the source-over kinds sit: over the whole backdrop, under the world. | 473 |
 | `GLOW_Z` | `-49.0` | Where the additive kinds sit, over the haze. | 476 |
 
-### `crates/godgame-render/src/world.rs`
+### `crates/yugen-render/src/world.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 324 |
 
-### `crates/godgame-render/src/worldselect.rs`
+### `crates/yugen-render/src/worldselect.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `VISIBLE_ROWS` (private) | `8` | Rows of the list drawn at once. | 47 |
 | `ROW_H` (private) | `22` | Height of one list row. | 95 |
 
-### `crates/godgame/src/main.rs`
+### `crates/yugen/src/main.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|

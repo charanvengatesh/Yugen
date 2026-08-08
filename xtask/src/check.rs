@@ -66,7 +66,7 @@ pub const GATES: &[Gate] = &[
     },
     Gate {
         name: "content",
-        what: "crates/godgame-data/ matches content/",
+        what: "crates/yugen-data/ matches content/",
         body: Body::Cargo(&["run", "--quiet", "-p", "contentc", "--", "--check"]),
     },
     Gate {

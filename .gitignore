@@ -4,3 +4,4 @@
 /out
 worldgen.png
 graphify-out/
+__pycache__/
