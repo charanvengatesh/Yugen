@@ -163,10 +163,83 @@ What changed is the world under them: a chunk covers half the world it used to,
 the viewport frames half as much of it, and the terrain carries twice the cell
 detail per landform.
 
+## 6b. The second pass: everything doubles relative to the body
+
+The first pass left terrain at 2x with decor and structures at 1x, so trees read
+small against the hills. The second pass took the world to **4x** and introduced
+`BODY_SCALE = 2` for the player and the creatures. The gap between those two
+numbers is the design: **at 4x world against 2x bodies, terrain, trees and
+buildings are all twice the size they used to be relative to the player, and in
+the proportion to each other they were authored in.**
+
+Three kinds of thing scale three different ways, and keeping them apart is what
+makes the change reviewable:
+
+| Kind | How it scales | Example |
+|---|---|---|
+| **Lengths** | through `WorldScale` | cave radii, band depths, surface amplitude |
+| **Rasters** | nearest-upscaled, `k x k` per authored cell | structure ASCII bodies |
+| **Drawings** | by enlarging their pixels | trees, ore blobs, clutter |
+| **Bodies** | by growing their cell footprint | player, mobs |
+
+A raster cannot be scaled by a float — there is no such thing as 1.5 cells of
+wall — so structures index the source at `c / k`, with **mirroring done in
+destination space**: dividing first mirrors the block instead of the body and
+shifts the template by `k-1` on every odd width. `stamp`, `each_mark` and the
+O(1) `mark_in_site` all take the same factor, because a loot pass that recovers
+mark positions from a different factor recovers the WRONG cells while every
+determinism check still passes.
+
+A tree is not a set of lengths either. It is fifty cell-space constants
+describing a shape, so `DecorContext` grew an expansion anchor and `trees.rs`
+goes on drawing a 1x tree from its trunk base. Threading a scale through every
+one of those constants would have been fifty chances to get one wrong.
+
+### Sprite art needed no re-authoring
+
+Every body sprite carries a `grain`. Halving a record's grain while doubling its
+`cellsW`/`cellsH` spreads the SAME characters over twice the cells per axis — so
+the player went from 4x5 cells at grain 2 to 8x10 at grain 1 and **not one
+character of art moved.**
+
+The cost is that no grain-2 record ships any more, which quietly disarmed the
+guard that pinned the grain mechanism (it sampled the frostmite). It now
+synthesises both grains itself. A guard a content edit can switch off is not
+guarding the mechanism.
+
+### The one that had to be reverted
+
+`STEP_UP_MAX` scales with the body and `STEP_UP_REARM` deliberately does not.
+The reach belongs to the character. The re-arm is the horizontal run between
+risers on the shallowest slope that must stay walkable, and **a riser is one CELL
+tall whatever is climbing it.** Scaling it to `0.8 * STEP_UP_CELLS` cells was
+tried: a 45-degree hill supplies a riser every one cell of travel, a re-arm at
+1.6 cells never admits the second one, and the body climbed 2 cells in four
+seconds instead of 12.
+
+### player_golden was re-recorded, and is a weaker thing now
+
+The body changed shape — `PLAYER_CELLS_W`/`H` went 2x3 to 4x6, which moves every
+px in the replay and changes how the resolver snaps a blocked body to a cell face
+— so no bless-free path existed. The fixture was re-recorded from this
+implementation, which its own header forbade.
+
+Be exact about the cost. Before: two implementations, written in different
+languages from the same design, agreed on 4 048 steps — evidence the body is
+CORRECT. After: this player compared against a recording of this player, which
+can only say it has not CHANGED. `KNOWN_TIES` is now empty and has to be: all 46
+entries were f64-versus-f32 ties against the TypeScript, and there is no second
+implementation left to tie with. 20 240 of 20 240 discrete comparisons agree
+exactly, which sounds like an improvement and is the opposite of one.
+
 ## 7. The known, deliberate debt
 
-**Decor and structures do not scale by multiplication, and were left alone on
-purpose.**
+**Discharged in the second pass.** Decor and structures now scale — as rasters
+and drawings rather than as lengths, per §6b. What follows is the record of why
+they could not simply be multiplied, which is still the reason the mechanism
+looks the way it does.
+
+**Decor and structures do not scale by multiplication.**
 
 Trees are procedural but authored at cell granularity (`trees.rs`: a 22-cell
 trunk, a 6-cell crown, clutter 2 cells wide). Heights multiply cleanly; a
