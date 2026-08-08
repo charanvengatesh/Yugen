@@ -407,9 +407,10 @@ weight = 18.0
 # first so the question "does finer art read as pasted onto a chunkier world,
 # or just better?" could be answered by standing it next to a grubling and
 # looking. The answer was better, the fleet followed, and every creature is at
-# grain 2 now — but the player and the terrain are NOT, deliberately: creatures
-# are small and dense enough to reward the resolution, and the schema doc on
-# `grain` still says what stops the field drifting further.
+# grain 2 now, and the player followed the fleet — but the TERRAIN is not and
+# is not going to be: a cell is the unit the simulation thinks in, and rock
+# drawn finer than it is simulated lies about where a pickaxe lands. The schema
+# doc on `grain` still says what stops the field drifting further.
 #
 # The drawing keeps what the 2x2 version established: the spike dulls and
 # brightens on the breath and flares across the whole crown on the interrupt,

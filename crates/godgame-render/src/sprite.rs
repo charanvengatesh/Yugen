@@ -2471,18 +2471,25 @@ mod tests {
     // -- The atlas and the flip --------------------------------------------
 
     #[test]
-    fn the_atlas_is_one_row_of_tiles_at_one_texel_per_cell() {
+    fn the_atlas_is_one_row_of_tiles_at_grain_texels_per_cell() {
+        // The subject is the player, which is now a grain-2 sprite — so this
+        // test is ALSO the check that a finer grain strides the atlas in
+        // texels. It used to be called "...at_one_texel_per_cell" and assert
+        // tile rects in cells; the day the player took `grain = 2` it went red,
+        // which is exactly what it was for. Tile n starts n * (cells * grain)
+        // texels across, and the strip is one tile tall — the property that
+        // makes the offset arithmetic `tile * tile_w`.
         let def = &SPRITES[sprite::PLAYER as usize];
         let art = sprite_art_from_content(def, "player", &FromContentOpts::default()).unwrap();
+        assert_eq!(art.grain, 2, "the player is the grain-2 subject");
         let b = BakedSprite::new(&art, "player").unwrap();
         let layout = b.layout();
         assert_eq!(layout.textures.len(), b.bake_count);
         assert_eq!(layout.size, b.atlas_size());
-        // Tile n starts exactly n cells across and the strip is one tile tall — the
-        // property that makes the offset arithmetic `tile * cells_w`.
+        let (tw, th) = (b.cells_w * b.grain, b.cells_h * b.grain);
         for (i, rect) in layout.textures.iter().enumerate() {
-            assert_eq!(rect.min, UVec2::new(i as u32 * b.cells_w, 0));
-            assert_eq!(rect.max - rect.min, UVec2::new(b.cells_w, b.cells_h));
+            assert_eq!(rect.min, UVec2::new(i as u32 * tw, 0));
+            assert_eq!(rect.max - rect.min, UVec2::new(tw, th));
         }
     }
 

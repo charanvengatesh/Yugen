@@ -6,27 +6,50 @@
 # construction, generated from this file, so `AnimState` cannot drift from the
 # sequence table sitting below it.
 #
-# ---- ONE ART PIXEL IS ONE WORLD CELL ---------------------------------------
-# 4x5 cells = 20x25px at CELL_SIZE 5. THE PIXELS DID NOT GET FINER. One art
-# pixel is still exactly one sim cell; there are simply twenty of them where
-# there were six. The art used to be a 16x16 grid squeezed into the collision
-# box — a sprite pixel was 1.25 x 1.5 world px, four times finer than the sim
-# cell and not even square, so the character read as a smooth hi-res figure
-# pasted onto a chunky cellular world. That is still the thing this file cannot
-# express, and growing the grid is not a way back to it.
+# ---- ONE ART PIXEL WAS ONE WORLD CELL --------------------------------------
+# `grain = 2` now, so it is one HALF of one, in both axes. Nothing about the
+# SIZE moved: cellsW is still 4, cellsH is still 5, the drawn rect is still
+# 20x25px at CELL_SIZE 5. Each cell is simply authored as a 2x2 block, so every
+# frame below is TEN ROWS OF EIGHT CHARACTERS where it used to be five of four,
+# and the compiler rejects a frame that is anything else.
+#
+# THE FLEET WENT FIRST, AND THE PLAYER FOLLOWS. The frostmite was the one
+# experiment: drawn at grain 2 and stood next to a grubling so the question
+# "does finer art read as pasted onto a chunkier world, or does it just read
+# better?" could be answered by looking. It read better. The other nineteen
+# creatures followed. The player is the twenty-first drawing to move, and it
+# moves for the same reason — a figure twenty world pixels wide is small and
+# dense enough to spend the resolution on shape instead of on noise.
+#
+# TERRAIN DOES NOT FOLLOW AND IS NOT GOING TO. A cell is the unit the simulation
+# actually thinks in: it is what you dig, what floods, what you stand on. Draw
+# rock finer than it is simulated and the world starts lying about where a
+# pickaxe lands. A sprite is never the thing you interact with — the hitbox is,
+# and the hitbox is still counted in whole cells — so a sprite is allowed to be
+# finer than the ground it stands on. That asymmetry is the entire content of
+# `grain`, and the schema doc on it is what stops the field drifting further.
+#
+# What is still NOT on the table is the 16x16 grid the art came from. That
+# sprite pixel was 1.25 x 1.5 world px — four times finer than the sim cell and
+# not even square — so the character read as a smooth hi-res figure pasted onto
+# a chunky cellular world. Grain 2 lands on a half cell in both axes, stays
+# square, and stays aligned to the grid it is standing on. It is a finer grid;
+# it is not a different one.
 #
 # ---- THE COLLISION BOX DID NOT MOVE ----------------------------------------
-# The box is still 2x3 cells (10x15px). The engine derives the surplus:
+# The box is still 2x3 CELLS (10x15px). The engine derives the surplus from
+# cells, not from texels, so the pads are the same numbers they always were:
 #
 #   pad_x   = (4 - 2) / 2 * CELL_SIZE =  5px each side
 #   pad_top = (5 - 3)     * CELL_SIZE = 10px above
 #
 # so the FEET stay on the bottom row and everything extra grows up and sideways.
-# In this grid:
+# The map below is the old one with every index doubled — that is the whole of
+# what `grain` does to it:
 #
-#   rows 2,3,4  x  cols 1,2   THE HITBOX. Head, torso, feet. What gets hit.
-#   rows 0,1                  overhang above the head — mane, a thrown fist.
-#   cols 0,3                  overhang either side — arms, a swung leg, a trail.
+#   rows 4-9  x  cols 2-5   THE HITBOX. Head, torso, feet. What gets hit.
+#   rows 0-3                overhang above the head — mane, a thrown fist.
+#   cols 0-1, cols 6-7      overhang either side — arms, a swung leg, a trail.
 #
 # An EVEN `cellsW` is a choice here, not a requirement, and it is worth knowing
 # which. `ArtGrid::from_def` computes `pad_x` in f32 and a half-cell origin is
@@ -37,45 +60,55 @@
 # across.) 4 is used because two symmetric overhang columns give the arms
 # somewhere to go, not because 3 was forbidden.
 #
-# ---- WHAT TWENTY PIXELS BUY THAT SIX COULD NOT -----------------------------
-# At 2x3 the character had no silhouette, no limbs, and a head that was also its
-# entire upper body. Four things arrived with the extra fourteen:
+# ---- WHAT EIGHTY TEXELS BUY THAT TWENTY COULD NOT --------------------------
+# Twenty pixels bought the silhouette: arms, a mane, a far side, a real squash.
+# Every one of those is still here and still means the same thing. The list below
+# is what the extra sixty bought ON TOP of it, and it is deliberately short,
+# because a fourfold grid is four times as easy to fill with noise.
 #
-#   ARMS.       Cols 0 and 3 hold a limb. A cocked fist, a brace, a flail. The
-#               punch now throws something instead of recolouring a pixel.
-#   A MANE.     A trailing flame (tone 8) above and behind the head. It lags the
-#               body, so every state gets secondary motion for one pixel: it
-#               blows forward in the skid, streams flat back in the dash, whips
-#               back on the punch, gutters out on the blink.
-#   DEPTH.      Tone 7 is the far side of the figure. Limbs that reach into the
-#               overhang columns are drawn in it, so the bright teal core — which
-#               IS the hitbox — stays the brightest mass in the frame and the
-#               silhouette never claims to be wider than the box.
-#   A REAL SQUASH AND A REAL ROTATION. `land` loses a row AND spreads to four
-#               cells wide. `doubleJump` rolls the head all the way around the
-#               body instead of nudging it one cell.
+#   SHADING, NOT SUBSTITUTION. A limb used to change colour to change depth.
+#               Now the head carries a lit crown over an amber underside, the
+#               torso is lit in front and shaded behind IN THE SAME FRAME, and
+#               tone 7 is free to mean "behind the body" instead of "smaller".
+#   LEGS, NOT A FOOT ROW. Two one-texel legs with a gap between them read as a
+#               stride at any speed. `run` plants a foot six texels from its
+#               partner; at grain 1 the widest stance the grid could hold was
+#               two, and both contacts had to be the same width.
+#   A HALF-CELL BOB. run's high pass lifts the whole figure one texel and its
+#               low pass does not. That vertical bounce did not exist before:
+#               the smallest lift the old grid could draw was a full cell, and a
+#               full cell on a five-cell figure is a hop, not a run.
+#   ROUNDED MASS. `doubleJump` curls into an actual ball with the corners taken
+#               off it and the head orbiting outside as a block; `land` puffs
+#               dust out of both bottom corners while the ember is crushed flat.
 #
-# ---- ROW 0 IS SPENT, NOT OWNED ---------------------------------------------
-# Only jump's launch, hurt, dash's trail and the doubleJump roll touch row 0. An
-# early pass drew the mane up there on every frame and put an arm in cols 0 and
-# 3 permanently; the figure then read as a 4x5 solid, and 4x5 is two and a half
-# times the box. Players stop trusting gaps they can actually fit through, which
-# is a movement bug caused entirely by art. The resting silhouette is therefore
-# three cells wide and four tall (mane + one hanging arm), and the full 4x5
-# extent exists only in states that last two or three frames.
+# ---- ROWS 0 AND 1 ARE SPENT, NOT OWNED -------------------------------------
+# Doubling the grid doubled the temptation. Only jump's launch and hurt put
+# anything in rows 0 or 1 — plus run's high pass, which lifts the mane tip one
+# texel into row 1 for an eighth of a second and gives it straight back. An early
+# pass drew the mane across rows 0-3 on every frame and hung an arm in cols 0-1
+# and 6-7 permanently; the figure then read as a solid 8x10, and 8x10 is two and
+# a half times the box exactly as 4x5 was. Players stop trusting gaps they can
+# actually fit through, which is a movement bug caused entirely by art. The
+# resting silhouette is therefore FIVE texels wide and EIGHT tall out of a
+# possible eight by ten — mane, head, torso, legs and one hanging arm, with cols
+# 0, 6 and 7 and rows 0 and 1 all empty — and the full extent exists only in
+# states that last two or three frames.
 #
 # Authored facing RIGHT; left is a horizontal flip at draw time. Transparency
-# still does most of the acting: dropping row 4 lifts the figure off the ground,
-# dropping cols 0 and 3 flattens it against a wall, dropping row 1 and pushing
-# everything down squashes it on impact.
+# still does most of the acting, and now it does it in half-cell steps: dropping
+# row 9 lifts the figure off the ground, dropping cols 6-7 flattens it against a
+# wall, dropping rows 0-3 and pushing everything down squashes it on impact.
 #
 # ---- SHARED POSES ARE REPEATED, NOT NAMED ----------------------------------
 # Several states legitimately land on the same drawing — run's low passing beat
 # is the idle exhale, and so is land's and punch's recovery; doubleJump recovers
 # onto run's far-foot contact, byte for byte. Those frames are written out again
 # here rather than hoisted into a named intermediate: the runtime's bake cache is
-# keyed on the frame text, so identical frames still share ONE baked canvas, and
-# the file stays readable as a filmstrip instead of as a symbol table.
+# keyed on the frame text, and ten rows of eight characters is still just text,
+# so identical frames still share ONE baked canvas and the file stays readable as
+# a filmstrip instead of as a symbol table. Four frames below are the same nine
+# lines; if you edit one of them you are editing four states.
 
 [player]
 name = "Player"
@@ -83,30 +116,37 @@ name = "Player"
 cellsW = 4
 cellsH = 5
 
-# Twenty pixels are enough for shading but not for decoration, so every colour
+# Each cell is a 2x2 block of characters. Every frame in this file is ten rows
+# of eight, and nothing else compiles.
+grain = 2
+
+# Eighty texels are enough for shading but not for decoration, so every colour
 # still has a job. Teal body + gold head is the identity and did not move — it is
 # the loudest thing against dark grey-blue rock, brown earth and white snow, and
-# an ember survives being one pixel where a face never could.
+# an ember survives being four texels where a face never could.
 #
-# Two are new, and both exist to make the overhang legible rather than to make
-# the character prettier:
+# Two exist to make the overhang legible rather than to make the character
+# prettier:
 #
-#   7 is the FAR SIDE. Anything reaching into cols 0 and 3 that is behind the
+#   7 is the FAR SIDE. Anything reaching into cols 0-1 or 6-7 that is behind the
 #     torso is drawn in it. It is one step below the body shade, dark enough to
 #     sit back but still obviously the same material, so a splayed arm reads as
 #     depth instead of as extra body — which is what keeps the drawing honest
 #     about where the hitbox ends.
-#   8 is the MANE, one step cooler than the ember. Drawn in 4 the crest competed
-#     with the head for the brightest pixel and the face stopped being the focal
-#     point; drawn in a body tone it read as a helmet. An amber says "this is the
-#     same flame, further from the source", which is the only thing it has to say.
+#   8 is the MANE, one step cooler than the ember — and, at this grain, the
+#     ember's own UNDERSIDE. Drawn in 4 the crest competed with the head for the
+#     brightest pixel and the face stopped being the focal point; drawn in a body
+#     tone it read as a helmet. An amber says "this is the same flame, further
+#     from the source", which is exactly as true of the jaw under a lit crown as
+#     it is of the trailing crest — so the head gets a shaded underside without a
+#     tenth entry. Nine is the format's ceiling and this file is sitting on it.
 #
 #   0 .        transparent            5 #ff6b57  ember blown red — hurt only
 #   1 #1b1220  ink, planted feet      6 #fff3c4  spark — dash trail, punch
 #   2 #3ec8b4  body lit (leading)                impact, swim bubble, skid
 #   3 #21877e  body shade (trailing)             scrape, landing dust
 #   4 #ffcf5c  ember head — the       7 #14564f  body deep — far-side limbs
-#              bloom pass takes it    8 #e8913a  mane, the trailing flame
+#              bloom pass takes it    8 #e8913a  mane; ember underside
 pal = [".", "#1b1220", "#3ec8b4", "#21877e", "#ffcf5c", "#ff6b57", "#fff3c4", "#14564f", "#e8913a"]
 
 variants = 1
@@ -116,15 +156,21 @@ variants = 1
 
 # --- idle -------------------------------------------------------------------
 # Ambient, not a loop: a slow breath with an occasional blink on top. The first
-# two frames alternate at `fps` — exhale (chest on the shade tone, mane hanging
-# straight down behind the head) and inhale (chest lifts onto both lit pixels,
-# mane drifts back a cell). The trailing arm hangs in col 0 on the exhale and is
-# the only overhang the resting figure spends.
+# two frames alternate at `fps` — exhale (chest shaded behind, lit in front,
+# mane hanging straight down behind the head) and inhale (the whole chest lifts
+# onto the lit tone and the mane leans back one texel). One texel of lean is a
+# drift the old grid had to spend a whole cell on; here it is the smallest motion
+# in the file, which is the right size for a breath.
+#
+# The trailing arm hangs in col 1 on both frames — three texels of tone 7 from
+# shoulder to hand — and it is the ONLY overhang the resting figure spends. Cols
+# 0, 6 and 7 stay empty so the standing silhouette never claims to be wider than
+# the box plus one arm.
 #
 # The LAST frame is the interrupt, held for blinkFor every blinkEvery. The whole
-# flame guttering IS the blink — head AND mane drop to body shade, three pixels
-# going dark at once where the old grid could only dim one. There is still no eye
-# to close, and now there does not need to be.
+# flame guttering IS the blink — head AND mane drop to body shade, eleven texels
+# going dark at once where the old grid could only dim three. There is still no
+# eye to close, and now there does not need to be.
 #
 # fps is written as the reciprocal of the authored beat, 1/0.62, and the exact
 # double for it rather than a rounded 1.613. The runtime computes
@@ -139,222 +185,332 @@ fps = 1.6129032258064517
 blinkEvery = 4.6
 blinkFor = 0.1
 frames = '''
-....
-.8..
-.44.
-732.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73322..
+.73322..
+.73..2..
+..1..1..
 
-....
-88..
-.44.
-722.
-.11.
+........
+........
+.8......
+.88.....
+..4444..
+..8444..
+.72222..
+.72222..
+.73..2..
+..1..1..
 
-....
-.3..
-.33.
-732.
-.11.
+........
+........
+..3.....
+..33....
+..3333..
+..3333..
+.73322..
+.73322..
+.73..2..
+..1..1..
 '''
 
 # --- run --------------------------------------------------------------------
 # Indexed by the run phase the Player advances from real horizontal speed, so
 # contacts land on phase 0.0 and 0.5 — frames 0 and 2 — which is where the
-# footstep particles are emitted. Both contacts now show a real stride, because
-# a foot is allowed to leave the hitbox columns:
+# footstep particles are emitted. Both contacts show a real stride, because a
+# foot is allowed to leave the hitbox columns and now has room to land when it
+# gets there:
 #
-#   frame 0  NEAR-foot contact. The near foot plants forward in col 3 (ink), the
-#            other trails under the body, and the far arm swings back into col 0.
-#            Contralateral, which is what stops a run from reading as a hop.
-#   frame 2  FAR-foot contact. The far foot plants in tone 7 and the arm swings
-#            forward instead. Same cadence, opposite limbs, and the depth tone is
-#            what says "other side of the body" rather than "smaller step".
+#   frame 0  NEAR-foot contact. The near foot plants forward in cols 6-7 (ink),
+#            the far foot trails back into cols 1-2 in tone 7, and the far arm
+#            swings back and down through cols 0-1. Six texels of stride, and
+#            contralateral, which is what stops a run from reading as a hop.
+#   frame 2  FAR-foot contact. The limbs swap ends: near foot back in cols 0-1,
+#            far foot planted forward in tone 7, near arm thrown forward across
+#            cols 6-7 on the lit tone. Same cadence, opposite limbs, and the
+#            depth tone is what says "other side of the body" rather than
+#            "smaller step".
 #
-# THE TWO PASSING BEATS ARE NOT THE SAME DRAWING. They used to be byte-identical,
-# which made the cycle read A-B-C-B — a shuffle. Frame 1 is the HIGH pass: arms
-# tuck in, the silhouette narrows to two cells, the chest goes to both lit pixels
-# and one foot gathers under the hips. Frame 3 is the LOW pass and is the idle
-# exhale exactly, arm out and both feet down. Near-side pass rides high, far-side
-# rides low, which is what a run seen from one side actually does.
+# THE TWO PASSING BEATS ARE NOT THE SAME DRAWING, and at this grain they are not
+# even at the same HEIGHT. Frame 1 is the HIGH pass: the whole figure sits one
+# texel — half a cell — further up the frame, the arms tuck in, the silhouette
+# narrows to the four hitbox columns, the chest goes fully lit and the legs
+# gather under the hips over a stretched three-texel push-off. Frame 3 is the LOW
+# pass and is the idle exhale exactly, arm out and both feet down. Near-side pass
+# rides high, far-side rides low, which is what a run seen from one side actually
+# does — and half a cell is the amount it does it by. A full cell was a hop.
 #
-# The body tones are NOT swapped to `23` on either beat: that reversal is
-# reserved for `skid`, where it means the weight is going the other way.
+# The body tones are NOT swapped to lit-behind-shade on either beat: that
+# reversal is reserved for `skid`, where it means the weight is going the other
+# way.
 [[player.seq]]
 state = "run"
 mode = "phase"
 frames = '''
-....
-.8..
-.44.
-732.
-.1.1
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73322..
+7.3322..
+..7...2.
+.77...11
 
-....
-88..
-.44.
-.22.
-..1.
+........
+.8......
+.88.....
+..4444..
+..8444..
+..2222..
+..2222..
+...32...
+...32...
+...11...
 
-....
-.8..
-.44.
-.322
-1.7.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+..332222
+..3322..
+.1....7.
+11....77
 
-....
-.8..
-.44.
-732.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73322..
+.73322..
+.73..2..
+..1..1..
 '''
 
 # --- skid -------------------------------------------------------------------
 # The body tones are SWAPPED, so the lit side trails the facing: the figure faces
 # the new direction while its weight still goes the old way, which is exactly
-# what a turnaround is. The mane confirms it — it blows FORWARD across the face
-# into col 3, because hair trails the motion and the motion is now backwards.
-# That one cue is worth more than the tone swap on its own ever was.
+# what a turnaround is. The mane confirms it — it blows FORWARD across the top of
+# the head into cols 3-6, and the ember's amber underside goes with it, sitting
+# under the FRONT of the jaw instead of the back. Hair trails the motion and the
+# motion is now backwards; that one cue is worth more than the tone swap on its
+# own ever was, and at this grain it is four texels of it rather than one.
 #
-# The far arm is flung out behind into col 0 as a brace. A spark flickers off the
-# leading foot on the second frame and nothing else changes, so the state still
-# reads as one fixed posture — it just stops being the only sustained state in
-# the set that is completely static, which at ten frames a second is the
-# difference between braking and being paused.
+# The far arm is flung back through cols 0-1 as a brace, the leading foot is
+# planted out in cols 6-7 and the trailing leg is folded under. A pair of sparks
+# scrapes off behind the leading foot on the second frame and nothing else
+# changes, so the state still reads as one fixed posture — it just stops being
+# the only sustained state in the set that is completely static, which at ten
+# frames a second is the difference between braking and being paused.
 [[player.seq]]
 state = "skid"
 mode = "loop"
 fps = 10.0
 frames = '''
-....
-..88
-.44.
-723.
-.11.
+........
+........
+....88..
+...8888.
+..4444..
+..4448..
+.72233..
+7.2233..
+..2...3.
+..1...11
 
-....
-..88
-.44.
-723.
-.116
+........
+........
+....88..
+...8888.
+..4444..
+..4448..
+.72233..
+7.2233..
+..2...3.
+..1.6611
 '''
 
 # --- jump -------------------------------------------------------------------
-# Launch: the only frame in the file that is five rows tall. The leading arm goes
-# up the whole front column — shoulder, forearm, hand in row 0 — the chest is on
-# both lit tones, and the trailing foot is already gone. Maximum extension, and
-# it survives being this large because `once` at 9fps means it exists for one
-# ninth of a second and can never be mistaken for the resting silhouette.
+# Launch: the tallest frame in the file, and the only one that spends all ten
+# rows on one continuous line of the body. The leading arm goes up the front
+# overhang as an unbroken column of lit texels — shoulder out to col 6 at the
+# chest, then straight up to the hand in row 0 — the chest is fully lit, and the
+# trailing foot is already gone. Maximum extension, and it survives being this
+# large because `once` at 9fps means it exists for one ninth of a second and can
+# never be mistaken for the resting silhouette.
 #
-# Then the tuck: the arm drops, the mane spreads as the rise slows, the knees
-# come up and the figure loses two rows off the top.
+# Then the tuck: the arm drops back to a hanging tone 7, the mane spreads across
+# four texels as the rise slows, the knees come up and the figure loses the top
+# two rows.
 [[player.seq]]
 state = "jump"
 mode = "once"
 fps = 9.0
 frames = '''
-...2
-.8.2
-.442
-.22.
-..1.
+......2.
+......2.
+..8...2.
+..88..2.
+..44442.
+..84442.
+..22222.
+..2222..
+...22...
+...1....
 
-....
-.88.
-.44.
-.32.
-..1.
+........
+........
+.8888...
+..88....
+..4444..
+..8444..
+.73322..
+.73322..
+...32...
+...1....
 '''
 
 # --- doubleJump -------------------------------------------------------------
-# The one move with a real animation, and now it is a real somersault rather than
-# a nudged pixel. The body curls into a two-by-two ball inside the hitbox columns
-# and stays there; the HEAD orbits it, with the mane one beat behind like a
-# comet's tail:
+# The one move with a real animation, and at this grain the somersault has an
+# actual body to turn. The torso curls into a four-by-four ball with the corners
+# taken off it, parked inside the hitbox columns, and it does not move a texel
+# across the first three frames; the HEAD orbits it as a two-by-two block, with
+# the mane always one station behind like a comet's tail:
 #
-#   frame 0  ember at top, mane behind it, and a spark kicked out underneath —
-#            the mid-air push that paid for the jump.
-#   frame 1  ember swung round to the front at torso height, mane above it.
+#   frame 0  ember on top, mane trailing off the back of it, and a spark kicked
+#            out underneath — the mid-air push that paid for the jump.
+#   frame 1  ember swung round to the front at torso height, mane above it in
+#            the station the head has just left.
 #   frame 2  fully inverted: ember below the ball, mane trailing off the front.
 #   frame 3  recovered, and it is run's far-foot contact BYTE FOR BYTE, so the
 #            roll lands straight into the run cycle instead of stopping first.
 #
-# Nothing else in the set moves the head off row 2, so this cannot be confused
+# Nothing else in the set moves the head off rows 4-5, so this cannot be confused
 # with the first jump even at 12fps.
 [[player.seq]]
 state = "doubleJump"
 mode = "once"
 fps = 12.0
 frames = '''
-....
-.84.
-.22.
-.33.
-..6.
+........
+........
+.8844...
+.8844...
+...22...
+..2222..
+..3333..
+...33...
+...66...
+........
 
-....
-....
-.228
-.334
-....
+........
+........
+........
+........
+...22.88
+..222288
+..333344
+...33.44
+........
+........
 
-....
-....
-.22.
-.338
-..4.
+........
+........
+........
+........
+...22...
+..2222..
+..333388
+...33.88
+...44...
+...44...
 
-....
-.8..
-.44.
-.322
-1.7.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+..332222
+..3322..
+.1....7.
+11....77
 '''
 
 # --- fall -------------------------------------------------------------------
-# A dim, loose body (both tones shaded) with the limbs doing the work. Three
-# frames on a slow loop so it flails rather than vibrates, and the arms are what
-# make it flail: back arm out and a leg swung forward, then BOTH arms thrown up
-# to head height with both feet gone, then front arm out and the leg swung back.
-# The middle frame is the one that has to drop both feet — the leg swings through
-# empty air between the two contacts instead of teleporting from one side to the
-# other. Two frames made the fall read as a metronome; the odd frame count is
-# what makes it read as loose.
+# A dim, loose body — both torso columns on the shade tone, no lit teal anywhere
+# in the core — with the limbs doing the work. Three frames on a slow loop so it
+# flails rather than vibrates, and the arms are what make it flail: back arm out
+# through cols 0-1 with the far leg swung forward, then BOTH arms thrown up level
+# with the head crown and both feet gone, then the front arm out through cols 6-7
+# with the far leg swung back. The middle frame is the one that has to drop both
+# feet — the leg swings through empty air between the two contacts instead of
+# teleporting from one side to the other. Two frames made the fall read as a
+# metronome; the odd frame count is what makes it read as loose.
+#
+# The swung leg is in tone 7 at both ends, so the flail widens the far side of
+# the figure and never the body.
 [[player.seq]]
 state = "fall"
 mode = "loop"
 fps = 6.0
 frames = '''
-....
-.88.
-.44.
-733.
-..1.
+........
+........
+.8888...
+..88....
+..4444..
+..8444..
+773333..
+..3333..
+...3..7.
+...1..7.
 
-....
-.88.
-7442
-.33.
-....
+........
+........
+..88....
+.788..2.
+77444422
+..8444..
+..3333..
+..3333..
+...33...
+........
 
-....
-.88.
-.44.
-.332
-1...
+........
+........
+.8888...
+..88....
+..4444..
+..8444..
+..333322
+..3333..
+.7...3..
+.7...1..
 '''
 
 # --- land -------------------------------------------------------------------
-# Impact, and this is where the wide grid earns its keep. The figure loses BOTH
-# overhang rows, the ember is crushed down a full row into row 3, the mane is
-# forced up above it, the arms splay all the way to cols 0 and 3, and dust sparks
-# out either side of the feet. Two rows shorter and two cells wider in a single
-# frame — a squash that is actually a squash, where the old grid could only
-# delete a row.
+# Impact, and this is where the wide grid earns its keep twice over. The figure
+# loses ALL FOUR overhang rows, the ember is crushed from two rows into one and
+# shoved a full cell lower, the mane is forced up above it as a plume six texels
+# across, the arms splay all the way into cols 0-1 and 6-7, and dust sparks out
+# of both bottom corners at once. Four rows shorter and four texels wider in a
+# single frame — a squash that is actually a squash, where the old grid could
+# only delete a row.
 #
 # Three beats: squash, RISE, neutral. The rise recovers the full height but keeps
-# the body on the dim `33` it had while falling, so the figure comes back up
-# before it comes back to strength. Cutting straight from the squash to the
+# the body on the dim shade tone it had while falling, so the figure comes back
+# up before it comes back to strength. Cutting straight from the squash to the
 # neutral stand made the recovery instantaneous, which threw away most of what
 # the squash frame had just paid for. The last frame is the idle exhale exactly.
 [[player.seq]]
@@ -362,96 +518,142 @@ state = "land"
 mode = "once"
 fps = 14.0
 frames = '''
-....
-....
-.88.
-7442
-6116
+........
+........
+........
+........
+..8888..
+.888888.
+77444422
+77333322
+66111166
+.611116.
 
-....
-.8..
-.44.
-733.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73333..
+.73333..
+.73..3..
+..1..1..
 
-....
-.8..
-.44.
-732.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73322..
+.73322..
+.73..2..
+..1..1..
 '''
 
 # --- dash -------------------------------------------------------------------
-# The pose is welded: mane blown dead flat behind the head along row 2, chest on
-# both lit tones, one toe skimming. Nothing about the FIGURE moves between the
-# frames — only the sparks in the back column, which is what makes it a streak
-# rather than an animation.
+# The pose is welded: the mane blown dead flat into a two-by-two bar sitting
+# level with the head, so amber and ember run together as one six-texel
+# horizontal streak; chest fully lit; one toe skimming. Nothing about the FIGURE
+# moves between the frames — only the sparks peeling off the back column, which
+# is what makes it a streak rather than an animation.
 #
 # Three frames rather than two: an even count at this rate gives a 9Hz
 # alternation that the eye locks onto as a flicker, where an odd one keeps
-# re-landing on a different beat and stays a streak. Spark high, spark low, then
-# both at once — the trail briefly doubling is what sells speed.
+# re-landing on a different beat and stays a streak. Trail high in the upper
+# overhang, trail low off the chest, then both at once — the trail briefly
+# doubling is what sells speed. Each wisp is a three-texel diagonal now instead
+# of a lone pixel, so it has a direction as well as a position.
 [[player.seq]]
 state = "dash"
 mode = "loop"
 fps = 18.0
 frames = '''
-....
-6...
-844.
-.22.
-..1.
+........
+........
+6.......
+66......
+884444..
+884444..
+..2222..
+..2222..
+...22...
+....1...
 
-....
-....
-844.
-622.
-..1.
+........
+........
+........
+........
+884444..
+884444..
+662222..
+6.2222..
+...22...
+....1...
 
-....
-6...
-844.
-622.
-..1.
+........
+........
+6.......
+66......
+884444..
+884444..
+662222..
+6.2222..
+...22...
+....1...
 '''
 
 # --- wallSlide --------------------------------------------------------------
-# Both overhang columns are dropped and so is col 1's body: the figure squeezes
-# into the single cell column pressed against the wall it faces, with only the
-# dragging arm and the mane behind it. Col 3 is empty because that is where the
-# wall is. A two-wide, four-tall silhouette with a one-wide core is unlike
-# anything else in the set, so this state is never ambiguous — and it is the only
-# state that reads NARROWER than the hitbox, which is the honest way to say the
-# character is pinned.
+# The wall-side overhang is dropped and so is the front half of the body: the
+# figure squeezes into cols 4-5 — two texels, ONE CELL — pressed against the wall
+# it faces, with only the dragging arm in col 3 and the mane behind it. Cols 6-7
+# are empty because that is where the wall is; cols 0-1 are empty because there
+# is nothing out there to reach for. A three-texel silhouette over a one-cell
+# core is unlike anything else in the set, so this state is never ambiguous — and
+# it is the only state that reads NARROWER than the hitbox, which is the honest
+# way to say the character is pinned.
 #
-# Second frame: the braced foot loses the wall and the mane drifts back a cell.
+# Second frame: the braced foot loses the wall and the mane drifts back a texel.
 # Everything else holds, so it slides rather than animates.
 [[player.seq]]
 state = "wallSlide"
 mode = "loop"
 fps = 6.0
 frames = '''
-....
-.8..
-..4.
-.72.
-..1.
+........
+........
+...8....
+...88...
+....44..
+....84..
+...722..
+...722..
+....22..
+....11..
 
-....
-88..
-..4.
-.72.
-....
+........
+........
+..8.....
+..88....
+....44..
+....84..
+...722..
+...722..
+....22..
+........
 '''
 
 # --- swim -------------------------------------------------------------------
-# The figure goes prone: row 2 is one horizontal line — mane, back, then the head
-# reaching forward into col 3 — and it does not change across the whole sequence.
-# The legs are the animation, trailing off the back in the depth tone. Feet never
-# plant; no ink appears in this state at all.
+# The figure goes prone: rows 4 and 5 are one horizontal line the full width of
+# the frame — mane trailing off the back, a lit back over a shaded belly, then
+# the head reaching forward into cols 4-7 with the amber tucked under its jaw —
+# and that line does not change a texel across the whole sequence. The legs are
+# the animation, trailing off the back in the depth tone. Feet never plant; no
+# ink appears in this state at all.
 #
 # Three beats (glide with the legs straight back, gather with the knees drawn up
-# under the hips, kick with the stroke blurred across three cells) played
+# under the hips, kick with the stroke blurred across six texels) played
 # [A, B, C, B], so the gather frame appears twice and the stroke has a returning
 # half. A bubble breaks off above the head on the glide and again, further
 # forward, on the kick.
@@ -460,83 +662,128 @@ state = "swim"
 mode = "loop"
 fps = 6.0
 frames = '''
-....
-..6.
-8344
-77..
-....
+........
+........
+........
+....6...
+88224444
+.8338444
+7777....
+........
+........
+........
 
-....
-....
-8344
-.72.
-....
+........
+........
+........
+........
+88224444
+.8338444
+..772...
+..77....
+........
+........
 
-....
-...6
-8344
-772.
-....
+........
+........
+........
+.......6
+88224444
+.8338444
+777722..
+........
+........
+........
 
-....
-....
-8344
-.72.
-....
+........
+........
+........
+........
+88224444
+.8338444
+..772...
+..77....
+........
+........
 '''
 
 # --- punch ------------------------------------------------------------------
 # Wind-up: the body dims to the shade tone, the feet set, and the fist cocks back
-# into col 0 on the LIT tone — the brightest pixel in the frame is the thing that
-# is about to move, which is the whole trick for telegraphing at 14fps.
+# into cols 0-1 on the LIT tone — the brightest thing in the frame is the thing
+# that is about to move, which is the whole trick for telegraphing at 14fps. At
+# this grain the cocked arm is a shape rather than a recoloured corner: upper arm
+# angled through col 1, fist a two-texel block out in cols 0-1.
 #
-# Contact: the arm fires across the body and the front column flashes for two
-# rows, mane whipped back to col 0 by the turn. That vertical spark bar is the
-# only two-pixel spark in the file outside the dash trail, and it is deliberately
-# outside the hitbox — the strike reaches further than the character can be hit,
-# which is exactly what the overhang column is for.
+# Contact: the arm fires across the body and out into col 6, and col 7 — the
+# outermost column in the frame — flashes as an unbroken four-texel spark bar,
+# mane whipped back to cols 0-1 by the turn. That bar is the longest continuous
+# spark in the file outside the dash trail, and it is deliberately outside the
+# hitbox: the strike reaches further than the character can be hit, which is
+# exactly what the overhang column is for.
 #
-# Recovery is the idle exhale exactly. Feet never move across all three frames.
+# Recovery is the idle exhale exactly. The feet never move across all three
+# frames.
 [[player.seq]]
 state = "punch"
 mode = "once"
 fps = 14.0
 frames = '''
-....
-.8..
-.44.
-233.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.23333..
+223333..
+..3..3..
+..1..1..
 
-....
-8...
-.446
-.326
-.11.
+........
+........
+88......
+.88.....
+..4444.6
+..8444.6
+..332226
+..3322.6
+..3..2..
+..1..1..
 
-....
-.8..
-.44.
-732.
-.11.
+........
+........
+..8.....
+..88....
+..4444..
+..8444..
+.73322..
+.73322..
+.73..2..
+..1..1..
 '''
 
 # --- hurt -------------------------------------------------------------------
 # Four things change at once, which is right for the state you most need to read
 # instantly. The ember blows red and takes the mane with it, so the red is now a
-# five-pixel diagonal streak torn up and back through both overhang rows instead
-# of one recoloured dot. The body tones reverse. The arm flies out behind. The
-# leading foot leaves the floor.
+# fifteen-texel mass — a torn diagonal ripped up and back through all four
+# overhang rows with the whole head burning at the bottom of it — instead of one
+# recoloured dot. The body tones reverse. The arm flies out behind through cols
+# 0-1. The leading foot leaves the floor entirely and hangs beside its own knee.
 #
-# It is the only frame in the file that puts a colour nothing else uses into row
-# 0, so it is unmistakable even in one held frame at the edge of vision.
+# It is the only frame in the file that puts a colour nothing else uses into
+# row 0, so it is unmistakable even in one held frame at the edge of vision.
 [[player.seq]]
 state = "hurt"
 mode = "hold"
 frames = '''
-5...
-55..
-.55.
-723.
-.1..
+5.......
+55......
+.55.....
+..55....
+..5555..
+..5555..
+.72233..
+7.2233..
+..2..31.
+..1.....
 '''
