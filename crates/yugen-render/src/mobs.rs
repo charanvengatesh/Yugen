@@ -685,6 +685,7 @@ impl Plugin for MobsPlugin {
                 step_creatures
                     .after(PlayerSet::Step)
                     .before(SimSet::Simulate)
+                    .run_if(crate::scenes::running)
                     .run_if(resource_exists::<SimWorld>)
                     .run_if(resource_exists::<PlayerBody>),
             )

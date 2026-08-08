@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 100 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 620 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 630 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -782,11 +782,11 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 67 |
-| `X` (private) | `8` | Panel inset from the top-left, clear of `ui::hud`'s health bar. | 137 |
-| `Y` (private) | `52` | Baseline of the first line. | 145 |
-| `LINE` (private) | `13` | Line pitch. | 147 |
-| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 149 |
+| `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 63 |
+| `PANEL_W` (private) | `340` | Widest the panel gets, in buffer px. | 138 |
+| `PAD` (private) | `6` | Inset from the plate's edge to its text. | 141 |
+| `LINE` (private) | `13` | Line pitch. | 144 |
+| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 147 |
 
 ### `crates/yugen-render/src/dump.rs`
 
@@ -1042,28 +1042,48 @@ only the exported surface is held to the rule.
 | `ADVANCE` | `7` | Pen movement from one glyph to the next, in font pixels. | 29 |
 | `CAP` | `8` | Baseline to the top of a capital, in font pixels. | 36 |
 
+### `crates/yugen-render/src/ui/layout.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `VITALS_H` (private) | `28` | Height of the health plate, including its bleed. | 181 |
+| `VITALS_W` (private) | `228` | Width of the health plate, including its bleed. | 185 |
+| `STATS_H` (private) | `12` | Height of the stat row under the vitals. | 188 |
+| `PANEL_H` | `62` | Height of the bottom-left hotbar plate. | 194 |
+| `HINT_LINES` (private) | `3` | Lines of control hint in the top-right stack. | 197 |
+| `HINT_PITCH` (private) | `14` | Pitch of the hint stack, in buffer px. | 200 |
+
 ### `crates/yugen-render/src/ui/mod.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `LINE_GAP` (private) | `2` | Blank rows between one line's cap and the next, in font pixels. | 253 |
-| `SMALL_GAP` (private) | `1` | Blank columns after a [`Face::Small`] cell, in font pixels. | 263 |
-| `SMALL_W` (private) | `3` | [`Face::Small`]'s cell width in font pixels. | 266 |
-| `SMALL_H` (private) | `5` | [`Face::Small`]'s cell height in font pixels. | 270 |
-| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 797 |
-| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 800 |
-| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 807 |
-| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 813 |
-| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 821 |
-| `BAR_W` (private) | `220` | Health bar width in buffer px. | 824 |
-| `BAR_H` (private) | `20` | Health bar height in buffer px. | 827 |
-| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 830 |
-| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 836 |
-| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 842 |
-| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 848 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1793 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1805 |
-| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 1935 |
+| `LINE_GAP` (private) | `2` | Blank rows between one line's cap and the next, in font pixels. | 256 |
+| `SMALL_GAP` (private) | `1` | Blank columns after a [`Face::Small`] cell, in font pixels. | 266 |
+| `SMALL_W` (private) | `3` | [`Face::Small`]'s cell width in font pixels. | 269 |
+| `SMALL_H` (private) | `5` | [`Face::Small`]'s cell height in font pixels. | 273 |
+| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 800 |
+| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 803 |
+| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 810 |
+| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 816 |
+| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 824 |
+| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 827 |
+| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 833 |
+| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 839 |
+| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 845 |
+| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1218 |
+| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1225 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1947 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1959 |
+| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2103 |
+
+### `crates/yugen-render/src/ui/theme.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `UNIT` | `4` | The spacing scale, in buffer pixels. | 196 |
+| `PAD` | `2 * UNIT` | Inside a plate, between its edge and its content. | 199 |
+| `GAP` | `3 * UNIT` | Between two related things — a label and its value, a pip and its caption. | 202 |
+| `MARGIN` | `4 * UNIT` | Between two unrelated things, and from the buffer edge to a plate. | 209 |
 
 ### `crates/yugen-render/src/weather.rs`
 
@@ -1082,7 +1102,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 325 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 330 |
 
 ### `crates/yugen-render/src/worldselect.rs`
 

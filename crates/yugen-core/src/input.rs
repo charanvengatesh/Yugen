@@ -47,6 +47,8 @@ pub struct KeyBindings {
     pub dash: &'static [&'static str],
     pub punch: &'static [&'static str],
     pub debug: &'static [&'static str],
+    /// Open and close the pause card.
+    pub pause: &'static [&'static str],
     pub confirm: &'static [&'static str],
 
     // --- Items -------------------------------------------------------------
@@ -79,7 +81,8 @@ pub static KEYS: KeyBindings = KeyBindings {
     down: &["ArrowDown", "KeyS"],
     dash: &["ShiftLeft", "ShiftRight", "KeyK"],
     punch: &["KeyP"],
-    debug: &["Backquote"],
+    debug: &["Backquote", "F3"],
+    pause: &["Escape"],
     confirm: &["Enter", "Space"],
 
     hotbar: &[

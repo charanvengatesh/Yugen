@@ -237,6 +237,7 @@ use yugen_core::sim::materials::{CellId, mat_by_code};
 
 pub mod font_table;
 pub mod layout;
+pub mod page;
 pub mod theme;
 
 use crate::input::Tool;
@@ -822,12 +823,6 @@ const MARGIN: i32 = 16;
 /// the strip, so nothing has to grow to accommodate it.
 const SELECT_LIFT: i32 = 2;
 
-/// Health bar width in buffer px.
-const BAR_W: i32 = 220;
-
-/// Health bar height in buffer px.
-const BAR_H: i32 = 20;
-
 /// Radius of the dash-readiness pip, in buffer px.
 const PIP_R: i32 = 8;
 
@@ -1085,14 +1080,25 @@ fn js_num(v: f32) -> String {
 // Hud.ts
 // ---------------------------------------------------------------------------
 
-/// The health bar, the dash pip and the control hints.
+/// The playing HUD: [`vitals_at`] and [`hints_at`] together.
 ///
-/// `drawHud` in `src/ui/Hud.ts`, drawn after the world in screen space.
+/// Kept as one call because that is what the port's `drawHud` was and what the
+/// pure tests below exercise. `compose` no longer uses it — the two halves are
+/// separate [`page::Layer`]s now, because the hints fade out and the vitals do
+/// not.
 pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
     hud_with(health, dash_ready, 0.0, 0, view)
 }
 
 /// [`hud`], plus the two numbers that had nowhere to be shown.
+pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View) -> Vec<UiPrim> {
+    let chrome = layout::Chrome::of(view);
+    let mut out = vitals_at(health, dash_ready, armour, xp, chrome);
+    out.extend(hints_at(1.0, chrome));
+    out
+}
+
+/// Health, dash readiness, and the stat row under them.
 ///
 /// `armour` is what a hit is reduced by and `xp` is what `MobSystem` has banked.
 /// Both were real and invisible: the XP counter has been incremented on every
@@ -1102,47 +1108,56 @@ pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
 /// Zero of either draws nothing. A player with no armour should not carry a
 /// "0" telling them so, and the HUD's whole design is that a row appears when
 /// it has something to say.
-pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View) -> Vec<UiPrim> {
+pub fn vitals_at(
+    health: f32,
+    dash_ready: bool,
+    armour: f32,
+    xp: i32,
+    chrome: layout::Chrome,
+) -> Vec<UiPrim> {
     let mut out = Vec::new();
-    let (x, y) = (MARGIN, MARGIN);
+    let plate = chrome.vitals;
+    // The bar sits inside its plate's 4px bleed, which is what `Chrome` sized
+    // the region to hold.
+    let (x, y) = (plate.x + 4, plate.y + 4);
+    let (bar_w, bar_h) = (plate.w - 8, plate.h - 8);
     let frac = (health / MAX_HEALTH).clamp(0.0, 1.0);
 
     out.push(UiPrim::rect(
-        x - 4,
-        y - 4,
-        BAR_W + 8,
-        BAR_H + 8,
-        rgba(0, 0, 0, 0.6),
+        plate.x,
+        plate.y,
+        plate.w,
+        plate.h,
+        theme::PLATE,
     ));
-    out.push(UiPrim::rect(x, y, BAR_W, BAR_H, rgb(0x3c, 0x3c, 0x3c)));
-
-    // Green -> red as health drops.
-    let r = js_round(220.0 - 130.0 * frac) as u8;
-    let g = js_round(60.0 + 140.0 * frac) as u8;
+    out.push(UiPrim::rect(x, y, bar_w, bar_h, theme::WELL));
     // The one place the original let a fractional rect through and leant on
     // canvas antialiasing. Rounded, because the blit does not smooth.
     out.push(UiPrim::rect(
         x,
         y,
-        js_round(BAR_W as f32 * frac),
-        BAR_H,
-        rgb(r, g, 60),
+        js_round(bar_w as f32 * frac),
+        bar_h,
+        theme::vitality(frac),
     ));
-
     out.push(UiPrim::text(
         format!("HP {}", js_round(health)),
-        x + 8,
-        LABEL.baseline_from_middle(y + BAR_H / 2 + 1),
+        x + theme::PAD,
+        theme::BODY.baseline_from_middle(y + bar_h / 2 + 1),
         Align::Left,
-        LABEL,
-        rgb(0xff, 0xff, 0xff),
+        theme::BODY,
+        theme::INK,
     ));
 
     // Armour and XP, on the row under the bar. Left-aligned with it rather than
     // beside the dash pip, because they are STATS and the pip is a state — a
     // player scanning for "how tough am I" reads down from the health bar.
-    let mut stat_x = MARGIN;
-    let stat_y = MARGIN + BAR_H + 12;
+    //
+    // Both are `INK_DIM` now rather than the blue and the gold the port gave
+    // them. See `theme`: a colour means something or it is absent, and neither
+    // of these had a meaning either of them could have named.
+    let mut stat_x = chrome.stats.x;
+    let stat_y = chrome.stats.y + theme::CAPTION.cap_h();
     if armour > 0.0 {
         let text = format!("ARM {}", js_round(armour));
         out.push(UiPrim::text(
@@ -1150,10 +1165,10 @@ pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View)
             stat_x,
             stat_y,
             Align::Left,
-            SMALL,
-            rgb(0x96, 0xc8, 0xff),
+            theme::CAPTION,
+            theme::INK_DIM,
         ));
-        stat_x += SMALL.measure(&text) + 14;
+        stat_x += theme::CAPTION.measure(&text) + theme::GAP;
     }
     if xp > 0 {
         out.push(UiPrim::text(
@@ -1161,61 +1176,96 @@ pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View)
             stat_x,
             stat_y,
             Align::Left,
-            SMALL,
-            rgb(0xd2, 0xc8, 0x8c),
+            theme::CAPTION,
+            theme::INK_DIM,
         ));
     }
 
-    // Dash readiness pip.
-    let pip_x = x + BAR_W + 28;
-    let pip_y = y + BAR_H / 2;
+    // Dash readiness pip, just past the plate.
+    let pip_x = plate.right() + theme::GAP;
+    let pip_y = plate.cy();
     disc(
         &mut out,
         pip_x,
         pip_y,
         PIP_R,
         if dash_ready {
-            rgb(0x78, 0xc8, 0xff)
+            theme::ACCENT
         } else {
-            rgb(0x46, 0x50, 0x5a)
+            theme::ACCENT_SPENT
         },
     );
     out.push(UiPrim::text(
         "DASH",
-        pip_x + 14,
-        MINOR.baseline_from_middle(pip_y + 1),
+        pip_x + PIP_R + theme::UNIT,
+        theme::MINOR.baseline_from_middle(pip_y + 1),
         Align::Left,
-        MINOR,
+        theme::MINOR,
         if dash_ready {
-            rgba(255, 255, 255, 0.86)
+            theme::INK_FAINT
         } else {
-            rgba(255, 255, 255, 0.35)
+            theme::INK_MUTED
         },
     ));
+    out
+}
 
-    let right = view.w - MARGIN;
+/// Seconds the control hints stay at full strength at the start of a run.
+///
+/// Long enough to read all three lines twice without hurrying, which is the
+/// only thing the number has to be. They come back on the pause card, so this
+/// is a fade rather than a deletion — see [`pause_at`].
+const HINTS_HOLD_S: f32 = 25.0;
+
+/// Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up.
+///
+/// Slow enough not to read as a glitch. A hint stack that vanishes between two
+/// frames looks like a bug in the overlay; one that dissolves over four seconds
+/// looks like it is getting out of the way.
+const HINTS_FADE_S: f32 = 4.0;
+
+/// The control hints, top right, at `alpha`.
+///
+/// The port drew these permanently. They are the first thing a player stops
+/// reading and the last thing they stop seeing, which makes them the clearest
+/// candidate for the one thing this HUD was missing: the ability to shut up.
+pub fn hints_at(alpha: f32, chrome: layout::Chrome) -> Vec<UiPrim> {
+    let mut out = Vec::new();
+    if alpha <= 0.0 {
+        return out;
+    }
+    let right = chrome.hints.right();
+    let fade = |c: Color| -> Color {
+        let s = c.to_srgba();
+        Color::srgba(s.red, s.green, s.blue, s.alpha * alpha)
+    };
     out.push(UiPrim::text(
         "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
         right,
-        HINT.baseline_from_top(18),
+        theme::HINT.baseline_from_top(chrome.hints.y),
         Align::Right,
-        HINT,
-        rgba(255, 255, 255, 0.6),
+        theme::HINT,
+        fade(theme::INK_FAINT),
     ));
-    for (line, top) in [
-        ("LMB dig   RMB place   1-0 / wheel hotbar", 36),
-        ("F use   C craft   G creative   Alt wall", 50),
+    for (line, row) in [
+        ("LMB dig   RMB place   1-0 / wheel hotbar", 1),
+        ("F use   C craft   G creative   Alt wall", 2),
     ] {
         out.push(UiPrim::text(
             line,
             right,
-            MINOR.baseline_from_top(top),
+            theme::MINOR.baseline_from_top(chrome.hints.y + row * 14),
             Align::Right,
-            MINOR,
-            rgba(255, 255, 255, 0.42),
+            theme::MINOR,
+            fade(theme::INK_MUTED),
         ));
     }
     out
+}
+
+/// How opaque the hints are at `age` seconds into a run.
+pub fn hints_alpha(age: f32) -> f32 {
+    ((HINTS_HOLD_S + HINTS_FADE_S - age) / HINTS_FADE_S).clamp(0.0, 1.0)
 }
 
 /// One transient line above the hotbar: what you just crafted, drank, or failed
@@ -1288,6 +1338,73 @@ pub fn menu(view: View) -> Vec<UiPrim> {
     out
 }
 
+/// The pause card, over a live world.
+///
+/// # Why this is a card and not a screen
+///
+/// `scenes::Scene` deliberately had no `Paused`, and its comment said why:
+/// *"the original had neither, and inventing one here would be a design change
+/// wearing a port's clothes."* This IS that design change, made on purpose, and
+/// the comment has been rewritten to say so. But it is still not a `Scene`:
+/// `start_a_run` hangs off `OnEnter(Scene::Playing)`, so leaving a `Scene::Paused`
+/// back to `Playing` would re-fire that hook and rebuild the world under the
+/// live player — the exact hazard `Scene`'s own docs warn about. Pause is a
+/// resource and a layer drawn OVER the HUD, which is also what makes it honest:
+/// the world is still there, and the player can still see it.
+///
+/// # What it shows
+///
+/// The controls, which is where the HUD's fading hint stack went. A player who
+/// has forgotten which key crafts is a player who has stopped playing for a
+/// moment, and this is where they already are.
+pub fn pause_at(chrome: layout::Chrome, view: View) -> Vec<UiPrim> {
+    let mut out = Vec::new();
+    // A lighter scrim than the title card's: the world underneath is the thing
+    // the player is coming back to, and dimming it to the same degree as a menu
+    // would say the run had ended.
+    out.push(UiPrim::rect(0, 0, view.w, view.h, theme::PLATE));
+
+    let cx = view.w / 2;
+    let cy = view.h / 2;
+    out.push(UiPrim::text(
+        "Paused",
+        cx,
+        theme::CARD_BODY.baseline_from_middle(cy - 48),
+        Align::Centre,
+        theme::CARD_BODY,
+        theme::INK,
+    ));
+    out.push(UiPrim::text(
+        "Esc to resume",
+        cx,
+        theme::CARD_HINT.baseline_from_middle(cy - 24),
+        Align::Centre,
+        theme::CARD_HINT,
+        theme::INK_DIM,
+    ));
+
+    // The hint stack the HUD fades out, at rest and centred.
+    for (row, line) in [
+        "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
+        "LMB dig   RMB place   1-0 / wheel hotbar",
+        "F use   C craft   G creative   Alt wall",
+    ]
+    .iter()
+    .enumerate()
+    {
+        out.push(UiPrim::text(
+            *line,
+            cx,
+            theme::MINOR.baseline_from_middle(cy + 12 + row as i32 * 16),
+            Align::Centre,
+            theme::MINOR,
+            theme::INK_FAINT,
+        ));
+    }
+    let _ = chrome;
+    out
+}
+
 /// The death card. `drawGameOver` in `src/ui/Screens.ts`.
 pub fn game_over(view: View) -> Vec<UiPrim> {
     let mut out = Vec::new();
@@ -1310,6 +1427,41 @@ pub fn game_over(view: View) -> Vec<UiPrim> {
         rgb(0xdc, 0xdc, 0xdc),
     ));
     out
+}
+
+// ---------------------------------------------------------------------------
+// Layer entry points
+// ---------------------------------------------------------------------------
+//
+// Thin adapters from `page::PageCx` to the pure functions above. They exist so
+// that the pure functions keep taking exactly what they need — which is what
+// lets them be tested with no world, no app and no resources — while
+// `page::Layer::layout` still has one uniform signature to dispatch through.
+
+/// [`vitals_at`], reading from the frame's context.
+pub(crate) fn vitals(cx: &page::PageCx) -> Vec<UiPrim> {
+    match cx.body {
+        Some(body) => vitals_at(
+            body.0.health,
+            body.0.dash_ready(),
+            body.0.armour,
+            cx.xp,
+            cx.chrome,
+        ),
+        // No body yet. The bar would be a lie and an empty plate is worse than
+        // nothing, so this draws nothing at all.
+        None => Vec::new(),
+    }
+}
+
+/// [`hints_at`], faded by how long this run has been going.
+pub(crate) fn hints(cx: &page::PageCx) -> Vec<UiPrim> {
+    hints_at(hints_alpha(cx.run_age_s), cx.chrome)
+}
+
+/// [`pause_at`], reading from the frame's context.
+pub(crate) fn pause(cx: &page::PageCx) -> Vec<UiPrim> {
+    pause_at(cx.chrome, cx.view)
 }
 
 // ---------------------------------------------------------------------------
@@ -1895,6 +2047,20 @@ impl Icons {
     }
 }
 
+/// Seconds since the current run began.
+///
+/// Reset by `glue::start_a_run`, ticked here. It exists for one caller — the
+/// control hints, which hold and then fade — but it is a resource rather than a
+/// field on the hint layer because "how long has this run been going" is a
+/// question a tutorial prompt, a difficulty ramp or an achievement would all
+/// ask, and none of them should have to reach into the HUD to get it.
+///
+/// Real seconds, not simulated: this measures how long the PLAYER has been
+/// looking at the screen, so it must keep counting while the game is paused
+/// under a card telling them what the controls are.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct RunAge(pub f32);
+
 /// This frame's display list, rebuilt from scratch every frame.
 ///
 /// Rebuilt rather than diffed because it is a few hundred `i32`s into a `Vec`
@@ -2009,6 +2175,10 @@ struct HudSources<'w> {
     creatures: Option<Res<'w, crate::mobs::Creatures>>,
     /// Whether the F3 panel is up.
     debug_shown: Res<'w, crate::debug::DebugOverlay>,
+    /// Whether the world is stopped under a pause card.
+    paused: Res<'w, crate::scenes::Paused>,
+    /// How long this run has been going, for chrome that fades out.
+    run_age: Res<'w, RunAge>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
     debug: Res<'w, crate::debug::DebugReadout>,
 }
@@ -2040,6 +2210,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiScreen>()
             .init_resource::<Toast>()
+            .init_resource::<RunAge>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
             .init_resource::<UiQuads>()
@@ -2103,57 +2274,54 @@ fn bake_font(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 }
 
 /// Count the toast down.
-fn tick_toast(time: Res<Time>, mut toast: ResMut<Toast>) {
+fn tick_toast(time: Res<Time<Real>>, mut toast: ResMut<Toast>, mut age: ResMut<RunAge>) {
+    // `Time<Real>` rather than `Time`: both of these are about what the player
+    // has had time to read, and neither should stop while the world is paused
+    // or run at a synthetic rate under `--script`'s manual clock.
     toast.tick(time.delta_secs());
+    age.0 += time.delta_secs();
 }
 
 /// Build this frame's display list.
 ///
 /// The whole of the port's layout runs here, and none of it touches an entity.
-fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiFrame>) {
+fn compose(
+    sources: HudSources,
+    target: Res<LowResTarget>,
+    mut frame: ResMut<UiFrame>,
+    mut order: Local<Vec<page::Layer>>,
+) {
     let view = target.view;
     let prims = &mut frame.prims;
     prims.clear();
 
-    match *sources.screen {
-        UiScreen::Menu => prims.extend(menu(view)),
-        UiScreen::WorldSelect => {
-            prims.extend(crate::worldselect::screen(&sources.picker, view));
-        }
-        UiScreen::GameOver => prims.extend(game_over(view)),
-        UiScreen::Playing => {
-            if let Some(body) = &sources.body {
-                prims.extend(hud_with(
-                    body.0.health,
-                    body.0.dash_ready(),
-                    body.0.armour,
-                    sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
-                    view,
-                ));
-            }
-            prims.extend(build_hud(
-                &sources.tool.0,
-                &sources.pack,
-                sources.icons.get(),
-                view,
-            ));
-            if let Some((text, alpha)) = sources.toast.showing() {
-                prims.extend(toast(text, alpha, view));
-            }
-            // Over the HUD, because it is a card the player opened and the
-            // hotbar underneath it is not what they are looking at.
-            if sources.crafting.open {
-                prims.extend(crate::craftscreen::screen(&sources.crafting, view));
-            }
-        }
-    }
+    let cx = page::PageCx {
+        view,
+        chrome: layout::Chrome::of(view),
+        body: sources.body.as_deref(),
+        tool: &sources.tool.0,
+        pack: &sources.pack,
+        icons: sources.icons.get(),
+        toast: sources.toast.showing(),
+        crafting: &sources.crafting,
+        picker: &sources.picker,
+        xp: sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
+        run_age_s: sources.run_age.0,
+        debug: &sources.debug,
+    };
 
-    // Last, and outside the `match`, because the panel is an instrument rather
-    // than part of any screen: it is as useful over the death card as over the
-    // world, and the one thing it must never do is be hidden by the state you
-    // were trying to diagnose.
-    if sources.debug_shown.0 {
-        prims.extend(crate::debug::overlay(&sources.debug, view));
+    let on = page::Overlays {
+        crafting: sources.crafting.open,
+        paused: sources.paused.0,
+        debug: sources.debug_shown.0,
+        hints: hints_alpha(cx.run_age_s) > 0.0,
+    };
+
+    // `Local` so the order buffer is reused rather than allocated every frame,
+    // on the same terms as `UiQuads`'s pool.
+    page::stack(*sources.screen, on, &mut order);
+    for layer in order.iter() {
+        prims.extend(layer.layout(&cx));
     }
 }
 
@@ -3138,7 +3306,10 @@ mod tests {
         for hp in 0..=100 {
             // The fill is the third rect: plate, track, fill.
             match hud(hp as f32, true, view())[2] {
-                UiPrim::Rect { w, .. } => assert!((0..=BAR_W).contains(&w), "{hp} hp filled {w}px"),
+                UiPrim::Rect { w, .. } => assert!(
+                    (0..=layout::Chrome::of(view()).vitals.w).contains(&w),
+                    "{hp} hp filled {w}px"
+                ),
                 ref other => panic!("{other:?}"),
             }
         }
@@ -3148,7 +3319,10 @@ mod tests {
     fn health_outside_its_range_clamps_rather_than_overflowing_the_track() {
         for hp in [-50.0f32, 0.0, MAX_HEALTH, MAX_HEALTH * 2.0] {
             match hud(hp, false, view())[2] {
-                UiPrim::Rect { w, .. } => assert!((0..=BAR_W).contains(&w), "{hp} hp"),
+                UiPrim::Rect { w, .. } => assert!(
+                    (0..=layout::Chrome::of(view()).vitals.w).contains(&w),
+                    "{hp} hp"
+                ),
                 ref other => panic!("{other:?}"),
             }
         }

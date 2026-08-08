@@ -1046,6 +1046,7 @@ impl Plugin for ParticlesPlugin {
                     // this step's and not the previous one's.
                     .after(PlayerSet::Step)
                     .after(SimSet::Simulate)
+                    .run_if(crate::scenes::running)
                     .run_if(resource_exists::<SimWorld>),
             )
             .add_systems(Update, (place_particles, place_particle_glow));

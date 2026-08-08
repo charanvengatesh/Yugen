@@ -142,8 +142,13 @@ impl Plugin for WorldSimPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    // Streaming keeps running while paused: the free camera
+                    // can still move, and a paused frame that showed unstreamed
+                    // world would be a pause card over a hole.
                     stream_window.in_set(SimSet::Stream),
-                    simulate.in_set(SimSet::Simulate),
+                    simulate
+                        .in_set(SimSet::Simulate)
+                        .run_if(crate::scenes::running),
                 )
                     .run_if(resource_exists::<SimWorld>),
             )

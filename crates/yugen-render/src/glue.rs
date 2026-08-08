@@ -29,9 +29,9 @@ use crate::input::{BevyKeys, FixedSubstep, PlayerIntent, Tool};
 use crate::items::{GroundItems, Pack};
 use crate::mobs::Creatures;
 use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
-use crate::scenes::Scene;
+use crate::scenes::{Paused, Scene};
 use crate::sprite::SpriteAtlases;
-use crate::ui::{IconAtlas, Icons, UiScreen};
+use crate::ui::{IconAtlas, Icons, RunAge, UiScreen};
 use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
@@ -65,10 +65,20 @@ pub struct GluePlugin;
 impl Plugin for GluePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, install_icons)
+            // `.after(InputSystems)` for the reason `input::gather_intent`
+            // states: that set is what repopulates `just_pressed`, and this
+            // reads it.
+            .add_systems(
+                PreUpdate,
+                toggle_pause
+                    .after(bevy::input::InputSystems)
+                    .run_if(in_state(Scene::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 step_the_body
                     .in_set(PlayerSet::Step)
+                    .run_if(crate::scenes::running)
                     .after(SimSet::Stream)
                     .before(SimSet::Simulate)
                     .run_if(resource_exists::<SimWorld>)
@@ -308,7 +318,20 @@ struct RunState<'w> {
 }
 
 /// [`confirm_advances_the_scene`] is the only thing that sets this state.
-fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: RunState) {
+fn start_a_run(
+    mut commands: Commands,
+    mut focus: ResMut<WorldFocus>,
+    mut run: RunState,
+    mut paused: ResMut<Paused>,
+    mut age: ResMut<RunAge>,
+) {
+    // A new run starts unpaused, with its clock at zero so the control hints
+    // are back at full. Restarting from the death card must not inherit the
+    // faded hints of the run that just ended, and a run that began while the
+    // pause card was up would resume into a stopped world.
+    *paused = Paused(false);
+    *age = RunAge(0.0);
+
     let RunState {
         body,
         arrows,
@@ -400,6 +423,20 @@ fn give_starting_kit(inv: &mut Inventory) {
     }
     // The pick, so the first thing you can do is dig.
     inv.select_slot(0);
+}
+
+/// `Esc` stops the world without leaving it.
+///
+/// Gated on `Scene::Playing`, so it cannot be reached from a card. Pausing the
+/// title screen would put up a card over a card, and the only way out of the
+/// inner one would be the key that had just been shown not to work.
+///
+/// See `scenes::Paused` for why this is a resource rather than a scene, and
+/// `ui::pause_at` for what the card says.
+fn toggle_pause(keys: Res<ButtonInput<KeyCode>>, mut paused: ResMut<Paused>) {
+    if BevyKeys(&keys).any_pressed(KEYS.pause) {
+        paused.0 = !paused.0;
+    }
 }
 
 /// `Enter` or `Space` leaves the menu, and leaves the death screen.

@@ -235,6 +235,8 @@ const CODES: &[(&str, KeyCode)] = &[
     ("AltLeft", KeyCode::AltLeft),
     ("AltRight", KeyCode::AltRight),
     ("Backquote", KeyCode::Backquote),
+    ("Escape", KeyCode::Escape),
+    ("F3", KeyCode::F3),
     ("BracketLeft", KeyCode::BracketLeft),
     ("BracketRight", KeyCode::BracketRight),
     ("Minus", KeyCode::Minus),
