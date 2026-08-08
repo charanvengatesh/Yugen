@@ -40,7 +40,44 @@ use crate::sim::materials::{CellId, MAT_COLLIDE, MAT_ONEWAY};
 /// Slack used to keep a box that ends exactly on a cell boundary out of the next
 /// cell along. Without it a body flush against a wall reads as overlapping the
 /// wall's column and is pushed back a cell every step.
+///
+/// **Only safe near the origin, which is why [`cell_before`] exists.** An f32's
+/// ULP outgrows 1e-4 at |v| >= 2048: `2510.0 - 1e-4` rounds STRAIGHT BACK to
+/// `2510.0`, the half-open interval silently becomes closed, and every
+/// predicate built on it degrades at once — flush contact reads as overlap,
+/// bodies eject upward out of floors they are standing on, stand at
+/// structure-top height on phantom support, and walk through walls their span
+/// no longer registers. Measured in play as "the player ends up on top of
+/// whatever stops him", working perfectly inside x in [-411, 407] CELLS and
+/// broken outside — that is +/-2048 world px less the body's width, to the
+/// cell. This constant is still fine for VALUE slack on small quantities (a
+/// `step_up_max` of 5), and must never again touch a world COORDINATE.
 const EPS: f32 = 1e-4;
+
+/// The last cell strictly below the world-px coordinate `edge` — the exclusive
+/// end of a half-open span, computed EXACTLY at any magnitude.
+///
+/// The naive `cell_at(edge - EPS)` fails far from the origin (see [`EPS`]).
+/// This asks the question directly instead: a cell boundary is an integer
+/// multiple of `CELL_SIZE`, `(c * CELL_SIZE) as f32` is exact for every cell
+/// the game can address, and f32 equality against it is exact too. No epsilon,
+/// no magnitude cliff.
+///
+/// One semantic change from the EPS form, and it is the honest half: the old
+/// subtraction also forgave a sliver of REAL overlap up to 1e-4 px past a
+/// boundary. This does not — a box 5e-5 px into the next column overlaps it.
+/// That is what an overlap is, and nothing in cell physics produces
+/// sub-ULP-of-EPS slivers on purpose: `resolve_x`/`resolve_y` clamp flush to
+/// exact integers.
+#[inline]
+fn cell_before(edge: f32) -> i32 {
+    let c = cell_at(edge);
+    if edge == (c * CELL_SIZE) as f32 {
+        c - 1
+    } else {
+        c
+    }
+}
 
 /// The `one_way_from_y` that opts a move OUT of one-way platforms entirely.
 ///
@@ -128,21 +165,29 @@ fn blocks_body(grid: &CellGrid, wcx: i32, wcy: i32, one_way_from_y: f32) -> bool
     if MAT_ONEWAY[id] != 1 {
         return false;
     }
-    (wcy * CELL_SIZE) as f32 >= one_way_from_y - EPS
+    // Half a pixel of slack, NOT `EPS`: `one_way_from_y` is a world COORDINATE
+    // and goes past +/-2048 px in any deep run, where an f32's ULP outgrows
+    // 1e-4 and the subtraction rounds away (see `EPS`). Legitimate geometry is
+    // cell-quantised — the resolver clamps flush contacts to exact integers —
+    // so nothing real lives within half a pixel of the boundary, and 0.5
+    // survives every coordinate the game can reach (f32 ULP passes 0.5 at
+    // eight million px).
+    (wcy * CELL_SIZE) as f32 >= one_way_from_y - 0.5
 }
 
 /// Cell span a box overlaps, as `(cx0, cx1, cy0, cy1)` inclusive.
 ///
-/// Half-open in world space: the `- EPS` on the far edges is what stops a box
-/// whose right edge lands exactly on a cell boundary from claiming the cell past
-/// it.
+/// Half-open in world space: [`cell_before`] on the far edges is what stops a
+/// box whose right edge lands exactly on a cell boundary from claiming the cell
+/// past it — and unlike the `- EPS` it replaced, it still does so 3 000 cells
+/// from the origin.
 #[inline]
 fn cell_span(b: Aabb) -> (i32, i32, i32, i32) {
     (
         cell_at(b.x),
-        cell_at(b.x + b.w - EPS),
+        cell_before(b.x + b.w),
         cell_at(b.y),
-        cell_at(b.y + b.h - EPS),
+        cell_before(b.y + b.h),
     )
 }
 
@@ -435,7 +480,7 @@ pub fn move_horizontal_stepped(grid: &CellGrid, b: Aabb, dx: f32, step_up_max: f
 pub fn one_way_under_feet(grid: &CellGrid, b: Aabb) -> bool {
     let cy = cell_at(b.y + b.h + 1.0);
     let cx0 = cell_at(b.x);
-    let cx1 = cell_at(b.x + b.w - EPS);
+    let cx1 = cell_before(b.x + b.w);
     let mut saw_platform = false;
     for cx in cx0..=cx1 {
         let w = WorldCell::new(cx, cy);
@@ -478,6 +523,33 @@ mod tests {
     use crate::sim::materials::{EMPTY, block};
 
     const CS: f32 = CELL_SIZE as f32;
+
+    #[test]
+    fn a_flush_edge_stays_out_of_the_next_cell_at_any_distance_from_the_origin() {
+        // The half-open span rule, probed where it actually broke. `- EPS` on a
+        // far edge is exact arithmetic near the origin and A NO-OP past
+        // +/-2048 px, where an f32's ULP outgrows 1e-4: the interval silently
+        // closed, flush contact read as overlap, and a body 500 cells from
+        // spawn stood on phantom support at structure-top height and walked
+        // through stone. Found in play as "works between cells -411 and 407" —
+        // which is +/-2048 px less the body's width, to the cell.
+        //
+        // `cell_before` computes the rule exactly, so the span of a flush box
+        // must be IDENTICAL in cells wherever it sits. The 2 038/2 048 pair
+        // brackets the old cliff; the +/-131 072 pair is forty times past it.
+        for cell0 in [0i32, 60, 407, 410, 500, 26_214, -60, -411, -500, -26_214] {
+            let b = Aabb::new(cell0 as f32 * CS, cell0 as f32 * CS, 2.0 * CS, 2.0 * CS);
+            let (cx0, cx1, cy0, cy1) = cell_span(b);
+            assert_eq!(
+                (cx1 - cx0, cy1 - cy0),
+                (1, 1),
+                "a flush 2x2-cell box at cell {cell0} spans {}x{} cells — the                  half-open rule failed at this magnitude",
+                cx1 - cx0 + 1,
+                cy1 - cy0 + 1,
+            );
+            assert_eq!((cx0, cy0), (cell0, cell0), "span start moved");
+        }
+    }
 
     /// A grid whose window starts at the world origin, so world cells and local
     /// cells coincide and a test can read like the coordinates it writes.

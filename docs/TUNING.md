@@ -237,25 +237,25 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 257 |
-| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 272 |
-| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 274 |
-| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 276 |
-| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 278 |
-| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 280 |
-| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 282 |
-| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 284 |
-| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 286 |
-| `LAND_HOLD` (private) | `0.13` | … and for how long. | 288 |
-| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 290 |
-| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 292 |
-| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 299 |
-| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 301 |
-| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 303 |
-| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 308 |
-| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 310 |
-| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 312 |
-| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 315 |
+| `MAX_EVENTS` (private) | `32` | Oldest events are dropped past this if nobody drains. | 258 |
+| `RUN_ENTER_SPEED` (private) | `scaled(32.0)` | px/s of \|vx\| needed to start the run cycle … | 273 |
+| `RUN_EXIT_SPEED` (private) | `scaled(14.0)` | … and the lower speed it takes to fall back to idle (hysteresis band). | 275 |
+| `RUN_CYCLE_PX` (private) | `scaled(144.0)` | px travelled per full 4-frame run cycle (2 footfalls). | 277 |
+| `RUN_CADENCE_MIN` (private) | `1.1` | Cadence clamp, cycles/second: a trudge floor … | 279 |
+| `RUN_CADENCE_MAX` (private) | `3.6` | … and a sprint ceiling. | 281 |
+| `SKID_SPEED` (private) | `scaled(90.0)` | \|vx\| above which reversing input reads as a skid rather than a turn. | 283 |
+| `APEX_VY` (private) | `scaled(45.0)` | \|vy\| deadband around the apex, so jump<->fall cannot flip on jitter. | 285 |
+| `LAND_IMPACT_MIN` (private) | `scaled(260.0)` | Landing recovery: only impacts faster than this crouch … | 287 |
+| `LAND_HOLD` (private) | `0.13` | … and for how long. | 289 |
+| `WALL_GRACE` (private) | `0.1` | How long the wall-slide pose survives losing wall contact. | 291 |
+| `DOUBLE_JUMP_HOLD` (private) | `0.34` | Double-jump flip duration (4 frames at 12fps ~ 0.33s). | 293 |
+| `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 300 |
+| `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 302 |
+| `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 304 |
+| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 309 |
+| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 311 |
+| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 313 |
+| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 316 |
 
 ### `crates/godgame-core/src/entities/projectiles.rs`
 
@@ -309,8 +309,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `EPS` (private) | `1e-4` | Slack used to keep a box that ends exactly on a cell boundary out of the next cell along. | 43 |
-| `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 51 |
+| `EPS` (private) | `1e-4` | Slack used to keep a box that ends exactly on a cell boundary out of the next cell along. | 55 |
+| `NO_ONE_WAY` | `f32::INFINITY` | The `one_way_from_y` that opts a move OUT of one-way platforms entirely. | 84 |
 
 ### `crates/godgame-core/src/script.rs`
 

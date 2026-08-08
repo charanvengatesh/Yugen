@@ -2069,8 +2069,9 @@ mod tests {
     }
 
     /// A floor at `floor_row` across the whole window, in stone.
-    fn floored(floor_row: i32) -> CellGrid {
+    fn floored(floor_row: i32, origin_cell: i32) -> CellGrid {
         let mut g = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+        g.set_origin(origin_cell, 0);
         for cy in floor_row..crate::config::WINDOW_ROWS {
             for cx in 0..crate::config::WINDOW_COLS {
                 g.set(cx, cy, block::STONE);
@@ -2085,49 +2086,75 @@ mod tests {
         // they cannot drift independently. Both are built from the same stone
         // on the same floor and walked by the same body for the same time; the
         // only difference is how fast the risers come.
+        //
+        // AND both are probed at two window origins: at the spawn, and 500
+        // cells out. The first version of this test ran only near the origin
+        // and passed while a player 500 cells from spawn rode a pillar to its
+        // top — `cell_span`'s `- EPS` half-open rule was a no-op past
+        // +/-2048 px, and "held" here could not tell STOPPED AT the pillar
+        // from WALKED THROUGH it on phantom support. Hence the two extra
+        // assertions: the body must end BEFORE the pillar's face, standing ON
+        // the floor.
         const CS: i32 = crate::config::CELL_SIZE;
+        for origin in [0i32, 500] {
+            let ox = origin as f32 * CS as f32;
 
-        // A 45-degree staircase: each column one cell higher than the last.
-        // One riser per cell of travel — the steepest thing that is still a
-        // hill, and the boundary the re-arm distance is tuned just under.
-        let mut hill = floored(40);
-        for i in 0..12 {
-            for cy in (40 - 1 - i)..40 {
-                for cx in (30 + i)..crate::config::WINDOW_COLS {
-                    hill.set(cx, cy, block::STONE);
+            // A 45-degree staircase: each column one cell higher than the
+            // last. One riser per cell of travel — the steepest thing that is
+            // still a hill, and the boundary the re-arm distance is tuned just
+            // under.
+            let mut hill = floored(40, origin);
+            for i in 0..12 {
+                for cy in (40 - 1 - i)..40 {
+                    for cx in (30 + i)..crate::config::WINDOW_COLS {
+                        hill.set(cx, cy, block::STONE);
+                    }
                 }
             }
-        }
-        let start_y = 40.0 * CS as f32 - PLAYER_H;
-        let walked = walk_right(&hill, 20.0 * CS as f32, start_y, 240);
-        assert!(
-            start_y - walked.y >= 10.0 * CS as f32,
-            "a 45-degree slope stopped being walkable: rose only {:.0}px in 4s              (started y={start_y}, ended y={:.0}). The re-arm distance is at or              over one cell and the gate deadlocks on ordinary hills",
-            start_y - walked.y,
-            walked.y,
-        );
+            let start_y = 40.0 * CS as f32 - PLAYER_H;
+            let walked = walk_right(&hill, ox + 20.0 * CS as f32, start_y, 240);
+            assert!(
+                start_y - walked.y >= 10.0 * CS as f32,
+                "origin {origin}: a 45-degree slope stopped being walkable: \
+                 rose only {:.0}px in 4s. The re-arm distance is at or over one \
+                 cell and the gate deadlocks on ordinary hills",
+                start_y - walked.y,
+            );
 
-        // A ragged pillar: a 2-wide column with 1-cell juts alternating sides,
-        // which is what a brush-placed stack of blocks looks like. Risers come
-        // faster than one per column, so the gate must refuse them: this is the
-        // shape a player built in creative mode and rode to the top of by
-        // pressing nothing but "right".
-        let mut pillar = floored(40);
-        for i in 0..12 {
-            let cy = 40 - 1 - i;
-            pillar.set(60, cy, block::STONE);
-            pillar.set(61, cy, block::STONE);
-            // the jut: one extra cell on the approach side every other course
-            if i % 2 == 0 {
-                pillar.set(59, cy, block::STONE);
+            // A ragged pillar: a 2-wide column with 1-cell juts alternating
+            // sides, which is what a brush-placed stack of blocks looks like.
+            // Risers come faster than one per column, so the gate must refuse
+            // them.
+            let mut pillar = floored(40, origin);
+            for i in 0..12 {
+                let cy = 40 - 1 - i;
+                pillar.set(60, cy, block::STONE);
+                pillar.set(61, cy, block::STONE);
+                if i % 2 == 0 {
+                    pillar.set(59, cy, block::STONE);
+                }
             }
+            let walked = walk_right(&pillar, ox + 50.0 * CS as f32, start_y, 240);
+            assert!(
+                start_y - walked.y <= 2.0 * CS as f32,
+                "origin {origin}: a ragged pillar is climbable again: rose \
+                 {:.0}px with no jump pressed",
+                start_y - walked.y,
+            );
+            let face = ox + 59.0 * CS as f32; // the jut column's left face
+            assert!(
+                walked.x + PLAYER_W <= face + 0.01,
+                "origin {origin}: the body ended INSIDE or PAST the pillar \
+                 (right edge {:.1} vs face {face:.1}) — it walked through on \
+                 phantom support, which is the far-from-origin EPS failure",
+                walked.x + PLAYER_W,
+            );
+            assert_eq!(
+                walked.y, start_y,
+                "origin {origin}: the body is not standing on the floor it \
+                 started on"
+            );
         }
-        let walked = walk_right(&pillar, 50.0 * CS as f32, start_y, 240);
-        assert!(
-            start_y - walked.y <= 2.0 * CS as f32,
-            "a ragged pillar is climbable again: the body rose {:.0}px against a              near-vertical face with no jump pressed. The re-arm gate is not              holding",
-            start_y - walked.y,
-        );
     }
 
     /// A loaded window at the world origin, filled edge to edge with `id`, so a
