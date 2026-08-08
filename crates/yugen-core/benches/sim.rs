@@ -284,7 +284,7 @@ fn verdict(ok: bool) -> &'static str {
     if ok { "OK" } else { "FAIL" }
 }
 
-const SCENARIOS: [Scenario; 4] = [
+const SCENARIOS: [Scenario; 7] = [
     Scenario {
         // A pile forms and every grain ends up supported. The basic wake
         // contract, and the cheapest thing that breaks when it is wrong.
@@ -367,6 +367,119 @@ const SCENARIOS: [Scenario; 4] = [
             format!(
                 "wood-left={wood} fire={fire} {}",
                 verdict(wood < 320 && fire == 0)
+            )
+        },
+    },
+    Scenario {
+        // Oil poured onto a water pool must FLOAT: it is less dense, so it can
+        // fall through air but not displace water downward. The layering — oil
+        // band above, water band below — is the whole check, and it is the
+        // baseline the viscosity work must not break.
+        name: "oil-on-water",
+        ticks: 1400,
+        build: |grid| {
+            boxed(grid, 10, 80, 90, 130);
+            fill_rect(grid, 12, 110, 76, 18, block::WATER);
+            fill_rect(grid, 30, 84, 20, 10, block::OIL);
+        },
+        check: |grid| {
+            let lev = levitating_in(grid, 11, 81, 89, 129);
+            let oil = count_of(grid, block::OIL);
+            let cols = grid.cols();
+            // Mean row of each liquid: floating means oil's mean row is ABOVE
+            // (smaller than) water's by a clear margin.
+            let mean_row = |id: CellId| {
+                let (mut sum, mut n) = (0i64, 0i64);
+                for y in 81..129 {
+                    for x in 11..89 {
+                        if grid.material[(y * cols + x) as usize] == id {
+                            sum += i64::from(y);
+                            n += 1;
+                        }
+                    }
+                }
+                if n == 0 { 0.0 } else { sum as f64 / n as f64 }
+            };
+            let sep = mean_row(block::WATER) - mean_row(block::OIL);
+            format!(
+                "oil={oil} levitating={lev} separation={sep:.1} {}",
+                verdict(lev == 0 && oil == 200 && sep > 3.0)
+            )
+        },
+    },
+    Scenario {
+        // A dam with a breach at its base. The first version of this check
+        // demanded both chambers find ONE level, and it failed — correctly,
+        // because this automata has NO HYDROSTATIC PRESSURE: water moves by
+        // falling and by surface spreading, so nothing can push the far side
+        // UP above the breach's own top. The honest equilibrium is "the right
+        // chamber fills exactly to the breach top and everything comes to
+        // rest", and that is what is asserted. (Pressure is a feature this
+        // scenario would be the test for, the day someone builds it.)
+        //
+        // What it still catches: a liquid that goes to sleep mid-flow (the
+        // wake bug) never fills the right chamber at all, and a viscosity gate
+        // that strands cells shows up in the levitation count.
+        name: "dam-break",
+        ticks: 2400,
+        build: |grid| {
+            boxed(grid, 10, 80, 120, 130);
+            // the dam, with a breach at the floor
+            fill_rect(grid, 60, 81, 2, 44, block::STONE);
+            // water on the left only, well above the breach
+            fill_rect(grid, 12, 90, 46, 35, block::WATER);
+        },
+        check: |grid| {
+            let lev = levitating_in(grid, 11, 81, 119, 129);
+            let cols = grid.cols();
+            let top_in = |xa: i32, xb: i32| {
+                (81..129)
+                    .find(|&y| {
+                        (xa..xb).any(|x| grid.material[(y * cols + x) as usize] == block::WATER)
+                    })
+                    .unwrap_or(129)
+            };
+            let (l, r) = (top_in(12, 58), top_in(64, 118));
+            // The breach spans rows 125..129; a filled right chamber surfaces
+            // at the breach top.
+            format!(
+                "left-top={l} right-top={r} levitating={lev} {}",
+                verdict(lev == 0 && r == 125 && l < 125)
+            )
+        },
+    },
+    Scenario {
+        // A steam pocket sealed UNDER a water pool. The automata's own doc on
+        // `rise_into` promises a gas can "displace a denser fluid above it";
+        // the body only accepts EMPTY, so today the steam is trapped and this
+        // prints FAIL. It is written against the PROMISED behaviour on
+        // purpose: the gas-density fix flips it to OK, and anything that
+        // breaks it afterwards re-prints the lie.
+        name: "steam-under-water",
+        ticks: 900,
+        build: |grid| {
+            boxed(grid, 10, 80, 60, 130);
+            fill_rect(grid, 12, 100, 46, 20, block::WATER);
+            // the pocket, sealed by a stone shelf below and water above
+            fill_rect(grid, 30, 122, 6, 3, block::STEAM);
+            fill_rect(grid, 12, 125, 46, 3, block::STONE);
+        },
+        check: |grid| {
+            let cols = grid.cols();
+            // Any steam above the pool's midline counts as escaped; total
+            // steam reaching zero also counts (it condensed or vented).
+            let mut above = 0;
+            for y in 81..110 {
+                for x in 11..59 {
+                    if grid.material[(y * cols + x) as usize] == block::STEAM {
+                        above += 1;
+                    }
+                }
+            }
+            let trapped = count_of(grid, block::STEAM);
+            format!(
+                "steam-above-pool={above} steam-total={trapped} {}",
+                verdict(above > 0 || trapped == 0)
             )
         },
     },

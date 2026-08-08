@@ -113,3 +113,18 @@ The band-dependent invariants report **SKIPPED** rather than passing while
 `BANDS` is empty. Band membership is authored, not inferred — inferring it lets
 two bands' ranges overlap until a block is silently in whichever one was tested
 first — and a check that has no data should say so rather than print a tick.
+
+## worldgen-dump `--bands` / `--scale`
+
+The worldgen atlas. One command renders thousands of columns by full depth to a
+PNG — with `--bands`, two 8-px strips above the terrain show the surface-biome
+and underground-layer winner per column in that region's own signature material
+colour, and `--scale N` samples every Nth cell (nearest, deliberately: an
+averaged pixel is a colour no material has).
+
+```
+cargo run --release --bin worldgen-dump -- --x0 -60 --cols 120 --rows 22 --bands --scale 2 --out atlas.png
+```
+
+3 840 columns render in ~43 ms. This is the iteration loop for biome siting and
+cave shaping: change a constant, re-render, look.

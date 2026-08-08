@@ -32,8 +32,9 @@ use std::path::PathBuf;
 use rayon::prelude::*;
 
 use yugen_core::config::{CHUNK_CELLS, SEED};
+use yugen_core::sim::biomes::{BIOMES, UNDERGROUND_LAYERS, biome_mix_at, underground_mix_at};
 use yugen_core::sim::materials::{CellId, MAT_B, MAT_G, MAT_R};
-use yugen_core::sim::worldgen::ChunkGen;
+use yugen_core::sim::worldgen::{ChunkGen, world_noise};
 
 // --- Arguments ---------------------------------------------------------------
 
@@ -44,6 +45,16 @@ struct Args {
     cols: i32,
     rows: i32,
     out: PathBuf,
+    /// Draw two 8-px context bands above the terrain: the surface biome winner
+    /// and the underground layer winner per column, each in its region's own
+    /// signature material colour. This is what turns a strip into an ATLAS —
+    /// "which biome am I looking at" stops needing a guess.
+    bands: bool,
+    /// Sample every Nth cell instead of every cell, so a survey thousands of
+    /// columns wide fits on a screen. Nearest sampling, deliberately: an
+    /// averaged pixel is a colour no material has, and the point of this tool
+    /// is recognising materials.
+    scale: i32,
 }
 
 impl Default for Args {
@@ -58,6 +69,8 @@ impl Default for Args {
             cols: 16,
             rows: 26,
             out: PathBuf::from("worldgen.png"),
+            bands: false,
+            scale: 1,
         }
     }
 }
@@ -65,7 +78,7 @@ impl Default for Args {
 fn usage() -> ! {
     eprintln!(
         "usage: worldgen-dump [--seed N] [--x0 CHUNK] [--y0 CHUNK] [--cols N] [--rows N] \
-         [--out PATH]"
+         [--out PATH] [--bands] [--scale N]"
     );
     std::process::exit(2)
 }
@@ -74,6 +87,10 @@ fn parse_args() -> Args {
     let mut a = Args::default();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
+        if flag == "--bands" {
+            a.bands = true;
+            continue;
+        }
         let Some(v) = it.next() else { usage() };
         match flag.as_str() {
             "--seed" => a.seed = v.parse().unwrap_or_else(|_| usage()),
@@ -82,14 +99,19 @@ fn parse_args() -> Args {
             "--cols" => a.cols = v.parse().unwrap_or_else(|_| usage()),
             "--rows" => a.rows = v.parse().unwrap_or_else(|_| usage()),
             "--out" => a.out = PathBuf::from(v),
+            "--scale" => a.scale = v.parse().unwrap_or_else(|_| usage()),
             _ => usage(),
         }
     }
-    if a.cols < 1 || a.rows < 1 {
+    if a.cols < 1 || a.rows < 1 || a.scale < 1 {
         usage();
     }
     a
 }
+
+/// Height in px of each context band, and the gap under them.
+const BAND_H: usize = 8;
+const BAND_GAP: usize = 2;
 
 // --- PNG ---------------------------------------------------------------------
 
@@ -206,24 +228,57 @@ fn main() {
 
     let gen_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    let mut rgb = vec![0u8; w * h * 3];
-    for (ci, strip) in strips.iter().enumerate() {
-        let x0 = ci * cc;
-        for y in 0..h {
-            for lx in 0..cc {
-                let m = strip[y * cc + lx] as usize;
-                let p = (y * w + x0 + lx) * 3;
-                rgb[p] = MAT_R[m];
-                rgb[p + 1] = MAT_G[m];
-                rgb[p + 2] = MAT_B[m];
+    // Output geometry: terrain downsampled by `scale` (nearest), plus the two
+    // context bands above it when asked for.
+    let sc = a.scale as usize;
+    let ow = w.div_ceil(sc);
+    let oh_terrain = h.div_ceil(sc);
+    let band_px = if a.bands { 2 * (BAND_H + BAND_GAP) } else { 0 };
+    let oh = oh_terrain + band_px;
+
+    let mut rgb = vec![0u8; ow * oh * 3];
+
+    if a.bands {
+        // Colour each column band by the winner's own signature material — the
+        // biome's cap and the layer's rock — so the band uses the same palette
+        // vocabulary as the terrain under it rather than inventing one.
+        let noise = world_noise(a.seed);
+        for ox in 0..ow {
+            let wcx = a.x0 * CHUNK_CELLS + (ox * sc) as i32;
+            let b = biome_mix_at(&noise, wcx).top;
+            let cap = BIOMES[b.index()].cap as usize;
+            let l = underground_mix_at(&noise, wcx).top;
+            let rock = UNDERGROUND_LAYERS[l.index()].rock as usize;
+            for (row0, m) in [(0usize, cap), (BAND_H + BAND_GAP, rock)] {
+                for by in 0..BAND_H {
+                    let p = ((row0 + by) * ow + ox) * 3;
+                    rgb[p] = MAT_R[m];
+                    rgb[p + 1] = MAT_G[m];
+                    rgb[p + 2] = MAT_B[m];
+                }
             }
         }
     }
 
-    let png = encode_png(w as u32, h as u32, &rgb);
+    // Per OUTPUT pixel, so any scale works — a per-strip loop dropped whole
+    // columns whenever the scale did not divide CHUNK_CELLS.
+    for oy in 0..oh_terrain {
+        let y = oy * sc;
+        for ox in 0..ow {
+            let wx = ox * sc;
+            let (ci, lx) = (wx / cc, wx % cc);
+            let m = strips[ci][y * cc + lx] as usize;
+            let p = ((band_px + oy) * ow + ox) * 3;
+            rgb[p] = MAT_R[m];
+            rgb[p + 1] = MAT_G[m];
+            rgb[p + 2] = MAT_B[m];
+        }
+    }
+
+    let png = encode_png(ow as u32, oh as u32, &rgb);
     match std::fs::write(&a.out, &png) {
         Ok(()) => println!(
-            "{} — {w}x{h} cells, {} chunks in {gen_ms:.1} ms ({:.1} us/chunk), {} KiB",
+            "{} — {w}x{h} cells -> {ow}x{oh} px, {} chunks in {gen_ms:.1} ms ({:.1} us/chunk), {} KiB",
             a.out.display(),
             a.cols * a.rows,
             gen_ms * 1000.0 / f64::from(a.cols * a.rows),
