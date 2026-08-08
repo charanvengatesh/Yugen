@@ -997,7 +997,19 @@ mod tests {
         let v = vertices(&mut buf);
         // The figure is the LAST quad, so it composites over its own trail.
         let body = &v[v.len() - 4..];
-        assert_eq!(body[0], Vec2::new(figure.shear_at(figure.y), 0.0));
+        // Compared at f32 precision, not bit-exactly. The two sides reach the
+        // same shear by different routes — one through the vertex buffer, one by
+        // calling `shear_at` again — and under BODY_SCALE the magnitudes are
+        // twice what they were, so the last bit of the mantissa no longer has to
+        // agree. One ulp at this size is 5e-7 px; the claim is that the body
+        // quad sits on the figure's shear, and a real regression moves it by
+        // whole pixels.
+        let want = figure.shear_at(figure.y);
+        assert!(
+            (body[0].x - want).abs() < 1e-4 && body[0].y == 0.0,
+            "the body quad is at {:?}, not on the shear at {want}",
+            body[0]
+        );
 
         // And the trail runs backwards along the dash: each quad is further
         // behind than the one before it, faintest first.

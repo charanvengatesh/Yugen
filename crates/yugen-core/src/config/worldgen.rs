@@ -127,16 +127,22 @@ impl WorldScale {
     /// UNBLESSED rather than by review.
     pub const LEGACY: WorldScale = WorldScale(1.0);
 
-    /// What the game generates at: features twice as long in cells, so one cell
-    /// is half a world-feature unit and the world reads twice as big.
+    /// What the game generates at: every world feature four times as long in
+    /// cells as it was authored.
     ///
-    /// The camera, the chunk, the streaming window, `CELL_SIZE` and every px the
-    /// player moves are all untouched by this. What changes is the world under
-    /// them: a chunk now covers half the world it used to, the viewport frames
-    /// half as much of it, and the terrain carries twice the cell detail per
-    /// landform. Nothing extra is simulated — the cell count per chunk, per
-    /// window and per frame is exactly what it was.
-    pub const LIVE: WorldScale = WorldScale(2.0);
+    /// This is the scale of the WORLD — terrain, and with it every decoration and
+    /// structure standing on it, which all go through this same number so that
+    /// nothing reads small against anything else. The BODY scale is separate and
+    /// deliberately half of it (see [`BODY_SCALE`]), and that ratio is the whole
+    /// design: at 4x world against 2x bodies, hills, caverns, trees and buildings
+    /// all end up **twice the size they used to be relative to the player**, and
+    /// in the same proportion to each other that they were authored in.
+    ///
+    /// `CELL_SIZE`, `CHUNK_CELLS`, the streaming window and the camera are all
+    /// untouched, so a cell is still 5 px and still 10 screen px. Nothing extra
+    /// is simulated: the cell count per chunk, per window and per frame is
+    /// exactly what it was.
+    pub const LIVE: WorldScale = WorldScale(4.0);
 
     /// A world cell coordinate, in the field layer's legacy-cell space.
     ///
@@ -179,4 +185,36 @@ impl WorldScale {
     pub fn factor(self) -> f64 {
         self.0
     }
+
+    /// Whole-number upscale for anything authored as a CELL RASTER rather than as
+    /// a length — structure bodies, and any other art stamped cell for cell.
+    ///
+    /// A raster cannot be scaled by a float: there is no such thing as 1.5 cells
+    /// of wall. It is nearest-upscaled instead, one authored cell becoming a
+    /// `K x K` block, which is why this rounds and why the scale wants to stay a
+    /// whole number.
+    #[inline]
+    pub fn raster(self) -> i32 {
+        (self.0 + 0.5).floor().max(1.0) as i32
+    }
 }
+
+/// How much bigger the player and the creatures are than the day they were
+/// authored.
+///
+/// Deliberately HALF of [`WorldScale::LIVE`], and the gap is the feature rather
+/// than an oversight. The world scaling faster than the bodies in it is exactly
+/// what "the world got bigger" means — at 4x world against 2x bodies, a cavern
+/// that used to frame one player now frames two, while a tree standing in it
+/// keeps the proportion to that player it was drawn with.
+///
+/// Bodies scale by growing their CELL FOOTPRINT, not by changing `CELL_SIZE`:
+/// `PLAYER_CELLS_W`/`H` double, `PLAYER_W`/`H` follow, and `PHYS_SCALE` — which
+/// is derived from `PLAYER_H` — doubles with them, so the dimensional rule in
+/// `config::physics` keeps jump height in body-heights and time to apex exactly
+/// where they were. The character feels identical; it is simply bigger.
+///
+/// Sprite art needs no re-authoring to follow: every body sprite carries a
+/// `grain`, and halving a record's grain while doubling its `cellsW`/`cellsH`
+/// spreads the SAME characters over twice the cells per axis.
+pub const BODY_SCALE: i32 = 2;

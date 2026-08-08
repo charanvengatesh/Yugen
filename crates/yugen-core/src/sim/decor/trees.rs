@@ -24,7 +24,7 @@
 
 use super::{DecorContext, Decorator, origin_columns};
 use crate::config::world::CHUNK_CELLS;
-use crate::config::worldgen::{SURFACE_AMPLITUDE, SURFACE_ANCHOR_Y};
+use crate::config::worldgen::{SURFACE_AMPLITUDE, SURFACE_ANCHOR_Y, WorldScale};
 use crate::sim::biomes::{BIOME_COUNT, BIOMES, Biome, ColumnProfile};
 use crate::sim::materials::{CellId, block};
 
@@ -135,9 +135,15 @@ fn flora_band() -> (i32, i32) {
     let surf_swing = max_amp_scale * f64::from(SURFACE_AMPLITUDE) + 3.0;
     let highest_surface = (f64::from(SURFACE_ANCHOR_Y) + min_height_offset - surf_swing).floor();
     let lowest_surface = (f64::from(SURFACE_ANCHOR_Y) + max_height_offset + surf_swing).ceil();
+    // Every row above is a LEGACY row and every reach is a legacy length, so the
+    // whole band crosses out to world rows together. Getting this wrong does not
+    // draw a wrong tree — it draws none at all, because the early-out above
+    // decides the chunk is nowhere near the surface.
+    let scale = WorldScale::LIVE;
+    let k = scale.raster();
     (
-        highest_surface as i32 - REACH_Y,
-        lowest_surface as i32 + ROOT_DEPTH,
+        scale.row(highest_surface as i32) - REACH_Y * k,
+        scale.row(lowest_surface as i32) + ROOT_DEPTH * k,
     )
 }
 
@@ -819,6 +825,15 @@ fn grow_tree(ctx: &mut DecorContext<'_>, wcx: i32) {
         return; // nothing roots on a cliff
     }
 
+    // The draw, and ONLY the draw, is upscaled. Every species below goes on
+    // drawing the tree the size it was authored, in cells, from this column and
+    // this ground line; the context enlarges each of those cells into a block, so
+    // the trunk stays rooted exactly here and the proportions the species tables
+    // describe survive the scaling untouched.
+    //
+    // Opened after the last early return and closed immediately after the match,
+    // so no rejected candidate can leave the expansion set for the next one.
+    ctx.draw_upscaled(wcx, surf);
     match sp {
         SP_BROADLEAF => draw_broadleaf(ctx, wcx, surf, biome),
         SP_CONIFER => draw_conifer(ctx, wcx, surf, biome),
@@ -830,6 +845,7 @@ fn grow_tree(ctx: &mut DecorContext<'_>, wcx: i32) {
         SP_SHROOM => draw_shroom(ctx, wcx, surf),
         _ => draw_shrub(ctx, wcx, surf, biome),
     }
+    ctx.drawn();
 }
 
 /// Ground cover: one to three cells, but dense enough that the surface stops
@@ -929,11 +945,11 @@ impl Decorator for TreeDecorator {
     }
 
     fn reach_x(&self) -> i32 {
-        REACH_X
+        REACH_X * WorldScale::LIVE.raster()
     }
 
     fn reach_y(&self) -> i32 {
-        REACH_Y
+        REACH_Y * WorldScale::LIVE.raster()
     }
 
     fn decorate(&self, ctx: &mut DecorContext<'_>) {
@@ -944,10 +960,14 @@ impl Decorator for TreeDecorator {
         if ctx.base_y + CHUNK_CELLS - 1 < top_row || ctx.base_y > bot_row {
             return;
         }
-        for wcx in origin_columns(ctx.base_x, REACH_X, TREE_STRIDE, TREE_PHASE) {
+        let k = ctx.raster();
+        // The stride is where trees are PLANTED and stays a world distance, so the
+        // spacing between trunks does not open up as the trees get bigger. Only
+        // the reach scales, because that is how far a bigger tree overhangs.
+        for wcx in origin_columns(ctx.base_x, REACH_X * k, TREE_STRIDE, TREE_PHASE) {
             grow_tree(ctx, wcx);
         }
-        for wcx in origin_columns(ctx.base_x, CLUTTER_REACH, CLUTTER_STRIDE, CLUTTER_PHASE) {
+        for wcx in origin_columns(ctx.base_x, CLUTTER_REACH * k, CLUTTER_STRIDE, CLUTTER_PHASE) {
             grow_clutter(ctx, wcx);
         }
     }
@@ -1093,7 +1113,16 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut hm = Heightmap::new();
         let (top, bot) = flora_band();
-        assert_eq!((top, bot), (-22, 93), "the band is not the TypeScript's");
+        // The TypeScript band was (-22, 93) in legacy rows. It is written against
+        // the raster factor rather than as the world rows it happens to be, so
+        // this keeps asserting the ORIGINAL claim — the band is still the one the
+        // TypeScript computed — at whatever scale the world is drawn.
+        let k = WorldScale::LIVE.raster();
+        assert_eq!(
+            (top, bot),
+            (-22 * k, 93 * k),
+            "the band is not the TypeScript's"
+        );
 
         let mut clipped = 0;
         let mut n = 0;
@@ -1234,7 +1263,11 @@ mod tests {
     #[test]
     fn the_decorator_declares_itself() {
         assert_eq!(TreeDecorator.name(), "trees");
-        assert_eq!(TreeDecorator.reach_x(), REACH_X);
-        assert_eq!(TreeDecorator.reach_y(), REACH_Y);
+        // The declared reach is the AUTHORED reach times the raster factor: a
+        // tree drawn k times bigger overhangs k times further, and a decorator
+        // that declared less than it paints grows seams at chunk boundaries.
+        let k = WorldScale::LIVE.raster();
+        assert_eq!(TreeDecorator.reach_x(), REACH_X * k);
+        assert_eq!(TreeDecorator.reach_y(), REACH_Y * k);
     }
 }

@@ -113,12 +113,16 @@
 [player]
 name = "Player"
 
-cellsW = 4
-cellsH = 5
+# BODY_SCALE. These were 4x5 at grain 2 — the same eight-by-ten characters,
+# each one a 2x2 block of cells. Dropping the grain to 1 and doubling the cell
+# box spreads the IDENTICAL art over twice the cells per axis, which is exactly
+# the 2x the body wanted and cost no re-authoring: not one character below moved.
+cellsW = 8
+cellsH = 10
 
-# Each cell is a 2x2 block of characters. Every frame in this file is ten rows
-# of eight, and nothing else compiles.
-grain = 2
+# One character per cell. Every frame in this file is still ten rows of eight,
+# and nothing else compiles.
+grain = 1
 
 # Eighty texels are enough for shading but not for decoration, so every colour
 # still has a job. Teal body + gold head is the identity and did not move — it is

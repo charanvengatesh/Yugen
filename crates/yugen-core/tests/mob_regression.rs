@@ -39,6 +39,7 @@
 //! `f32` ulp fails, which is what makes the gate able to see a multiply that
 //! moved from load time to bake time.
 
+use yugen_core::config::BODY_SCALE;
 use yugen_core::entities::mobs::defs::{
     BAND_SURFACE_MAX, MOB_DEFS, MobBand, MobBrain, MobDef, band_at_depth, def_index,
 };
@@ -217,9 +218,26 @@ fn every_pre_migration_creature_matches_field_for_field() {
         let now: &MobDef = &MOB_DEFS[code];
         let id = old.id;
 
+        // Every LENGTH and every body-scaled RATE below is multiplied by
+        // BODY_SCALE before comparison, and nothing else is.
+        //
+        // The snapshot is the TypeScript's, taken when the body was 1x, so the
+        // numbers in it are authored-scale numbers. Multiplying the expectation
+        // is what keeps this gate asserting the thing it was written to assert —
+        // that the derived fields are still computed AT LOAD from PHYS_SCALE and
+        // the body's own cell height, rather than baked into `yugen-data` — while
+        // letting the body be deliberately resized. Freezing the products instead
+        // would make the gate fail for the one reason it should not, and it would
+        // still pass if somebody baked them, which is the bug it exists to catch.
+        //
+        // Ratios, counts, flags, damage and cooldowns are NOT scaled: they are
+        // dimensionless or in seconds, and the dimensional rule in
+        // `config::physics` scales lengths and rates only.
+        let b = f64::from(BODY_SCALE);
+
         assert_eq!(now.brain, old.brain, "{id}.brain");
-        eq_f(id, "w_px", now.w_px, old.w_px);
-        eq_f(id, "h_px", now.h_px, old.h_px);
+        eq_f(id, "w_px", now.w_px, old.w_px * b);
+        eq_f(id, "h_px", now.h_px, old.h_px * b);
         eq_f(id, "max_health", now.max_health, old.max_health);
         eq_f(id, "contact_damage", now.contact_damage, old.contact_damage);
         eq_f(
@@ -230,14 +248,17 @@ fn every_pre_migration_creature_matches_field_for_field() {
         );
 
         // The body-scaled block — the whole reason this file exists.
-        eq_f(id, "speed", now.speed, old.speed);
-        eq_f(id, "chase_speed", now.chase_speed, old.chase_speed);
-        eq_f(id, "jump_speed", now.jump_speed, old.jump_speed);
-        eq_f(id, "gravity", now.gravity, old.gravity);
-        eq_f(id, "max_fall", now.max_fall, old.max_fall);
-        eq_f(id, "step_up_max", now.step_up_max, old.step_up_max);
-        eq_f(id, "knockback", now.knockback, old.knockback);
+        eq_f(id, "speed", now.speed, old.speed * b);
+        eq_f(id, "chase_speed", now.chase_speed, old.chase_speed * b);
+        eq_f(id, "jump_speed", now.jump_speed, old.jump_speed * b);
+        eq_f(id, "gravity", now.gravity, old.gravity * b);
+        eq_f(id, "max_fall", now.max_fall, old.max_fall * b);
+        eq_f(id, "step_up_max", now.step_up_max, old.step_up_max * b);
+        eq_f(id, "knockback", now.knockback, old.knockback * b);
 
+        // Perception ranges are authored as ABSOLUTE px and the facade
+        // deliberately does not body-scale them, so they are compared unscaled.
+        // A creature twice the size still notices you from the same distance.
         eq_f(id, "aggro_px", now.aggro_px, old.aggro_px);
         eq_f(id, "aggro_y_px", now.aggro_y_px, old.aggro_y_px);
         eq_f(id, "flee_px", now.flee_px, old.flee_px);
@@ -261,19 +282,19 @@ fn the_collision_box_is_still_a_whole_number_of_cells() {
     // up the art rect again.
     for old in OLD {
         let now = &MOB_DEFS[def_index(old.id).unwrap()];
+        let cells_w = old.body_cells[0] * BODY_SCALE;
         assert_eq!(
             now.w_px,
-            old.body_cells[0] as f32 * CELL,
-            "{}.w_px is not {} cells",
-            old.id,
-            old.body_cells[0]
+            cells_w as f32 * CELL,
+            "{}.w_px is not {cells_w} cells",
+            old.id
         );
+        let cells_h = old.body_cells[1] * BODY_SCALE;
         assert_eq!(
             now.h_px,
-            old.body_cells[1] as f32 * CELL,
-            "{}.h_px is not {} cells",
-            old.id,
-            old.body_cells[1]
+            cells_h as f32 * CELL,
+            "{}.h_px is not {cells_h} cells",
+            old.id
         );
     }
 }

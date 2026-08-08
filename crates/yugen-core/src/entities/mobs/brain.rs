@@ -929,6 +929,7 @@ fn unbury(m: &mut Mob, dt: f32, grid: &CellGrid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::BODY_SCALE;
     use crate::sim::materials::block;
 
     /// One xorshift32 step, computed the long way, as an oracle.
@@ -1161,8 +1162,13 @@ mod tests {
         }
         // The wander is a bounded oscillation, not a drift: a brain that had
         // picked up gravity would be hundreds of px lower by now.
+        //
+        // The bound is in px and every creature speed is scaled by PHYS_SCALE, so
+        // it is stated against BODY_SCALE — the oscillation is the same size in
+        // BODY-heights at any scale, which is the property being asserted.
+        let bound = 120.0 * BODY_SCALE as f32;
         assert!(
-            (m.body.y - start_y).abs() < 120.0,
+            (m.body.y - start_y).abs() < bound,
             "altitude drifted by {}",
             m.body.y - start_y
         );

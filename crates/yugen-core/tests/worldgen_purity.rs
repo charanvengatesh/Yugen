@@ -164,10 +164,15 @@ fn horizontal_seam() {
             }
         }
     }
-    // A terrace riser is the biggest legal single-column step; TERRACE_STEP is 6.
+    // A terrace riser is the biggest legal single-column step. TERRACE_STEP is 6
+    // LEGACY cells, so the limit is 8 of those — and a legacy cell is
+    // WorldScale::LIVE world cells, which is why the bound scales rather than
+    // being a flat 8. A riser really is four times as tall in cells now; that is
+    // the world being bigger, not the seam check going soft.
+    let limit = (8.0 * WorldScale::LIVE.factor()) as i32;
     assert!(
-        max_step <= 8,
-        "max adjacent surface step {max_step} cells (at column {worst_at}); limit 8"
+        max_step <= limit,
+        "max adjacent surface step {max_step} cells (at column {worst_at}); limit {limit}"
     );
 }
 

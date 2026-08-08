@@ -437,8 +437,8 @@ fn max_over(list: &[Template], f: impl Fn(&Template) -> i32) -> i32 {
     m
 }
 
-fn half_w(t: &Template) -> i32 {
-    (t.w >> 1) + 1
+fn half_w(t: &Template, k: i32) -> i32 {
+    (width_of(t, k) >> 1) + 1
 }
 
 static TEMPLATES: LazyLock<Templates> = LazyLock::new(|| {
@@ -454,7 +454,10 @@ static TEMPLATES: LazyLock<Templates> = LazyLock::new(|| {
         .cloned()
         .collect();
 
-    let reach_x = max_over(&column, half_w).max(max_over(&lattice, half_w));
+    // The reach is a WORLD distance, so it is measured on the upscaled body.
+    let k = WorldScale::LIVE.raster();
+    let hw = |t: &Template| half_w(t, k);
+    let reach_x = max_over(&column, hw).max(max_over(&lattice, hw));
     // Rows a column-placed template may occupy above its column's ground line.
     let column_up = max_over(&column, |t| t.max_h + t.clearance);
     // Rows it may occupy below it — `sink` pushes a ruin into the ground.
@@ -759,42 +762,57 @@ fn src_row(t: &Template, r: i32, times: i32) -> i32 {
 /// loot pass that recovers mark positions from the origin recovers the WRONG
 /// cells while every determinism check still passes, because both halves are
 /// individually consistent. One definition, four callers.
-fn height_of(t: &Template, times: i32) -> i32 {
-    t.h + t.rep_rows * (times - 1)
+fn height_of(t: &Template, times: i32, k: i32) -> i32 {
+    (t.h + t.rep_rows * (times - 1)) * k
 }
 
-fn origin_x(t: &Template, ox: i32) -> i32 {
+/// Destination width of a placed template, in world cells.
+#[inline]
+fn width_of(t: &Template, k: i32) -> i32 {
+    t.w * k
+}
+
+fn origin_x(t: &Template, ox: i32, k: i32) -> i32 {
     let left = t.anchor == Anchor::BottomLeft || t.anchor == Anchor::TopLeft;
-    if left { ox } else { ox - (t.w >> 1) }
+    if left { ox } else { ox - (width_of(t, k) >> 1) }
 }
 
-fn origin_y(t: &Template, oy: i32, height: i32) -> i32 {
+fn origin_y(t: &Template, oy: i32, height: i32, k: i32) -> i32 {
     let base = match t.anchor {
         Anchor::BottomCenter | Anchor::BottomLeft => oy - (height - 1),
         Anchor::Center => oy - (height >> 1),
         _ => oy,
     };
-    base + t.sink
+    // `sink` is an authored cell offset, so it scales with the raster it offsets.
+    base + t.sink * k
 }
 
 /// Stamp `t` with its anchor cell at (ox, oy). Pure in (t, ox, oy, times,
 /// mirrored) — the only thing that varies per chunk is which `plot` calls land.
 fn stamp(ctx: &mut DecorContext<'_>, s: &StructSite) {
     let t = s.t;
-    let height = height_of(t, s.times);
-    let x0 = origin_x(t, s.ox);
-    let y0 = origin_y(t, s.oy, height);
+    let k = ctx.scale().raster();
+    let height = height_of(t, s.times, k);
+    let w = width_of(t, k);
+    let x0 = origin_x(t, s.ox, k);
+    let y0 = origin_y(t, s.oy, height, k);
 
-    if !overlaps(ctx, x0, y0, x0 + t.w - 1, y0 + height - 1) {
+    if !overlaps(ctx, x0, y0, x0 + w - 1, y0 + height - 1) {
         return;
     }
 
-    let w = t.w;
     for r in 0..height {
-        let base = src_row(t, r, s.times) * w;
+        // One authored cell becomes a k x k block. The body is a RASTER, so it
+        // is nearest-upscaled rather than scaled as a length: there is no such
+        // thing as 1.5 cells of wall, and a 1-cell wall under a 4x world has to
+        // become a 4-cell one or the building is not the building any more.
+        let base = src_row(t, r / k, s.times) * t.w;
         let wy = y0 + r;
         for c in 0..w {
-            let col = if s.mirrored { w - 1 - c } else { c };
+            // Mirror in DESTINATION space, then divide. Dividing first would
+            // mirror the block rather than the body and shift the whole template
+            // by k-1 cells on every odd width.
+            let col = if s.mirrored { w - 1 - c } else { c } / k;
             let slot = t.rows[(base + col) as usize];
             if slot == Slot::KEEP {
                 continue;
@@ -820,16 +838,17 @@ fn stamp(ctx: &mut DecorContext<'_>, s: &StructSite) {
 /// The TypeScript hoisted its callback into a module-scope closure over a
 /// module-scope `DecorContext` to avoid allocating one per placement. A Rust
 /// closure captures by reference and does not allocate, so the scratch is gone.
-pub fn each_mark(s: &StructSite, mut f: impl FnMut(i32, i32, Mark)) {
+pub fn each_mark(s: &StructSite, k: i32, mut f: impl FnMut(i32, i32, Mark)) {
     let t = s.t;
-    let height = height_of(t, s.times);
-    let x0 = origin_x(t, s.ox);
-    let y0 = origin_y(t, s.oy, height);
+    let height = height_of(t, s.times, k);
+    let w = width_of(t, k);
+    let x0 = origin_x(t, s.ox, k);
+    let y0 = origin_y(t, s.oy, height, k);
 
     for r in 0..height {
-        let base = src_row(t, r, s.times) * t.w;
-        for c in 0..t.w {
-            let col = if s.mirrored { t.w - 1 - c } else { c };
+        let base = src_row(t, r / k, s.times) * t.w;
+        for c in 0..w {
+            let col = if s.mirrored { w - 1 - c } else { c } / k;
             let mark = t.slot_mark[t.rows[(base + col) as usize].index()];
             if mark != Mark::None {
                 f(x0 + c, y0 + r, mark);
@@ -844,19 +863,22 @@ pub fn each_mark(s: &StructSite, mut f: impl FnMut(i32, i32, Mark)) {
 /// forward-only function of `r`, so recovering the source row for a KNOWN row is
 /// one call to `src_row`, not a search. This is what makes the open-time query
 /// below cheap enough to run on a mouse click without a second thought.
-fn mark_in_site(s: &StructSite, wcx: i32, wcy: i32) -> Mark {
+fn mark_in_site(s: &StructSite, wcx: i32, wcy: i32, k: i32) -> Mark {
     let t = s.t;
-    let height = height_of(t, s.times);
-    let r = wcy - origin_y(t, s.oy, height);
+    let height = height_of(t, s.times, k);
+    let r = wcy - origin_y(t, s.oy, height, k);
     if r < 0 || r >= height {
         return Mark::None;
     }
-    let c = wcx - origin_x(t, s.ox);
-    if c < 0 || c >= t.w {
+    let w = width_of(t, k);
+    let c = wcx - origin_x(t, s.ox, k);
+    if c < 0 || c >= w {
         return Mark::None;
     }
-    let col = if s.mirrored { t.w - 1 - c } else { c };
-    t.slot_mark[t.rows[(src_row(t, r, s.times) * t.w + col) as usize].index()]
+    // The same mapping `each_mark` walks, from the other direction — mirror in
+    // destination space, then divide into the authored raster.
+    let col = if s.mirrored { w - 1 - c } else { c } / k;
+    t.slot_mark[t.rows[(src_row(t, r / k, s.times) * t.w + col) as usize].index()]
 }
 
 // --- The mark pass -----------------------------------------------------------
@@ -882,14 +904,15 @@ fn apply_marks(ctx: &mut DecorContext<'_>, s: &StructSite) {
     if !marks.active || !s.t.has_mark {
         return;
     }
-    let height = height_of(s.t, s.times);
-    let x0 = origin_x(s.t, s.ox);
-    let y0 = origin_y(s.t, s.oy, height);
-    if !overlaps(ctx, x0, y0, x0 + s.t.w - 1, y0 + height - 1) {
+    let k = ctx.scale().raster();
+    let height = height_of(s.t, s.times, k);
+    let x0 = origin_x(s.t, s.ox, k);
+    let y0 = origin_y(s.t, s.oy, height, k);
+    if !overlaps(ctx, x0, y0, x0 + width_of(s.t, k) - 1, y0 + height - 1) {
         return;
     }
 
-    each_mark(s, |wcx, wcy, mark| {
+    each_mark(s, k, |wcx, wcy, mark| {
         let code = marks.block[mark as usize];
         if code != AIR {
             ctx.plot(wcx, wcy, code);
@@ -1125,6 +1148,7 @@ pub struct MarkHit {
 /// block that actually survived to the grid.
 pub fn mark_at<Q: SiteQuery + ?Sized>(q: &mut Q, wcx: i32, wcy: i32) -> Option<MarkHit> {
     let tm = &*TEMPLATES;
+    let k = q.scale().raster();
     let mut template: Option<&'static Template> = None;
     let mut mark = Mark::None;
 
@@ -1135,7 +1159,7 @@ pub fn mark_at<Q: SiteQuery + ?Sized>(q: &mut Q, wcx: i32, wcy: i32) -> Option<M
         let mut ox = from_x + pmod(COL_PHASE - from_x, COL_STRIDE);
         while ox <= to_x {
             if let Some(s) = resolve_column_site(q, ox) {
-                let m = mark_in_site(&s, wcx, wcy);
+                let m = mark_in_site(&s, wcx, wcy, k);
                 if m != Mark::None {
                     template = Some(s.t);
                     mark = m;
@@ -1153,7 +1177,7 @@ pub fn mark_at<Q: SiteQuery + ?Sized>(q: &mut Q, wcx: i32, wcy: i32) -> Option<M
             let mut ox = from_x + pmod(SUB_PHASE_X - from_x, SUB_STRIDE_X);
             while ox <= to_x {
                 if let Some(s) = resolve_lattice_site(q, ox, oy) {
-                    let m = mark_in_site(&s, wcx, wcy);
+                    let m = mark_in_site(&s, wcx, wcy, k);
                     if m != Mark::None {
                         template = Some(s.t);
                         mark = m;
@@ -1269,9 +1293,9 @@ mod tests {
             mirrored: false,
         };
 
-        let height = height_of(t, site.times);
-        let x0 = origin_x(t, site.ox);
-        let y0 = origin_y(t, site.oy, height);
+        let height = height_of(t, site.times, WorldScale::LIVE.raster());
+        let x0 = origin_x(t, site.ox, WorldScale::LIVE.raster());
+        let y0 = origin_y(t, site.oy, height, WorldScale::LIVE.raster());
 
         // Two chunk origins whose windows both cover the template's top-left.
         let mut a = Canvas::new(7);
@@ -1348,10 +1372,10 @@ mod tests {
                         mirrored,
                     };
                     let mut seen = 0;
-                    each_mark(&s, |wcx, wcy, mark| {
+                    each_mark(&s, WorldScale::LIVE.raster(), |wcx, wcy, mark| {
                         seen += 1;
                         assert_eq!(
-                            mark_in_site(&s, wcx, wcy),
+                            mark_in_site(&s, wcx, wcy, WorldScale::LIVE.raster()),
                             mark,
                             "{} at ({wcx},{wcy})",
                             t.id
@@ -1406,7 +1430,9 @@ mod tests {
                 continue;
             }
             let mut marks: Vec<(i32, i32, Mark)> = Vec::new();
-            each_mark(&s, |wcx, wcy, mark| marks.push((wcx, wcy, mark)));
+            each_mark(&s, WorldScale::LIVE.raster(), |wcx, wcy, mark| {
+                marks.push((wcx, wcy, mark))
+            });
             for (wcx, wcy, mark) in marks {
                 let hit = mark_at(&mut q, wcx, wcy)
                     .unwrap_or_else(|| panic!("{} marked ({wcx},{wcy}) and lost it", s.t.id));

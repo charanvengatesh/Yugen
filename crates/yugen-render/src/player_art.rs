@@ -638,6 +638,7 @@ fn lean(accel_x: f32) -> f32 {
 mod tests {
     use super::*;
     use yugen_core::config::STEP_DT;
+    use yugen_core::config::{BODY_SCALE, STEP_UP_CELLS};
     use yugen_core::entities::{Loadout, NoProjectiles};
     use yugen_core::input::Intent;
     use yugen_core::sim::grid::CellGrid;
@@ -704,17 +705,39 @@ mod tests {
         // is exactly where it was". A redraw that quietly moved the hitbox would
         // have passed the old assertion by shrinking back to 2x3; it cannot pass
         // this one.
+        // The authored grid is 4x5 cells around a 2x3 box; BODY_SCALE spreads
+        // every one of those cells over BODY_SCALE of them, so each figure below
+        // is the authored number times the body scale. Written that way on
+        // purpose: the claim is about the SURPLUS around the box, and a literal
+        // would re-assert the body's current size instead.
         let cell = CELL_SIZE as f32;
+        let b = BODY_SCALE as f32;
         let grid = ArtGrid::player();
-        assert_eq!(grid.w_px, 4.0 * cell, "art rect is 4 cells wide");
-        assert_eq!(grid.h_px, 5.0 * cell, "art rect is 5 cells tall");
-        assert_eq!(grid.pad_x_px, cell, "half the 2-cell horizontal surplus");
-        assert_eq!(grid.pad_top_px, 2.0 * cell, "ALL of the vertical surplus");
+        assert_eq!(
+            grid.w_px,
+            4.0 * b * cell,
+            "art rect is 4 authored cells wide"
+        );
+        assert_eq!(
+            grid.h_px,
+            5.0 * b * cell,
+            "art rect is 5 authored cells tall"
+        );
+        assert_eq!(
+            grid.pad_x_px,
+            b * cell,
+            "half the 2-authored-cell horizontal surplus"
+        );
+        assert_eq!(
+            grid.pad_top_px,
+            2.0 * b * cell,
+            "ALL of the vertical surplus"
+        );
 
         // The body is untouched, which is the whole point of the seam: content
         // owns what a pixel looks like, code owns what the body does.
-        assert_eq!(PLAYER_W, 2.0 * cell);
-        assert_eq!(PLAYER_H, 3.0 * cell);
+        assert_eq!(PLAYER_W, 2.0 * b * cell);
+        assert_eq!(PLAYER_H, 3.0 * b * cell);
     }
 
     #[test]
@@ -743,7 +766,12 @@ mod tests {
         // outside the silhouette and the hitbox must not notice.
         let m = PlayerMotion::default();
         let flush = PlayerFigure::new(m, flush_grid());
-        let big = PlayerFigure::new(m, ArtGrid::from_def(&def_sized(4, 5)));
+        // Two cells of surplus on each axis, whatever the body's size is — the
+        // claim is that surplus does not move the feet, not that 4x5 does.
+        let big = PlayerFigure::new(
+            m,
+            ArtGrid::from_def(&def_sized(PLAYER_CELLS_W + 2, PLAYER_CELLS_H + 2)),
+        );
 
         assert_eq!(feet(&big), feet(&flush), "the feet moved");
         assert_eq!(big.pivot_x, flush.pivot_x, "the shear pivot moved");
@@ -1206,8 +1234,13 @@ mod tests {
                 grid.set(x, y, if y >= FLOOR { block::STONE } else { EMPTY });
             }
         }
+        // A ledge exactly the body's whole step-up REACH tall, so the crest this
+        // test is about is the largest one the body can take. At STEP_UP_CELLS 1
+        // that is the single riser it always was.
         for x in (64 + ledge_ahead)..grid.cols() {
-            grid.set(x, FLOOR - 1, block::STONE);
+            for k in 1..=STEP_UP_CELLS {
+                grid.set(x, FLOOR - k, block::STONE);
+            }
         }
         let spawn = SpawnPoint {
             x: (64 * CELL_SIZE) as f32,
@@ -1231,7 +1264,12 @@ mod tests {
         // and if the drawing followed the box the figure would jump five px in
         // one frame and read as a hitch. What must happen instead is that the
         // drawn top climbs over several frames and never once moves DOWN.
-        let (grid, mut player) = world_with_ledge(6);
+        // The ledge sits BODY_SCALE times further out than it was authored. A
+        // wider body drifts further during the settle below, and at the authored
+        // 6 cells it arrives already standing on the ledge — the crest happens
+        // before the measurement starts and `box_jump` reads 0, which looks
+        // exactly like the step-up being broken.
+        let (grid, mut player) = world_with_ledge(6 * BODY_SCALE);
         run(&mut player, &grid, Intent::default(), ONE_SECOND);
         assert!(player.on_ground, "the fixture never landed");
 
@@ -1262,9 +1300,12 @@ mod tests {
             previous = now;
         }
 
+        // The box steps up by the body's whole REACH, which is STEP_UP_CELLS
+        // cells and grows with BODY_SCALE — not by one cell.
         let cell = CELL_SIZE as f32;
-        assert_eq!(box_jump, cell, "the box did not step up a whole cell");
-        assert_eq!(previous.y, start - cell, "the figure never caught up");
+        let step = (STEP_UP_CELLS * CELL_SIZE) as f32;
+        assert_eq!(box_jump, step, "the box did not step up its whole reach");
+        assert_eq!(previous.y, start - step, "the figure never caught up");
         assert!(
             biggest_figure_jump < cell,
             "the figure snapped {biggest_figure_jump} px in one frame — the whole \

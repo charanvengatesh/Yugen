@@ -25,6 +25,7 @@
 //! multiplies a velocity by its own private constant has forked the rule.
 
 use super::world::CELL_SIZE;
+use super::worldgen::BODY_SCALE;
 
 /// Seconds per physics step.
 pub const STEP_DT: f32 = 1.0 / 120.0;
@@ -56,16 +57,16 @@ pub const MAX_STEPS_PER_FRAME: u32 = 5;
 /// surplus becomes overhang (centred horizontally, aligned to the feet) and the
 /// hitbox, the physics tuned against it, and every constant scaled off
 /// [`PLAYER_H`] all stay exactly where they were.
-pub const PLAYER_CELLS_W: i32 = 2;
+pub const PLAYER_CELLS_W: i32 = 2 * BODY_SCALE;
 
 /// Player collision box height, in cells. See [`PLAYER_CELLS_W`].
-pub const PLAYER_CELLS_H: i32 = 3;
+pub const PLAYER_CELLS_H: i32 = 3 * BODY_SCALE;
 
 /// Player collision box width, in world px.
-pub const PLAYER_W: f32 = (PLAYER_CELLS_W * CELL_SIZE) as f32; // 10
+pub const PLAYER_W: f32 = (PLAYER_CELLS_W * CELL_SIZE) as f32; // 20 at BODY_SCALE 2
 
 /// Player collision box height, in world px.
-pub const PLAYER_H: f32 = (PLAYER_CELLS_H * CELL_SIZE) as f32; // 15
+pub const PLAYER_H: f32 = (PLAYER_CELLS_H * CELL_SIZE) as f32; // 30 at BODY_SCALE 2
 
 // ---------------------------------------------------------------------------
 // The dimensional scaling rule
@@ -269,11 +270,13 @@ pub const DROP_THROUGH_TIME: f32 = 0.24;
 /// character is now 3 cells tall, so 2 cells would be two-thirds of its own
 /// height and it would climb essentially any ledge shorter than itself, which
 /// removes the reason to jump at all. One cell is a third of its height, which
-/// is the same feel the original ratio had.
-pub const STEP_UP_CELLS: i32 = 1;
+/// is the same feel the original ratio had — and it is written against
+/// [`BODY_SCALE`] so it stays a third of the body's height rather than becoming
+/// a sixth of it the moment the character grows.
+pub const STEP_UP_CELLS: i32 = BODY_SCALE;
 
 /// Step-up height in world px.
-pub const STEP_UP_MAX: f32 = (STEP_UP_CELLS * CELL_SIZE) as f32; // 5
+pub const STEP_UP_MAX: f32 = (STEP_UP_CELLS * CELL_SIZE) as f32; // 10 at BODY_SCALE 2
 
 /// Horizontal travel a body must cover after one step-up before it is allowed
 /// another, in world px.
@@ -298,8 +301,18 @@ pub const STEP_UP_MAX: f32 = (STEP_UP_CELLS * CELL_SIZE) as f32; // 5
 /// at its first course, standing on the jut it reached rather than sailing to
 /// the top.
 ///
-/// Whole-cell geometry like [`STEP_UP_MAX`], so unscaled by design: the cell
-/// grid does not scale with the character.
+/// Whole-cell geometry, and — unlike [`STEP_UP_MAX`] — it does NOT scale with
+/// [`BODY_SCALE`]. The distinction is worth stating because it looks like an
+/// oversight and is the opposite of one.
+///
+/// [`STEP_UP_MAX`] is a REACH, so it belongs to the body and grows with it. This
+/// is the horizontal run between risers on the shallowest slope that must stay
+/// walkable, and a riser is one CELL tall whatever is climbing it — the terrain
+/// grid does not scale with the character. Scaling this to `0.8 * STEP_UP_CELLS`
+/// cells was tried and it broke exactly what the paragraph above predicts: a
+/// 45-degree hill supplies a riser every one cell of travel, a re-arm at 1.6
+/// cells never lets the second one through, and the body climbed 2 cells in four
+/// seconds instead of 12.
 pub const STEP_UP_REARM: f32 = 0.8 * CELL_SIZE as f32; // 4
 
 /// Visual rise rate, px/s. The box snaps; the drawn sprite eases to hide it.
@@ -340,9 +353,16 @@ mod tests {
     fn phys_scale_is_what_the_bestiary_expects() {
         // MobDefs multiplies authored creature speeds by this, and the mob
         // regression gate compares the products verbatim.
+        //
+        // Written against BODY_SCALE rather than as a bare literal: the number is
+        // a CONSEQUENCE of the body's size, and pinning it as a constant would
+        // mean this test failed for the one reason it should not — the character
+        // being deliberately resized — while still passing if somebody retuned
+        // MOVE_TEMPO, which is the change it exists to catch.
+        let want = 0.34375 * f32::from(BODY_SCALE as i16);
         assert!(
-            (PHYS_SCALE - 0.34375).abs() < 1e-7,
-            "PHYS_SCALE = {PHYS_SCALE}"
+            (PHYS_SCALE - want).abs() < 1e-7,
+            "PHYS_SCALE = {PHYS_SCALE}, expected {want}"
         );
     }
 }

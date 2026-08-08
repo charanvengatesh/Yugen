@@ -8,9 +8,26 @@
 //! — ice, a pool, a shallow puddle, a one-way platform, a ladder threaded
 //! through one, a one-cell step-up ledge, a sheer wall, conveyor / sticky /
 //! bounce surfaces and a lava pit. 22 scripted cases, 4 048 fixed steps.
-//! **That provenance is history now**: the port is over and this is no longer an
-//! authority on TypeScript, it is this project's own baseline. See
-//! `registry_golden.rs` for the full argument and the rule.
+//! **That provenance is history now, and in a second and much sharper sense than
+//! it used to mean.** The fixture was RE-RECORDED from this implementation when
+//! the body was resized (`PLAYER_CELLS_W`/`H` went 2x3 to 4x6 under `BODY_SCALE`,
+//! which moves every px in a 4 048-step replay and changes how the resolver snaps
+//! a blocked body to a cell face). The last commit at which the numbers below
+//! came from an independent implementation is the one before that change.
+//!
+//! Be clear about what that costs, because it is the whole reason the file used
+//! to forbid it. Before: two implementations, written in different languages
+//! from the same design, agreed on 4 048 steps — evidence that the body is
+//! CORRECT. After: this player is compared against a recording of this player,
+//! which can only ever say the body has not CHANGED. A change-detector is worth
+//! having and this one still catches the ordering bugs named below, but it
+//! cannot any longer tell you that the ordering is right, only that it is what it
+//! was. Nothing short of a second implementation restores that, and there is no
+//! longer one to build against.
+//!
+//! So: this is now a `YUGEN_BLESS` baseline like the others, and the rule that
+//! governs them all governs it. Changing it is a deliberate act, never a way to
+//! fix a red test. See `registry_golden.rs` for the full argument.
 //!
 //! Indifferent to new content — a body is pushed around by physics, not by the
 //! registry — with one exception worth naming, because it is the one that will
@@ -63,8 +80,9 @@
 //! axis that hit — so the state that comes from GEOMETRY cannot drift, and only
 //! the state that comes from a free-running TIMER can.
 //!
-//! Do not relax either tier to make a change pass. If this fails, the port is
-//! wrong, not the test.
+//! Do not relax either tier to make a change pass, and do not reach for
+//! `YUGEN_BLESS` to make one either. If this fails and you did not deliberately
+//! resize the body or retune its movement, the change is wrong, not the test.
 
 use serde_json::Value as J;
 use yugen_core::config::{CHUNK_CELLS, STEP_DT, WorldScale};
@@ -83,6 +101,22 @@ fn fixture() -> J {
 /// Decode one hex-encoded IEEE754 double. See the module header.
 fn f(v: &J) -> f64 {
     f64::from_bits(u64::from_str_radix(v.as_str().unwrap(), 16).unwrap())
+}
+
+/// Encode one double the way the fixture stores it. Only the re-record uses it.
+fn hex(v: f64) -> J {
+    J::String(format!("{:016x}", v.to_bits()))
+}
+
+/// Whether this run should RE-RECORD the baseline from this implementation.
+///
+/// `YUGEN_BLESS=1`, the same switch the other baselines use — and a far graver
+/// act here than it is there. See the module header: after a re-record this file
+/// no longer compares the body against an independent implementation, so it
+/// stops being evidence that the body is CORRECT and becomes a detector of the
+/// body CHANGING. Do not reach for it to make a red test green.
+fn blessing() -> bool {
+    std::env::var_os("YUGEN_BLESS").is_some_and(|v| v != "0" && !v.is_empty())
 }
 
 fn floats(v: &J) -> Vec<f64> {
@@ -379,31 +413,24 @@ enum Discrete {
 /// `case / quantity / step` triples out of the failure and edit this table — do
 /// not widen a budget and do not drop a check.
 const KNOWN_TIES: &[(&str, Discrete, usize, usize)] = &[
-    // run_phase crossing a footstep threshold: the event moves one step.
-    ("run-and-stop", Discrete::Events, 108, 109),
-    ("jump-full", Discrete::Events, 128, 129),
-    ("jump-cut", Discrete::Events, 102, 103),
-    ("dash", Discrete::Events, 60, 61),
-    ("bounce", Discrete::Events, 192, 193),
-    // DASH_COOLDOWN is exactly 66 steps.
-    ("dash", Discrete::Flags, 86, 86),
-    // vy is exactly 0.0 at the apex, so `vy > 0` picks a different pose.
-    ("wall-slide-jump", Discrete::Anim, 84, 84),
-    // Impact speed is exactly LAND_IMPACT_MIN, so the port crouches and the
-    // reference does not, for one LAND_HOLD.
-    ("one-way-from-below", Discrete::Anim, 62, 77),
-    // HURT_TIME (36 steps) and HURT_REPEAT (54 steps) are both exact.
-    ("hurt", Discrete::Anim, 54, 54),
-    ("hurt", Discrete::Anim, 90, 90),
-    ("hurt", Discrete::Anim, 108, 109),
-    ("hurt", Discrete::Anim, 144, 145),
-    ("hurt", Discrete::Anim, 162, 164),
-    ("hurt", Discrete::Anim, 198, 200),
-    ("hurt", Discrete::Events, 54, 55),
-    ("hurt", Discrete::Events, 108, 108),
-    ("hurt", Discrete::Events, 110, 110),
-    ("hurt", Discrete::Events, 162, 162),
-    ("hurt", Discrete::Events, 165, 165),
+    // EMPTY, and it has to be.
+    //
+    // The 46 entries that used to live here were f64-versus-f32 ties: the
+    // TypeScript ran the replay in doubles, this port runs it in floats, and a
+    // free-running timer that lands exactly on a step boundary in one width can
+    // land either side of it in the other. Every one of them was a disagreement
+    // between two IMPLEMENTATIONS.
+    //
+    // After the re-record there is only one implementation. The reference is this
+    // player, in f32, replayed from the same intents — so nothing can tie, and
+    // 20 240 of 20 240 discrete comparisons agree exactly. Keeping the list would
+    // fail the "an entry that stops disagreeing is a failure too" rule on all 46
+    // at once, and it would be the rule working correctly: they stopped
+    // disagreeing because the thing they disagreed with is gone.
+    //
+    // If an entry ever needs to come BACK, something has reintroduced a
+    // cross-width or cross-implementation comparison, and that is worth reading
+    // this whole file's header about before adding it.
 ];
 
 fn tie_index(case: &str, what: Discrete, step: usize) -> Option<usize> {
@@ -478,9 +505,18 @@ fn the_player_moves_the_way_the_typescript_one_did() {
     let mut compared = 0usize;
     let mut diverged = 0usize;
 
+    let bless = blessing();
+    let mut recorded: Vec<J> = Vec::new();
+
     for case in fx["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let n = case["n"].as_u64().unwrap() as usize;
+        let mut rec_q: Vec<Vec<J>> = vec![Vec::with_capacity(n); QUANTITIES.len()];
+        let mut rec_flags: Vec<J> = Vec::with_capacity(n);
+        let mut rec_anim: Vec<J> = Vec::with_capacity(n);
+        let mut rec_air: Vec<J> = Vec::with_capacity(n);
+        let mut rec_swing: Vec<J> = Vec::with_capacity(n);
+        let mut rec_events: Vec<J> = Vec::with_capacity(n);
 
         // Each case sets its own start; `Player::new` runs the real `reset`
         // first, so the fields a case does NOT set are the ones a respawn leaves
@@ -556,7 +592,17 @@ fn the_player_moves_the_way_the_typescript_one_did() {
                     format!("{:?}", ints(&ref_events[i])),
                 ),
             ];
+            if bless {
+                rec_flags.push(J::from(flags_of(&p)));
+                rec_anim.push(J::from(anim_index(p.anim())));
+                rec_air.push(J::from(i64::from(p.air_jumps)));
+                rec_swing.push(J::from(i64::from(p.swing_id())));
+                rec_events.push(J::Array(got_events.iter().map(|&e| J::from(e)).collect()));
+            }
             for (what, got, want) in &checks {
+                if bless {
+                    break;
+                }
                 compared += 1;
                 if got == want {
                     continue;
@@ -586,11 +632,45 @@ fn the_player_moves_the_way_the_typescript_one_did() {
                 p.run_phase(),
             ];
             for (q, _) in QUANTITIES.iter().enumerate() {
-                let ts = refs[q][i];
                 let rs = f64::from(got_f[q]);
+                if bless {
+                    rec_q[q].push(hex(rs));
+                    continue;
+                }
+                let ts = refs[q][i];
                 worst[q].see((rs - ts).abs(), name, i, ts, rs);
             }
         }
+
+        if bless {
+            let mut out = case.clone();
+            for (q, (key, _)) in QUANTITIES.iter().enumerate() {
+                out[*key] = J::Array(std::mem::take(&mut rec_q[q]));
+            }
+            out["flags"] = J::Array(rec_flags);
+            out["anim"] = J::Array(rec_anim);
+            out["airJumps"] = J::Array(rec_air);
+            out["swingId"] = J::Array(rec_swing);
+            out["events"] = J::Array(rec_events);
+            recorded.push(out);
+        }
+    }
+
+    if bless {
+        let mut out = fx.clone();
+        out["cases"] = J::Array(recorded);
+        out["meta"]["grid"]["materialHash"] = J::String(fnv(&grid.material));
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("player.golden.json");
+        std::fs::write(&path, serde_json::to_string(&out).expect("serialises"))
+            .expect("the fixture is writable");
+        eprintln!(
+            "RE-RECORDED {} from this implementation over {total_steps} steps. \
+             Read the module header before committing this.",
+            path.display()
+        );
+        return;
     }
 
     assert_eq!(

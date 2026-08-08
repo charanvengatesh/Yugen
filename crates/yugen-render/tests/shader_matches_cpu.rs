@@ -808,10 +808,19 @@ fn the_shimmer_matches_the_cpu_blit_to_a_measured_bound() {
         }
     }
 
-    // The depths window is 38 000 cells of lava; if this ever drops the branch
-    // is not being tested at all and the numbers below mean nothing.
+    // The depths window has to be MOSTLY LAVA or the branch is not being tested
+    // at all and the numbers below mean nothing.
+    //
+    // 36 344 animated texels measured at WorldScale::LIVE, against >100 000 at
+    // the 1x world. Two intended causes and no unintended one: a texel is a whole
+    // cell again at TEX_GRAIN 1, and the same relative depth in a 4x world holds
+    // a different amount of lava because the liquid table scaled with everything
+    // else. What matters is that it is tens of thousands rather than the 5 960
+    // this read when the window row was left unscaled and slid out of the
+    // underworld entirely — that is the failure this floor exists to catch, and
+    // it caught it.
     assert!(
-        animated_total > 100_000,
+        animated_total > 30_000,
         "the shimmer branch is barely exercised: {animated_total} animated cells"
     );
 

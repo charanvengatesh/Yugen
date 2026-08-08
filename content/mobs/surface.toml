@@ -63,8 +63,8 @@ brain = "walker"
 maxHealth = 14.0
 contactDamage = 8.0
 armor = 1.0
-bodyCellsW = 2
-bodyCellsH = 2
+bodyCellsW = 4
+bodyCellsH = 4
 speed = 110.0
 chaseSpeed = 215.0
 aggroPx = 130.0
@@ -90,9 +90,9 @@ weight = 26.0
 # plate had; the notched top corners are the only thing here that is shape
 # rather than shading. It does not glow, so 4 stays exactly what it was — the
 # interrupt, and nothing else.
-art.cellsW = 2
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#3a2617", "#6f4a2a", "#a9753d", "#ffd27a", "#4e321c"]
 art.fps = 7.0
 [[grubling.art.seq]]
@@ -167,8 +167,8 @@ name = "Critter"
 brain = "skitter"
 maxHealth = 6.0
 contactDamage = 0.0
-bodyCellsW = 2
-bodyCellsH = 2
+bodyCellsW = 4
+bodyCellsH = 4
 speed = 120.0
 chaseSpeed = 330.0
 jumpSpeed = 560.0
@@ -192,9 +192,9 @@ weight = 22.0
 # passes — so the contacts still land on the first and third. The added tone (5)
 # is a fur shade between the mid (2) and the ink (1), so the belly can sit in
 # shadow and the feet still read dark against it.
-art.cellsW = 2
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#3a2c22", "#c8b7a0", "#f2e3c8", "#ff9a9a", "#8a7660"]
 art.fps = 12.0
 [[critter.art.seq]]
@@ -275,8 +275,8 @@ maxHealth = 30.0
 contactDamage = 16.0
 attackCooldown = 1.0
 armor = 2.0
-bodyCellsW = 4
-bodyCellsH = 2
+bodyCellsW = 8
+bodyCellsH = 4
 speed = 150.0
 chaseSpeed = 210.0
 jumpSpeed = 700.0
@@ -304,9 +304,9 @@ weight = 10.0
 # UNDER the ridge instead of beside it. The maw (5) still appears only on the
 # idle's interrupt and on the eruption, now a two-by-two block filling the head,
 # so seeing red still means it is about to matter.
-art.cellsW = 4
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 8
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#6b4a24", "#8a6a3c", "#c39a5a", "#e8cf9a", "#ff6b57", "#4a3117"]
 art.fps = 8.0
 [[sandworm.art.seq]]
@@ -384,8 +384,8 @@ brain = "walker"
 maxHealth = 7.0
 contactDamage = 5.0
 attackCooldown = 0.6
-bodyCellsW = 2
-bodyCellsH = 2
+bodyCellsW = 4
+bodyCellsH = 4
 speed = 140.0
 chaseSpeed = 260.0
 jumpSpeed = 480.0
@@ -416,9 +416,9 @@ weight = 18.0
 # brightens on the breath and flares across the whole crown on the interrupt,
 # so a LINE of these twinkles out of step with itself — which is what makes a
 # pack read as several animals rather than as one animal drawn four times.
-art.cellsW = 2
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#2a5570", "#3c6f8a", "#7fd4e8", "#eaffff"]
 art.fps = 11.0
 [[frostmite.art.seq]]
@@ -493,8 +493,8 @@ name = "Thornhopper"
 brain = "hopper"
 maxHealth = 18.0
 contactDamage = 7.0
-bodyCellsW = 3
-bodyCellsH = 2
+bodyCellsW = 6
+bodyCellsH = 4
 speed = 170.0
 jumpSpeed = 600.0
 aggroPx = 150.0
@@ -530,9 +530,9 @@ weight = 14.0
 # version drew by emptying row 0. The real locomotion is the `air` pose, which
 # tucks to the centre column at launch and SPREADS at the apex and holds there
 # for the whole arc.
-art.cellsW = 3
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#2a1b38", "#3a2a4a", "#7a4f9a", "#c8ff7a", "#e8ffb4", "#8ac24a"]
 art.fps = 7.0
 [[thornhopper.art.seq]]

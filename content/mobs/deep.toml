@@ -20,8 +20,8 @@ brain = "hopper"
 maxHealth = 46.0
 contactDamage = 18.0
 attackCooldown = 1.1
-bodyCellsW = 4
-bodyCellsH = 3
+bodyCellsW = 8
+bodyCellsH = 6
 speed = 150.0
 jumpSpeed = 560.0
 aggroPx = 165.0
@@ -45,9 +45,9 @@ weight = 8.0
 # a flicker into a weight being thrown. Tone 1 was declared and never drawn at
 # one texel per cell; at this grain it is the contact shadow along the bottom
 # edge, which is what plants twelve cells of jelly on the floor.
-art.cellsW = 4
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 8
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#241a3c", "#3b2a5c", "#6b4fa0", "#a688e0", "#c9a6ff"]
 art.fps = 5.0
 [[bloat.art.seq]]
@@ -132,8 +132,8 @@ name = "Driftling"
 brain = "flyer"
 maxHealth = 5.0
 contactDamage = 0.0
-bodyCellsW = 2
-bodyCellsH = 2
+bodyCellsW = 4
+bodyCellsH = 4
 speed = 70.0
 gravityScale = 0.0
 fleePx = 70.0
@@ -152,9 +152,9 @@ weight = 12.0
 # diamond stepping down a tone, and the interrupt lights every texel in the
 # grid: the pulse that makes it briefly the brightest thing in the room, which
 # with `glow 0.55` and a second additive pass is its entire job.
-art.cellsW = 2
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#2c6070", "#3f7f8c", "#9ef2ff", "#e6ffff"]
 art.fps = 4.0
 [[driftling.art.seq]]
@@ -227,8 +227,8 @@ maxHealth = 26.0
 contactDamage = 22.0
 attackCooldown = 0.9
 armor = 2.0
-bodyCellsW = 2
-bodyCellsH = 3
+bodyCellsW = 4
+bodyCellsH = 6
 speed = 130.0
 chaseSpeed = 250.0
 jumpSpeed = 640.0
@@ -256,9 +256,9 @@ weight = 14.0
 # flare) lands on the idle interrupt and on the leap. The torso is now ember (3)
 # cracking through char (2) over a cooled underside (1), and the legs are two
 # separate feet that alternate on the phase contacts instead of one solid bar.
-art.cellsW = 2
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#2b1a18", "#7a3320", "#ff8a3c", "#ffe08a", "#fff6d0"]
 art.fps = 9.0
 [[emberling.art.seq]]
@@ -356,8 +356,8 @@ contactDamage = 9.0
 attackCooldown = 1.0
 armor = 5.0
 immune = ["ice", "impact"]
-bodyCellsW = 3
-bodyCellsH = 3
+bodyCellsW = 6
+bodyCellsH = 6
 speed = 95.0
 chaseSpeed = 150.0
 aggroPx = 210.0
@@ -389,9 +389,9 @@ weight = 7.0
 # one lit-top, shaded-bottom armour block over two legs that alternate on the
 # phase contacts, and the air pose (it has no jumpSpeed, so this only ever means
 # "walked off something") just pulls those legs up under it.
-art.cellsW = 3
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#2a2f38", "#3a3f4a", "#6b7488", "#9fe8ff", "#ff5a4a"]
 art.fps = 6.0
 [[sentinel.art.seq]]
@@ -478,8 +478,8 @@ name = "Sporeling"
 brain = "hopper"
 maxHealth = 11.0
 contactDamage = 4.0
-bodyCellsW = 2
-bodyCellsH = 3
+bodyCellsW = 4
+bodyCellsH = 6
 speed = 150.0
 jumpSpeed = 520.0
 aggroPx = 160.0
@@ -510,9 +510,9 @@ weight = 13.0
 # of one pixel appearing. Tone 5 was declared and never drawn; it is now the
 # charged core inside that swell, which is what keeps the tell distinct from the
 # apex of a hop — same wide cap, no pale core.
-art.cellsW = 2
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#1e3418", "#2f4a2a", "#7fb04a", "#d8ff9a", "#f2ffd8"]
 art.fps = 7.0
 [[sporeling.art.seq]]
@@ -609,8 +609,8 @@ contactDamage = 24.0
 attackCooldown = 0.75
 armor = 7.0
 immune = ["ice", "impact"]
-bodyCellsW = 3
-bodyCellsH = 3
+bodyCellsW = 6
+bodyCellsH = 6
 speed = 105.0
 chaseSpeed = 230.0
 jumpSpeed = 520.0
@@ -641,9 +641,9 @@ weight = 6.0
 # already sat at the top of the palette with nowhere brighter to go, so the
 # wind-up had to borrow the torso instead; a hotter white-steel above tone 4
 # lets the edge itself brighten, and it is drawn in no other frame.
-art.cellsW = 3
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#24282f", "#4a5260", "#8a94a6", "#d8e0ec", "#ff5a4a", "#f6fbff"]
 art.fps = 6.0
 [[bladeframe.art.seq]]
@@ -751,8 +751,8 @@ contactDamage = 30.0
 attackCooldown = 1.3
 armor = 5.0
 immune = ["fire"]
-bodyCellsW = 4
-bodyCellsH = 3
+bodyCellsW = 8
+bodyCellsH = 6
 speed = 120.0
 chaseSpeed = 190.0
 jumpSpeed = 760.0
@@ -784,9 +784,9 @@ weight = 4.0
 # frame lights every texel it has: `glow 0.5` puts that frame through the
 # post-light overlay, so a slagworm coming out of the floor is the brightest
 # event in the deep.
-art.cellsW = 4
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 8
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#2a120a", "#6b2410", "#d84a14", "#ff9a34", "#ffe27a"]
 art.fps = 6.0
 [[slagworm.art.seq]]
@@ -888,8 +888,8 @@ contactDamage = 10.0
 attackCooldown = 1.0
 armor = 3.0
 immune = ["poison", "acid"]
-bodyCellsW = 3
-bodyCellsH = 3
+bodyCellsW = 6
+bodyCellsH = 6
 speed = 85.0
 chaseSpeed = 130.0
 aggroPx = 175.0
@@ -919,9 +919,9 @@ weight = 7.0
 # corners, which is what finally makes the interrupt's claim true: the cap goes
 # pale and fills those corners while the stalk lifts to tone 3, so the spore
 # charge is the only frame in which the silhouette actually GROWS.
-art.cellsW = 3
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#223018", "#46603a", "#8fbe58", "#d8ff9a", "#f4ffd8"]
 art.fps = 5.0
 [[mycelith.art.seq]]
