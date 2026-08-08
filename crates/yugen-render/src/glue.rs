@@ -31,7 +31,7 @@ use crate::mobs::Creatures;
 use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
 use crate::scenes::{Paused, Scene};
 use crate::sprite::SpriteAtlases;
-use crate::ui::{IconAtlas, Icons, RunAge, UiScreen};
+use crate::ui::{IconAtlas, Icons, MenuCursor, RunAge, UiScreen};
 use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
@@ -95,7 +95,12 @@ impl Plugin for GluePlugin {
             // maintained.
             .add_systems(
                 Update,
-                (follow_scene, death_ends_the_run, confirm_advances_the_scene)
+                (
+                    follow_scene,
+                    death_ends_the_run,
+                    menu_chosen.run_if(in_state(Scene::Menu)),
+                    confirm_advances_the_scene,
+                )
                     .chain()
                     .run_if(resource_exists::<State<Scene>>),
             )
@@ -425,6 +430,33 @@ fn give_starting_kit(inv: &mut Inventory) {
     inv.select_slot(0);
 }
 
+/// Up and down move the title card's cursor; `Quit` leaves the game.
+///
+/// Bound to the jump and down keys rather than to new ones, which is what
+/// `worldselect` does with the same list and for the same reason: the player
+/// has one pair of keys for "up" and "down" and a menu is not the place to
+/// teach them a second.
+///
+/// The exit is here and not in `confirm_advances_the_scene` because that
+/// function is deliberately the only thing in the tree that writes
+/// `NextState<Scene>`, and quitting is not a scene change.
+fn menu_chosen(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<MenuCursor>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let bevy_keys = BevyKeys(&keys);
+    if bevy_keys.any_pressed(KEYS.jump) {
+        cursor.step(-1);
+    }
+    if bevy_keys.any_pressed(KEYS.down) {
+        cursor.step(1);
+    }
+    if bevy_keys.any_pressed(KEYS.confirm) && cursor.item() == "Quit" {
+        exit.write(AppExit::Success);
+    }
+}
+
 /// `Esc` stops the world without leaving it.
 ///
 /// Gated on `Scene::Playing`, so it cannot be reached from a card. Pausing the
@@ -461,6 +493,7 @@ fn confirm_advances_the_scene(
     keys: Res<ButtonInput<KeyCode>>,
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
+    cursor: Res<MenuCursor>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.confirm) {
         return;
@@ -470,7 +503,14 @@ fn confirm_advances_the_scene(
         // dying and pressing confirm is a restart of the run you were in, and
         // sending the player back to a directory listing to do it would be a
         // different game.
-        Scene::Menu => next.set(Scene::WorldSelect),
+        //
+        // Which row was chosen is `menu_chosen`'s business; this only knows
+        // that "Play" is the one that advances.
+        Scene::Menu => {
+            if cursor.item() == "Play" {
+                next.set(Scene::WorldSelect);
+            }
+        }
         Scene::GameOver => next.set(Scene::Playing),
         // `WorldSelect` reads confirm itself — see `crate::worldselect` — and
         // this must not also act on it, or picking a world would start the

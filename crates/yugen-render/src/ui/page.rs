@@ -74,6 +74,8 @@ pub struct PageCx<'a> {
     pub picker: &'a crate::worldselect::WorldPicker,
     /// XP the mob system has banked.
     pub xp: i32,
+    /// Which title-card row is under the cursor.
+    pub menu: super::MenuCursor,
     /// Seconds since this run began, for chrome that fades out.
     pub run_age_s: f32,
     /// What the F3 panel would say. Gathered in `PreUpdate`, so it is this
@@ -121,7 +123,7 @@ impl Layer {
                 None => Vec::new(),
             },
             Layer::Craft => crate::craftscreen::screen(cx.crafting, cx.view),
-            Layer::Menu => super::menu(cx.view),
+            Layer::Menu => super::menu_at(cx.menu, cx.view),
             Layer::WorldSelect => crate::worldselect::screen(cx.picker, cx.view),
             Layer::Pause => super::pause(cx),
             Layer::GameOver => super::game_over(cx.view),

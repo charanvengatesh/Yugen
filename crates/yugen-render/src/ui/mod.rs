@@ -844,6 +844,11 @@ const NOTE_UP: i32 = 122;
 /// seconds and fades over the last one.
 pub const TOAST_LIFE_S: f32 = 3.0;
 
+// The type ladder below is the port's, kept because the hotbar and the crafting
+// card still measure against these names. `theme` carries the ladder going
+// forward — same sizes, named for what they are for rather than for how many
+// CSS pixels the TypeScript asked for — and new UI should use that.
+
 /// The 8px tier: a hotbar slot's key digit, and nothing else.
 const KEY: TextStyle = TextStyle::for_px(8);
 
@@ -859,17 +864,11 @@ const HINT: TextStyle = TextStyle::for_px(12);
 /// The 13px tier: the held item's name, the HP readout, the toast.
 const LABEL: TextStyle = TextStyle::for_px(13);
 
-/// The 14px tier: the menu card's control line.
-const CARD_HINT: TextStyle = TextStyle::for_px(14);
-
 /// The 18px tier: a screen card's subtitle.
 const CARD_BODY: TextStyle = TextStyle::for_px(18);
 
 /// The 52px tier: the game-over card's headline.
 const CARD_DEAD: TextStyle = TextStyle::for_px(52);
-
-/// The 56px tier: the menu card's title.
-const CARD_TITLE: TextStyle = TextStyle::for_px(56);
 
 /// The stack count's own tier, split out because [`digits_w`] pins to it.
 const COUNT: TextStyle = SMALL;
@@ -1308,32 +1307,98 @@ fn overlay(out: &mut Vec<UiPrim>, view: View) {
 
 /// The title card. `drawMenu` in `src/ui/Screens.ts`.
 pub fn menu(view: View) -> Vec<UiPrim> {
+    menu_at(MenuCursor::default(), view)
+}
+
+/// What the title card offers, in the order it lists them.
+///
+/// Two, and deliberately not four. "Continue" belongs on the world list, which
+/// already knows which saves exist and which one was last played; putting it
+/// here would mean the menu reading the saves directory to decide whether to
+/// grey a row out, which is the world list's whole job. "Settings" would be a
+/// screen with nothing on it.
+pub const MENU_ITEMS: [&str; 2] = ["Play", "Quit"];
+
+/// Which title-card row is under the cursor.
+///
+/// A resource rather than a field on a screen struct, because the menu has no
+/// other state and inventing one to hold a single `usize` would be the kind of
+/// ceremony `worldselect`'s `WorldPicker` earns and this does not.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuCursor(pub usize);
+
+impl MenuCursor {
+    /// Move by `delta`, wrapping at both ends.
+    ///
+    /// Wrapping rather than clamping, on two items: pressing down twice to get
+    /// back to the top is what every list in this game does, and a two-row list
+    /// that stopped at the bottom would feel broken rather than bounded.
+    pub fn step(&mut self, delta: i32) {
+        let n = MENU_ITEMS.len() as i32;
+        self.0 = (((self.0 as i32 + delta) % n + n) % n) as usize;
+    }
+
+    /// The row under the cursor, clamped so a stale index cannot index past the
+    /// list if [`MENU_ITEMS`] ever shrinks.
+    pub fn item(self) -> &'static str {
+        MENU_ITEMS[self.0.min(MENU_ITEMS.len() - 1)]
+    }
+}
+
+/// The title card. `drawMenu` in `src/ui/Screens.ts`, grown a cursor.
+///
+/// The port's menu was one line of prose — *"Press Enter or Space to start"* —
+/// which is what the TypeScript had and is a promise with exactly one thing
+/// behind it. A list is what lets a second thing exist without the card having
+/// to be redesigned around it, and `stack` already makes adding one cheap.
+pub fn menu_at(cursor: MenuCursor, view: View) -> Vec<UiPrim> {
     let mut out = Vec::new();
     overlay(&mut out, view);
     let (cx, cy) = (view.w / 2, view.h / 2);
+
     out.push(UiPrim::text(
         "Yūgen",
         cx,
-        CARD_TITLE.baseline_from_middle(cy - 60),
+        theme::CARD_TITLE.baseline_from_middle(cy - 84),
         Align::Centre,
-        CARD_TITLE,
-        rgb(0xff, 0xff, 0xff),
+        theme::CARD_TITLE,
+        theme::INK,
     ));
+    // A hairline under the title, drawn from the em-width block glyph rather
+    // than a rect, so it sits on the same grid the type does.
+    out.push(UiPrim::rect(cx - 60, cy - 40, 120, 1, theme::EDGE));
+
+    for (i, label) in MENU_ITEMS.iter().enumerate() {
+        let picked = i == cursor.0;
+        let row_y = cy + 4 + i as i32 * 26;
+        if picked {
+            // The selection is a plate and a mark, not a colour: the same
+            // reasoning `build_hud`'s selected slot uses, that a signal carried
+            // only by hue is a signal lost against a bright world.
+            let w = theme::CARD_BODY.measure(label) + 48;
+            out.push(UiPrim::rect(cx - w / 2, row_y - 11, w, 24, theme::PLATE));
+        }
+        out.push(UiPrim::text(
+            if picked {
+                format!("\u{00bb} {label}")
+            } else {
+                (*label).to_string()
+            },
+            cx,
+            theme::CARD_BODY.baseline_from_middle(row_y),
+            Align::Centre,
+            theme::CARD_BODY,
+            if picked { theme::INK } else { theme::INK_MUTED },
+        ));
+    }
+
     out.push(UiPrim::text(
-        "Press Enter or Space to start",
+        "\u{2191}/\u{2193} choose   Enter select",
         cx,
-        CARD_BODY.baseline_from_middle(cy + 10),
+        theme::CARD_HINT.baseline_from_middle(cy + 76),
         Align::Centre,
-        CARD_BODY,
-        rgb(0xc8, 0xc8, 0xc8),
-    ));
-    out.push(UiPrim::text(
-        "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash   L-click dig   R-click place",
-        cx,
-        CARD_HINT.baseline_from_middle(cy + 50),
-        Align::Centre,
-        CARD_HINT,
-        rgb(0x96, 0x96, 0x96),
+        theme::CARD_HINT,
+        theme::INK_DIM,
     ));
     out
 }
@@ -2190,6 +2255,8 @@ struct HudSources<'w> {
     paused: Res<'w, crate::scenes::Paused>,
     /// How long this run has been going, for chrome that fades out.
     run_age: Res<'w, RunAge>,
+    /// Which title-card row is under the cursor.
+    menu: Res<'w, MenuCursor>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
     debug: Res<'w, crate::debug::DebugReadout>,
 }
@@ -2228,6 +2295,7 @@ impl Plugin for UiPlugin {
         app.init_resource::<UiScreen>()
             .init_resource::<Toast>()
             .init_resource::<RunAge>()
+            .init_resource::<MenuCursor>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
             .init_resource::<UiQuads>()
@@ -2323,6 +2391,7 @@ fn compose(
         crafting: &sources.crafting,
         picker: &sources.picker,
         xp: sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
+        menu: *sources.menu,
         run_age_s: sources.run_age.0,
         debug: &sources.debug,
     };
@@ -2652,6 +2721,43 @@ mod tests {
         view.h - NOTE_UP + 13
     }
 
+    /// Every character a layout function actually sets must have a glyph.
+    ///
+    /// Written after `menu_at` was given a `\u{203a}` SINGLE RIGHT-POINTING
+    /// ANGLE QUOTATION MARK as its cursor mark, which is not in the baked set
+    /// and would have shipped a tofu box beside the selected row. Nothing
+    /// caught it: it compiled, the layout was correct, and the prim carried the
+    /// right string. The face's coverage is only checkable against the text
+    /// that is really set, so this walks the screens and asks.
+    #[test]
+    fn no_screen_sets_a_character_the_face_cannot_draw() {
+        let v = view();
+        let chrome = layout::Chrome::of(v);
+        let mut prims = Vec::new();
+        prims.extend(menu_at(MenuCursor(0), v));
+        prims.extend(menu_at(MenuCursor(1), v));
+        prims.extend(pause_at(chrome, v));
+        prims.extend(game_over(v));
+        prims.extend(hud(50.0, true, v));
+        prims.extend(hud_with(50.0, false, 12.0, 340, v));
+        prims.extend(toast("crafted a Traveler Sword", 1.0, v));
+
+        for prim in &prims {
+            let UiPrim::Text { text, style, .. } = prim else {
+                continue;
+            };
+            for ch in text.chars() {
+                assert!(
+                    style.face.chars().any(|c| c == ch),
+                    "{:?} sets {ch:?} (U+{:04X}), which {:?} has no glyph for",
+                    text,
+                    ch as u32,
+                    style.face
+                );
+            }
+        }
+    }
+
     // --- The font -----------------------------------------------------------
 
     #[test]
@@ -2842,7 +2948,7 @@ mod tests {
 
     #[test]
     fn measuring_the_empty_string_is_zero_under_every_alignment() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, theme::CARD_TITLE] {
             assert_eq!(style.measure(""), 0);
             assert!(style.line_h() > style.cap_h(), "{style:?} has leading");
         }
@@ -2889,7 +2995,7 @@ mod tests {
 
     #[test]
     fn a_centred_run_never_lands_a_glyph_on_a_half_pixel() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_BODY, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_BODY, theme::CARD_TITLE] {
             for n in 0..40 {
                 let text = "M".repeat(n);
                 let w = style.measure(&text);
@@ -2912,7 +3018,7 @@ mod tests {
 
     #[test]
     fn vertical_alignment_resolves_to_a_baseline_inside_the_line_it_names() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_DEAD, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_DEAD, theme::CARD_TITLE] {
             let middle = style.baseline_from_middle(100);
             assert!(middle > 100 && middle - style.cap_h() < 100, "{style:?}");
             assert_eq!(style.baseline_from_top(100) - style.cap_h(), 100);
@@ -3411,7 +3517,7 @@ mod tests {
         }
         // The title itself, at scale 6, is the thing most likely to run off.
         assert!(
-            CARD_TITLE.measure("Yūgen") < v.w,
+            theme::CARD_TITLE.measure("Yūgen") < v.w,
             "the title does not fit a 480px buffer"
         );
     }

@@ -1070,11 +1070,11 @@ only the exported surface is held to the rule.
 | `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 833 |
 | `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 839 |
 | `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 845 |
-| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1218 |
-| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1225 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1947 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1959 |
-| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2103 |
+| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1217 |
+| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1224 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 2012 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 2024 |
+| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2168 |
 
 ### `crates/yugen-render/src/ui/theme.rs`
 
