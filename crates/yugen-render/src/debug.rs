@@ -119,6 +119,28 @@ pub struct DebugReadout {
     pub xp: i32,
     /// The player's health, or `None` with no body (free camera).
     pub health: Option<f32>,
+    /// The body's velocity in px/s, and whether it is standing on something.
+    ///
+    /// The first thing asked of any platformer bug and the last thing a
+    /// screenshot can answer. "Why will it not jump" is `on_ground` and nothing
+    /// else; "why is it drifting" is `vx` at rest.
+    pub motion: Option<(f32, f32, bool)>,
+    /// The buffer size and the zoom that produced it.
+    ///
+    /// `View::for_screen` is a pure function of the window size and everything
+    /// in the overlay is laid out against its output, so a layout that looks
+    /// wrong is a layout being given a buffer somebody did not expect.
+    pub view: (i32, i32, f32),
+    /// Time of day, `0.0..1.0`, and the phase name it falls in.
+    pub clock: Option<(f32, &'static str)>,
+    /// Live particles.
+    pub particles: usize,
+    /// Prims in this frame's display list, and quads in the painter's pool.
+    ///
+    /// The overlay's own cost, which nothing else reports. The pool only ever
+    /// grows, so a gap between the two is the high-water mark of some screen
+    /// that is no longer up.
+    pub draw: (usize, usize),
     /// What the pointer is over, if it is over anything.
     pub cursor: Option<CursorReadout>,
 }
@@ -184,6 +206,24 @@ pub fn overlay(r: &DebugReadout, chrome: Chrome) -> Vec<UiPrim> {
         ));
         rows.push(("biome", format!("{} {:.0}%", r.biome.0, r.biome.1 * 100.0)));
         rows.push(("layer", format!("{} {:.0}%", r.layer.0, r.layer.1 * 100.0)));
+        if let Some((vx, vy, grounded)) = r.motion {
+            rows.push((
+                "motion",
+                format!(
+                    "{vx:.0}, {vy:.0} px/s   {}",
+                    if grounded { "grounded" } else { "airborne" }
+                ),
+            ));
+        }
+        if let Some((t, phase)) = r.clock {
+            // As a 24-hour clock as well as the raw phase: "0.72" is only
+            // meaningful to somebody who already knows the answer.
+            let mins = (t * 24.0 * 60.0) as i32;
+            rows.push((
+                "clock",
+                format!("{:02}:{:02}  {phase}  ({t:.3})", mins / 60, mins % 60),
+            ));
+        }
         rows.push((
             "mobs",
             match r.health {
@@ -222,6 +262,18 @@ pub fn overlay(r: &DebugReadout, chrome: Chrome) -> Vec<UiPrim> {
     // hand-tuned `Y = 52` this used to carry. That constant was found by
     // looking at a capture after the first value overlapped the health plate by
     // four pixels; the region is derived from the plate instead, so it cannot.
+    rows.push((
+        "view",
+        format!("{} x {} @ {:.2}x", r.view.0, r.view.1, r.view.2),
+    ));
+    rows.push((
+        "draw",
+        format!(
+            "{} prims   {} quads   {} particles",
+            r.draw.0, r.draw.1, r.particles
+        ),
+    ));
+
     let region = chrome.instrument;
     let w = PANEL_W.min(region.w);
     let h = (LINE * rows.len() as i32 + 8).min(region.h);
@@ -277,6 +329,16 @@ struct Sources<'w> {
     focus: Res<'w, WorldFocus>,
     cursor: Res<'w, CursorWorld>,
     life: Option<Res<'w, AmbientLife>>,
+    // Every one of these is optional for the reason the three above it are: a
+    // host may run `DebugPlugin` without the rest of the game, and `gather`
+    // runs in `PreUpdate` on the very first frame, before `Startup` has
+    // inserted the render target. A missing one means that system is not in the
+    // app, not that something failed.
+    target: Option<Res<'w, crate::lowres::LowResTarget>>,
+    clock: Option<Res<'w, crate::daynight::WorldClock>>,
+    particles: Option<Res<'w, crate::particles::ParticleSystem>>,
+    frame: Option<Res<'w, crate::ui::UiFrame>>,
+    quads: Option<Res<'w, crate::ui::UiQuads>>,
     light: Option<Res<'w, LightPass>>,
     creatures: Option<Res<'w, Creatures>>,
     body: Option<Res<'w, PlayerBody>>,
@@ -326,6 +388,19 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
         out.frame_ms + (dt - out.frame_ms) / SMOOTHING_FRAMES
     };
 
+    // Read before the early return: these are true whether or not a world
+    // exists, and a panel that went blank on the menu would be a panel that
+    // could not be used to diagnose the menu.
+    if let Some(target) = src.target.as_ref() {
+        out.view = (target.view.w, target.view.h, target.view.zoom);
+    }
+    out.particles = src.particles.as_ref().map_or(0, |p| p.live_count());
+    out.draw = (
+        src.frame.as_ref().map_or(0, |f| f.prims.len()),
+        src.quads.as_ref().map_or(0, |q| q.pool_len()),
+    );
+    out.clock = src.clock.as_ref().map(|c| (c.0.t(), c.0.phase().name()));
+
     let Some(world) = src.world.as_ref() else {
         out.live = false;
         return;
@@ -345,6 +420,7 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
     out.mobs = src.creatures.as_ref().map_or(0, |c| c.0.count());
     out.xp = src.creatures.as_ref().map_or(0, |c| c.0.xp_banked());
     out.health = src.body.as_ref().map(|b| b.0.health);
+    out.motion = src.body.as_ref().map(|b| (b.0.vx, b.0.vy, b.0.on_ground));
 
     if let Some(life) = src.life.as_ref() {
         let mood = life.ambience.mood();
@@ -466,6 +542,7 @@ mod tests {
                 wall: 0,
                 light: Some(0.125),
             }),
+            ..DebugReadout::default()
         };
         let text = texts(&overlay(&r, chrome())).join(" | ");
         for want in [

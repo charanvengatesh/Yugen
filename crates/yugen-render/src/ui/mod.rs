@@ -2114,6 +2114,17 @@ pub struct UiQuads {
     pool: Vec<Entity>,
 }
 
+impl UiQuads {
+    /// How many quads have ever been needed at once.
+    ///
+    /// The pool never shrinks, so this is a high-water mark rather than a live
+    /// count — which is the useful number, and the one the F3 panel reports
+    /// beside the live prim count so the gap between them is visible.
+    pub fn pool_len(&self) -> usize {
+        self.pool.len()
+    }
+}
+
 /// Marks a pooled overlay quad.
 #[derive(Component)]
 pub struct UiQuad;
@@ -2202,8 +2213,14 @@ struct Painter<'w, 's> {
 
 /// The overlay: the bitmap font, the HUD, the build panel and the screen cards.
 ///
-/// Deliberately NOT in [`crate::YugenRenderPlugin`] — the group's order is the
-/// binary's business, and this has to go last, after the light composite.
+/// Added to [`crate::YugenRenderPlugin`] second to last, after the light
+/// composite and before [`crate::glue::GluePlugin`] — the overlay is not in the
+/// world and must not be dimmed by the world's darkness.
+///
+/// This comment used to say the plugin was "deliberately NOT in
+/// `YugenRenderPlugin`". It has been in that group since the group existed; the
+/// note survived the change that put it there and was describing a build nobody
+/// had shipped.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {

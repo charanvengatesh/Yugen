@@ -81,6 +81,23 @@ pub struct DayPhase {
 }
 
 impl DayPhase {
+    /// What a human would call this time of day.
+    ///
+    /// Classified from the same weights everything else reads, rather than from
+    /// `t` directly, so the word and the light always agree — a readout that
+    /// said "night" over a lit sky would be worse than no readout. Twilight
+    /// wins over both because it is the narrow band and the other two overlap
+    /// it on either side.
+    pub fn name(self) -> &'static str {
+        if self.twilight > 0.5 {
+            if self.elevation > 0.0 { "dusk" } else { "dawn" }
+        } else if self.day > 0.5 {
+            "day"
+        } else {
+            "night"
+        }
+    }
+
     /// The phase at cycle position `t`, which need not be in `[0, 1)`.
     ///
     /// This is the whole model. [`DayNight`] is an accumulator around it and
