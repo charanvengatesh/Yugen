@@ -67,13 +67,13 @@
 //! wrong, not the test.
 
 use serde_json::Value as J;
-use yugen_core::config::{CHUNK_CELLS, STEP_DT};
+use yugen_core::config::{CHUNK_CELLS, STEP_DT, WorldScale};
 use yugen_core::entities::{AnimState, Loadout, NoProjectiles, Player, PlayerEvent};
 use yugen_core::input::Intent;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::grid::CellGrid;
 use yugen_core::sim::materials::CellId;
-use yugen_core::sim::worldgen::{SpawnPoint, generate_chunk};
+use yugen_core::sim::worldgen::{SpawnPoint, generate_chunk_scaled};
 
 fn fixture() -> J {
     serde_json::from_str(include_str!("player.golden.json"))
@@ -143,7 +143,10 @@ fn build_grid(meta: &J, edits: &J) -> CellGrid {
 
     for j in 0..chunk_rows {
         for i in 0..chunk_cols {
-            let chunk = generate_chunk(cx0 + i, cy0 + j, seed);
+            // LEGACY, permanently. This fixture pins its world by material hash
+            // and has no bless path — see `WorldScale` and the module header. The
+            // generator is free to move; this replay's ground is not.
+            let chunk = generate_chunk_scaled(cx0 + i, cy0 + j, seed, WorldScale::LEGACY);
             let (base_x, base_y) = (i * CHUNK_CELLS, j * CHUNK_CELLS);
             for ly in 0..CHUNK_CELLS {
                 for lx in 0..CHUNK_CELLS {

@@ -27,14 +27,22 @@
 //! it there also keeps this module free of any dependency on the biome registry,
 //! so `heightmap` can import both without a cycle.
 
+use crate::config::WorldScale;
 use crate::sim::noise::Noise;
 
 // ---------------------------------------------------------------------------
 // Frequencies
 // ---------------------------------------------------------------------------
-// Chosen against the ~350-cell viewport (WINDOW_COLS): a field with period P is
-// "one landform per P/350 screens". Anchors are large non-integer offsets so the
-// four fields slice genuinely different rows of the gradient lattice — an
+// Every period below is in LEGACY cells — the space on the far side of
+// `WorldScale::coord`. At `WorldScale::LIVE` a world period is twice the number
+// written here, which is the whole mechanism by which the world got bigger; the
+// numbers themselves never move, so each one still means what its comment says.
+//
+// Chosen against the ~350-cell viewport (WINDOW_COLS) as it was at
+// `WorldScale::LEGACY`: a field with period P is "one landform per P/350
+// screens". At LIVE the viewport spans half as much world, so read every figure
+// below as twice the screens it says. Anchors are large non-integer offsets so
+// the four fields slice genuinely different rows of the gradient lattice — an
 // integer offset would land on the same lattice row and correlate them.
 
 /// ~1800 cells ~= 5 screens per continent lobe. Long enough to walk inland.
@@ -109,10 +117,22 @@ fn spread(v: f64) -> f64 {
     }
 }
 
-/// The warped sampling coordinate for a column. Pure in `wcx`.
+/// The warped sampling coordinate for a column, in LEGACY cells. Pure in `wcx`.
+///
+/// This is the inward crossing for the whole field layer: the world column is
+/// divided by the world scale exactly once, here, and everything downstream —
+/// including [`continentalness`] and [`erosion`], which take the result — works
+/// in legacy cells and needs no knowledge of the scale at all.
+///
+/// [`WARP_STRENGTH`] is deliberately NOT scaled. It is a displacement measured in
+/// the same space as the coordinate it displaces, and that space is already on
+/// the divided side of the crossing; scaling it too would apply the world scale
+/// twice and bend the coastlines by ±10% of a doubled period instead of ±5% of
+/// the authored one.
 #[inline]
-pub fn warped_column(noise: &Noise, wcx: i32) -> f64 {
-    wcx as f64 + WARP_STRENGTH * noise.g2(wcx as f64 * WARP_FREQ, WARP_ANCHOR)
+pub fn warped_column(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
+    let lx = scale.coord(wcx);
+    lx + WARP_STRENGTH * noise.g2(lx * WARP_FREQ, WARP_ANCHOR)
 }
 
 /// Continentalness in [-1,1] after spreading. Low = ocean floor, ~-0.42 = the
@@ -141,8 +161,8 @@ pub fn erosion(noise: &Noise, wx: f64) -> f64 {
 /// Unwarped: warping this too would double-bend the crests against the already
 /// warped continental base and smear them into mush.
 #[inline]
-pub fn peaks_valleys(noise: &Noise, wcx: i32) -> f64 {
-    noise.ridged2(wcx as f64 * PV_FREQ, PV_ANCHOR, PV_OCTAVES, PV_GAIN)
+pub fn peaks_valleys(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
+    noise.ridged2(scale.coord(wcx) * PV_FREQ, PV_ANCHOR, PV_OCTAVES, PV_GAIN)
 }
 
 /// Weirdness in ~[-1,1] — a slow rarity field. Nothing reads it as a magnitude;
@@ -150,8 +170,8 @@ pub fn peaks_valleys(noise: &Noise, wcx: i32) -> f64 {
 /// into a few regions per world instead of sprinkling uniformly. Surface chasms
 /// and ravine density gate on this.
 #[inline]
-pub fn weirdness(noise: &Noise, wcx: i32) -> f64 {
-    spread(noise.gfbm2(wcx as f64 * WEIRD_FREQ, WEIRD_ANCHOR, WEIRD_OCTAVES))
+pub fn weirdness(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
+    spread(noise.gfbm2(scale.coord(wcx) * WEIRD_FREQ, WEIRD_ANCHOR, WEIRD_OCTAVES))
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +222,7 @@ pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::SEED;
+    use crate::config::{SEED, WorldScale};
 
     #[test]
     fn spread_widens_and_clamps() {
@@ -216,11 +236,11 @@ mod tests {
     fn every_field_stays_inside_its_advertised_range() {
         let n = Noise::new(SEED);
         for wcx in -2000..2000 {
-            let wx = warped_column(&n, wcx);
+            let wx = warped_column(&n, wcx, WorldScale::LEGACY);
             let c = continentalness(&n, wx);
             let e = erosion(&n, wx);
-            let pv = peaks_valleys(&n, wcx);
-            let w = weirdness(&n, wcx);
+            let pv = peaks_valleys(&n, wcx, WorldScale::LEGACY);
+            let w = weirdness(&n, wcx, WorldScale::LEGACY);
             assert!((-1.0..=1.0).contains(&c), "continentalness {c} at {wcx}");
             assert!((-1.0..=1.0).contains(&e), "erosion {e} at {wcx}");
             assert!((0.0..=1.0).contains(&pv), "peaks_valleys {pv} at {wcx}");
@@ -234,7 +254,7 @@ mod tests {
         // That only holds if the displacement is bounded by WARP_STRENGTH.
         let n = Noise::new(SEED);
         for wcx in -3000..3000 {
-            let d = warped_column(&n, wcx) - wcx as f64;
+            let d = warped_column(&n, wcx, WorldScale::LEGACY) - wcx as f64;
             assert!(d.abs() <= WARP_STRENGTH, "warp displaced {d} at {wcx}");
         }
     }
@@ -246,7 +266,7 @@ mod tests {
         let n = Noise::new(SEED);
         let mut hi = 0usize;
         for wcx in -20000..20000 {
-            let wx = warped_column(&n, wcx);
+            let wx = warped_column(&n, wcx, WorldScale::LEGACY);
             if continentalness(&n, wx).abs() > 0.7 {
                 hi += 1;
             }
@@ -260,7 +280,9 @@ mod tests {
         // [0.30, 0.85] because that is where the measured field sits:
         // p05 = 0.21, p50 = 0.56, p95 = 0.83.
         let n = Noise::new(SEED);
-        let mut s: Vec<f64> = (-20000..20000).map(|x| peaks_valleys(&n, x)).collect();
+        let mut s: Vec<f64> = (-20000..20000)
+            .map(|x| peaks_valleys(&n, x, WorldScale::LEGACY))
+            .collect();
         s.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let p50 = s[s.len() / 2];
         assert!((0.35..0.75).contains(&p50), "peaks_valleys p50 = {p50}");

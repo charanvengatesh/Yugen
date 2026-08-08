@@ -740,6 +740,7 @@ fn centre_of(b: Aabb) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yugen_core::config::WorldScale;
     use yugen_core::config::{CELL_SIZE, SEED, cell_at};
     use yugen_core::entities::{Loadout, NoProjectiles};
     use yugen_core::input::Intent;
@@ -1232,7 +1233,7 @@ mod tests {
     fn the_generated_spawn_puts_the_body_on_solid_ground() {
         let (cols, rows) = window_size();
         let mut grid = CellGrid::new(cols, rows);
-        let spawn = spawn_point(SEED, SPAWN_COL);
+        let spawn = spawn_point(SEED, SPAWN_COL, WorldScale::LIVE);
         let mut window = WindowManager::new(ChunkStore::new(SEED));
         window.init(&mut grid, cell_at(spawn.x), cell_at(spawn.y));
 
@@ -1260,7 +1261,7 @@ mod tests {
     fn holding_right_at_the_generated_spawn_travels_right() {
         let (cols, rows) = window_size();
         let mut grid = CellGrid::new(cols, rows);
-        let spawn = spawn_point(SEED, SPAWN_COL);
+        let spawn = spawn_point(SEED, SPAWN_COL, WorldScale::LIVE);
         let mut window = WindowManager::new(ChunkStore::new(SEED));
         window.init(&mut grid, cell_at(spawn.x), cell_at(spawn.y));
 

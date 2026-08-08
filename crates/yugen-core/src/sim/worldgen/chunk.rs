@@ -42,7 +42,9 @@
 //! chunks produce exactly what one worker generating them in sequence would.
 //! `tests/worldgen_purity.rs` asserts that rather than assuming it.
 
-use crate::config::{CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, PLAYER_H, PLAYER_W, SEA_LEVEL_Y};
+use crate::config::{
+    CELL_SIZE, CHUNK_CELLS, DEEP_DEPTH, PLAYER_H, PLAYER_W, SEA_LEVEL_Y, WorldScale,
+};
 use crate::sim::biomes::{ColumnProfile, column_profile_at};
 use crate::sim::decor::structures::StructureDecorator;
 use crate::sim::decor::trees::TreeDecorator;
@@ -100,36 +102,55 @@ pub const DECORATORS: [&dyn Decorator; 4] = [
 /// cells within a hair of a threshold. `generate_chunk` is the authority on what
 /// the terrain IS; treat this as an oracle for placement, and have feature
 /// passes overwrite what they find rather than assume it.
-pub fn material_at(noise: &Noise, wcx: i32, wcy: i32, col: &ColumnProfile, surf: i32) -> CellId {
+pub fn material_at(
+    noise: &Noise,
+    wcx: i32,
+    wcy: i32,
+    col: &ColumnProfile,
+    surf: i32,
+    scale: WorldScale,
+) -> CellId {
     let depth = wcy - surf;
     if depth < 0 {
-        return if wcy >= SEA_LEVEL_Y { WATER } else { AIR };
+        return if wcy >= scale.row(SEA_LEVEL_Y) {
+            WATER
+        } else {
+            AIR
+        };
     }
 
-    let cc = cave_column_at(noise, wcx, surf, col);
+    let cc = cave_column_at(noise, wcx, surf, col, scale);
 
-    if f64::from(depth) < col.cap_thickness {
-        if cc.breaches && carve_exact(noise, wcx, wcy, depth, &cc) != Carve::Solid {
+    if scale.depth(f64::from(depth)) < col.cap_thickness {
+        if cc.breaches && carve_exact(noise, wcx, wcy, depth, &cc, scale) != Carve::Solid {
             return AIR;
         }
-        return cap_at(noise, wcx, wcy, depth, col, shore_weight_at(surf));
+        return cap_at(
+            noise,
+            wcx,
+            wcy,
+            depth,
+            col,
+            shore_weight_at(surf, scale),
+            scale,
+        );
     }
 
-    let c = carve_exact(noise, wcx, wcy, depth, &cc);
+    let c = carve_exact(noise, wcx, wcy, depth, &cc, scale);
     if c == Carve::Air {
         return AIR;
     }
-    let u = ug_fade_at(depth, col);
-    let bd = band_depth(depth, &cc);
+    let u = ug_fade_at(depth, col, scale);
+    let bd = band_depth(depth, &cc, scale);
     if c != Carve::Solid {
-        return liquid_at(noise, wcx, wcy, bd, col, u);
+        return liquid_at(noise, wcx, wcy, bd, col, u, scale);
     }
     let strata = if bd >= f64::from(DEEP_DEPTH) {
-        strata_exact(noise, wcx, wcy)
+        strata_exact(noise, wcx, wcy, scale)
     } else {
         0.0
     };
-    solid_at(noise, wcx, wcy, bd, col, u, strata)
+    solid_at(noise, wcx, wcy, bd, col, u, strata, scale)
 }
 
 /// Material is selected by BAND DEPTH, the same shifted depth `caves` carves
@@ -146,8 +167,11 @@ pub fn material_at(noise: &Noise, wcx: i32, wcy: i32, col: &ColumnProfile, surf:
 /// wrong rock. (Measured: it was the only disagreement between this port and the
 /// TypeScript over 226 304 cells.)
 #[inline]
-fn band_depth(depth: i32, cc: &CaveColumn) -> f64 {
-    f64::from(depth) + cc.band_shift
+fn band_depth(depth: i32, cc: &CaveColumn, scale: WorldScale) -> f64 {
+    // Returns a LEGACY depth: `band_shift` is authored in legacy cells and every
+    // band threshold this feeds — CAVERN_DEPTH, DEEP_DEPTH, UNDERWORLD_* — is
+    // too, so the world depth crosses inward before the shift is added.
+    scale.depth(f64::from(depth)) + cc.band_shift
 }
 
 /// One worker's worldgen scratch: the noise, the heightmap memo, the cave
@@ -171,16 +195,26 @@ pub struct ChunkGen {
     col_cave: Vec<CaveColumn>,
     col_surf: Vec<i32>,
     col_shore: Vec<f64>,
+    scale: WorldScale,
 }
 
 impl ChunkGen {
-    /// A generator for one world seed.
+    /// A generator for one world seed, at the scale the game runs at.
     pub fn new(seed: u32) -> ChunkGen {
+        ChunkGen::with_scale(seed, WorldScale::LIVE)
+    }
+
+    /// A generator pinned to a given world scale.
+    ///
+    /// The only caller that passes anything but [`WorldScale::LIVE`] is
+    /// `tests/player_golden.rs`, which must keep regenerating the world its
+    /// un-regenerable 4 048-step replay was recorded against. See [`WorldScale`].
+    pub fn with_scale(seed: u32, scale: WorldScale) -> ChunkGen {
         let noise = Noise::new(seed);
         // `ColumnProfile` has no meaningful zero — it is a blend of biomes — so
         // the tables are seeded with a real profile and overwritten in pass 1
         // before anything reads them.
-        let seed_profile = column_profile_at(&noise, 0);
+        let seed_profile = column_profile_at(&noise, 0, scale);
         // One entry per COLUMN of a chunk, not per cell.
         let n = CHUNK_CELLS as usize;
         ChunkGen {
@@ -192,7 +226,14 @@ impl ChunkGen {
             col_cave: vec![CaveColumn::default(); n],
             col_surf: vec![0; n],
             col_shore: vec![0.0; n],
+            scale,
         }
+    }
+
+    /// The world scale this generator is pinned to.
+    #[inline]
+    pub fn scale(&self) -> WorldScale {
+        self.scale
     }
 
     /// The world seed this generator is pinned to.
@@ -278,10 +319,19 @@ impl ChunkGen {
         let mut lattice_from = f64::INFINITY;
         for lx in 0..CHUNK_CELLS {
             let wcx = base_x + lx;
-            let col = column_profile_at(&self.noise, wcx);
-            let detail = self.heightmap.surface_detail_at(&self.noise, wcx, &col);
-            let cc = cave_column_at(&self.noise, wcx, detail.surf, &col);
-            let from = f64::from(detail.surf) + if cc.breaches { 0.0 } else { col.cap_thickness };
+            let col = column_profile_at(&self.noise, wcx, self.scale);
+            let detail = self
+                .heightmap
+                .surface_detail_at(&self.noise, wcx, &col, self.scale);
+            let cc = cave_column_at(&self.noise, wcx, detail.surf, &col, self.scale);
+            // `cap_thickness` is a legacy thickness and this is a world row, so
+            // the cap crosses outward before it is added to the ground line.
+            let from = f64::from(detail.surf)
+                + if cc.breaches {
+                    0.0
+                } else {
+                    self.scale.len(col.cap_thickness)
+                };
             if from < lattice_from {
                 lattice_from = from;
             }
@@ -297,7 +347,7 @@ impl ChunkGen {
         // player walks — skip 7 fields × 81 samples entirely.
         let carving = f64::from(chunk_bottom) > lattice_from;
         if carving {
-            self.lattice.fill(&self.noise, base_x, base_y);
+            self.lattice.fill(&self.noise, base_x, base_y, self.scale);
         }
 
         // --- Pass 3: the vertical scan ---------------------------------------
@@ -316,7 +366,7 @@ impl ChunkGen {
             // water row.
             let ground_ly = surf - base_y;
             let sky_end = ground_ly.clamp(0, CHUNK_CELLS);
-            let sea_ly = SEA_LEVEL_Y - base_y;
+            let sea_ly = self.scale.row(SEA_LEVEL_Y) - base_y;
             let mut ly = sea_ly.clamp(0, sky_end);
             while ly < sky_end {
                 out[(ly * CHUNK_CELLS + lx) as usize] = WATER;
@@ -325,7 +375,8 @@ impl ChunkGen {
 
             // Topsoil cap. `depth < capThickness` with a fractional thickness, so
             // the loop bound is the ceiling of the fractional bottom row.
-            let cap_bottom = (f64::from(surf) + col.cap_thickness - f64::from(base_y)).ceil();
+            let cap_bottom =
+                (f64::from(surf) + self.scale.len(col.cap_thickness) - f64::from(base_y)).ceil();
             let cap_end = if cap_bottom > f64::from(CHUNK_CELLS) {
                 CHUNK_CELLS
             } else {
@@ -341,19 +392,19 @@ impl ChunkGen {
                     && cc.breaches
                     && self
                         .lattice
-                        .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc)
+                        .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc, self.scale)
                         != Carve::Solid
                 {
                     // Carved out of the cap by a surface chasm. The front is air;
                     // the WALL is the topsoil the chasm removed, which is what
                     // stops a chasm reading as a hole punched through to nothing.
                     if let Some(back) = back.as_deref_mut() {
-                        back[i] = cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                        back[i] = cap_at(&self.noise, wcx, wcy, depth, &col, shore, self.scale);
                     }
                     ly += 1;
                     continue; // already AIR
                 }
-                let cap = cap_at(&self.noise, wcx, wcy, depth, &col, shore);
+                let cap = cap_at(&self.noise, wcx, wcy, depth, &col, shore, self.scale);
                 out[i] = cap;
                 // Solid front, so the wall behind it is the same material and the
                 // word is copied rather than recomputed.
@@ -369,7 +420,7 @@ impl ChunkGen {
                 let depth = wcy - surf;
                 let c = self
                     .lattice
-                    .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc);
+                    .carve(&self.noise, wcx, wcy, depth, lx, ly, &cc, self.scale);
                 let i = (ly * CHUNK_CELLS + lx) as usize;
 
                 // The wall is the rock that WOULD be here if nothing had carved,
@@ -377,8 +428,8 @@ impl ChunkGen {
                 // branch — evaluated whatever the carve said. That is the whole
                 // rule, and it is why a fresh shaft mined into virgin rock has a
                 // wall behind it rather than a black void.
-                let u = ug_fade_at(depth, &col);
-                let bd = band_depth(depth, &cc);
+                let u = ug_fade_at(depth, &col, self.scale);
+                let bd = band_depth(depth, &cc, self.scale);
                 let strata = if bd >= f64::from(DEEP_DEPTH) {
                     self.lattice.strata_at(lx, ly)
                 } else {
@@ -394,7 +445,7 @@ impl ChunkGen {
                 // (Measured: `recenter only` 328.9 -> 332.3 us, `shift tick`
                 // 475.0 -> 489.2 us, same criterion session.)
                 let rock = if back.is_some() || c == Carve::Solid {
-                    solid_at(&self.noise, wcx, wcy, bd, &col, u, strata)
+                    solid_at(&self.noise, wcx, wcy, bd, &col, u, strata, self.scale)
                 } else {
                     // Never read on this branch, and never evaluated either: a
                     // carved cell with no back plane asked for must not pay for a
@@ -410,7 +461,7 @@ impl ChunkGen {
                     continue; // already AIR
                 }
                 if c != Carve::Solid {
-                    out[i] = liquid_at(&self.noise, wcx, wcy, bd, &col, u);
+                    out[i] = liquid_at(&self.noise, wcx, wcy, bd, &col, u, self.scale);
                     ly += 1;
                     continue;
                 }
@@ -432,6 +483,7 @@ impl ChunkGen {
             base_y,
             out,
             &mut self.heightmap,
+            self.scale,
         );
         for d in DECORATORS {
             d.decorate(&mut ctx);
@@ -447,6 +499,25 @@ impl ChunkGen {
 /// the benches, the dump tool — should hold a [`ChunkGen`] instead.
 pub fn generate_chunk(chunk_x: i32, chunk_y: i32, seed: u32) -> Vec<CellId> {
     ChunkGen::new(seed).generate(chunk_x, chunk_y)
+}
+
+/// [`generate_chunk`] at an explicit world scale.
+///
+/// This exists for exactly one caller. `tests/player_golden.rs` replays 4 048
+/// fixed steps against an arena stamped into a world it pins by material hash
+/// and cannot regenerate — its provenance is a TypeScript tool in a repository
+/// that no longer exists, and it has no bless path. It calls this with
+/// [`WorldScale::LEGACY`] so the generator can move underneath it without the
+/// replay losing the ground it was recorded on.
+///
+/// Anything else wants [`generate_chunk`].
+pub fn generate_chunk_scaled(
+    chunk_x: i32,
+    chunk_y: i32,
+    seed: u32,
+    scale: WorldScale,
+) -> Vec<CellId> {
+    ChunkGen::with_scale(seed, scale).generate(chunk_x, chunk_y)
 }
 
 // --- Spawn -------------------------------------------------------------------
@@ -475,21 +546,27 @@ pub struct SpawnPoint {
 ///
 /// (`spawn_col` was a defaulted parameter in the TypeScript; pass [`SPAWN_COL`]
 /// for the same behaviour.)
-pub fn spawn_point(seed: u32, spawn_col: i32) -> SpawnPoint {
+pub fn spawn_point(seed: u32, spawn_col: i32, scale: WorldScale) -> SpawnPoint {
     let noise = world_noise(seed);
     let mut hm = Heightmap::new();
+    // Every one of these is authored in legacy cells: the search radius and the
+    // clearance are distances, the waterline is a row, and the 6-cell lift below
+    // is how far above the ground the body starts.
+    let search = scale.row(SPAWN_SEARCH);
+    let dry = scale.row(SEA_LEVEL_Y - SPAWN_CLEARANCE);
+    let lift = scale.row(6);
     let mut col = spawn_col;
-    let mut surf = hm.surface_row_at(&noise, col, None);
+    let mut surf = hm.surface_row_at(&noise, col, None, scale);
     let mut r = 1;
-    while r <= SPAWN_SEARCH && surf > SEA_LEVEL_Y - SPAWN_CLEARANCE {
-        let right = hm.surface_row_at(&noise, spawn_col + r, None);
-        if right <= SEA_LEVEL_Y - SPAWN_CLEARANCE {
+    while r <= search && surf > dry {
+        let right = hm.surface_row_at(&noise, spawn_col + r, None, scale);
+        if right <= dry {
             col = spawn_col + r;
             surf = right;
             break;
         }
-        let left = hm.surface_row_at(&noise, spawn_col - r, None);
-        if left <= SEA_LEVEL_Y - SPAWN_CLEARANCE {
+        let left = hm.surface_row_at(&noise, spawn_col - r, None, scale);
+        if left <= dry {
             col = spawn_col - r;
             surf = left;
             break;
@@ -498,7 +575,7 @@ pub fn spawn_point(seed: u32, spawn_col: i32) -> SpawnPoint {
     }
     SpawnPoint {
         x: (col * CELL_SIZE) as f32,
-        y: ((surf - 6) * CELL_SIZE) as f32,
+        y: ((surf - lift) * CELL_SIZE) as f32,
     }
 }
 
@@ -582,8 +659,8 @@ const SPAWN_GROUND_SCAN: i32 = 24;
 /// If nothing within [`SPAWN_SEARCH`] qualifies, the plain [`spawn_point`] is
 /// returned. A world with nowhere good to stand should start somewhere bad, not
 /// refuse to start — and the caller has no better answer than this one does.
-pub fn walkable_spawn(seed: u32, spawn_col: i32) -> SpawnPoint {
-    let base = spawn_point(seed, spawn_col);
+pub fn walkable_spawn(seed: u32, spawn_col: i32, scale: WorldScale) -> SpawnPoint {
+    let base = spawn_point(seed, spawn_col, scale);
     let col = (base.x / CELL_SIZE as f32).floor() as i32;
     let row = (base.y / CELL_SIZE as f32).floor() as i32;
 
@@ -724,6 +801,7 @@ impl SpawnProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::config::worldgen::SEED;
 
     const N: usize = (CHUNK_CELLS * CHUNK_CELLS) as usize;
@@ -750,7 +828,7 @@ mod tests {
         let cramped = seeds
             .iter()
             .filter(|&&s| {
-                let (l, r) = room_around(s, spawn_point(s, SPAWN_COL));
+                let (l, r) = room_around(s, spawn_point(s, SPAWN_COL, WorldScale::LEGACY));
                 l.min(r) < SPAWN_WALK_CELLS
             })
             .count();
@@ -767,7 +845,7 @@ mod tests {
         // these clear it, so the one-sided fallback inside `walkable_spawn` is
         // for worlds stranger than any of them rather than for these.
         for &seed in &seeds {
-            let at = walkable_spawn(seed, SPAWN_COL);
+            let at = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
             let (left, right) = room_around(seed, at);
             assert!(
                 left.min(right) >= SPAWN_WALK_CELLS,
@@ -781,8 +859,8 @@ mod tests {
     #[test]
     fn a_walkable_spawn_is_the_same_every_time_it_is_asked() {
         for seed in [0u32, 17, 2334] {
-            let a = walkable_spawn(seed, SPAWN_COL);
-            let b = walkable_spawn(seed, SPAWN_COL);
+            let a = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
+            let b = walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY);
             assert_eq!(a, b, "seed {seed}");
         }
     }
@@ -793,8 +871,8 @@ mod tests {
     fn a_walkable_spawn_keeps_the_height_the_heightmap_chose() {
         for seed in 0..12u32 {
             assert_eq!(
-                walkable_spawn(seed, SPAWN_COL).y,
-                spawn_point(seed, SPAWN_COL).y,
+                walkable_spawn(seed, SPAWN_COL, WorldScale::LEGACY).y,
+                spawn_point(seed, SPAWN_COL, WorldScale::LEGACY).y,
                 "seed {seed}"
             );
         }
@@ -837,11 +915,11 @@ mod tests {
 
     #[test]
     fn spawn_is_on_dry_land_or_the_search_ran_out() {
-        let p = spawn_point(SEED, SPAWN_COL);
+        let p = spawn_point(SEED, SPAWN_COL, WorldScale::LEGACY);
         let noise = world_noise(SEED);
         let mut hm = Heightmap::new();
         let col = (p.x as i32) / CELL_SIZE;
-        let surf = hm.surface_row_at(&noise, col, None);
+        let surf = hm.surface_row_at(&noise, col, None, WorldScale::LEGACY);
         assert_eq!(p.y as i32, (surf - 6) * CELL_SIZE);
         assert!(surf <= SEA_LEVEL_Y - SPAWN_CLEARANCE, "spawned in the sea");
     }

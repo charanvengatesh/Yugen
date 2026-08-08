@@ -35,6 +35,7 @@ use std::collections::{HashMap, HashSet};
 use rayon::prelude::*;
 
 use yugen_core::config::CHUNK_CELLS;
+use yugen_core::config::WorldScale;
 use yugen_core::sim::biomes::column_profile_at;
 use yugen_core::sim::decor::{DecorContext, Decorator};
 use yugen_core::sim::materials::{CellId, EMPTY, MaterialState, Tag, has_tags};
@@ -142,14 +143,14 @@ fn horizontal_seam() {
     for cx in -6..=6 {
         let base_x = cx * CHUNK_CELLS;
         for d in -2..=2 {
-            let a = plain.surface_row_at(&noise, base_x + d, None);
-            let b = plain.surface_row_at(&noise, base_x + d + 1, None);
+            let a = plain.surface_row_at(&noise, base_x + d, None, WorldScale::LIVE);
+            let b = plain.surface_row_at(&noise, base_x + d + 1, None, WorldScale::LIVE);
             // Recompute through the profile path too: `surface_row_at(x, None)`
             // and `surface_row_at(x, Some(profile))` must agree exactly, or the
             // decorators (which use the first) would disagree with terrain
             // (which uses the second) and trees would float.
-            let col = column_profile_at(&noise, base_x + d);
-            let via_profile = via.surface_row_at(&noise, base_x + d, Some(&col));
+            let col = column_profile_at(&noise, base_x + d, WorldScale::LIVE);
+            let via_profile = via.surface_row_at(&noise, base_x + d, Some(&col), WorldScale::LIVE);
             assert_eq!(
                 via_profile,
                 a,
@@ -239,11 +240,11 @@ fn probe_agreement() {
             let mut lx = 0;
             while lx < CHUNK_CELLS {
                 let wcx = base_x + lx;
-                let col = column_profile_at(&noise, wcx);
-                let surf = hm.surface_row_at(&noise, wcx, Some(&col));
+                let col = column_profile_at(&noise, wcx, WorldScale::LIVE);
+                let surf = hm.surface_row_at(&noise, wcx, Some(&col), WorldScale::LIVE);
                 let mut ly = 0;
                 while ly < CHUNK_CELLS {
-                    let got = material_at(&noise, wcx, base_y + ly, &col, surf);
+                    let got = material_at(&noise, wcx, base_y + ly, &col, surf, WorldScale::LIVE);
                     // Decorations overwrite terrain, so only compare where the
                     // chunk still holds a terrain material: compare open-vs-solid,
                     // not exact codes.
@@ -290,7 +291,15 @@ fn record_landmarks(
 ) -> HashSet<i32> {
     let mut plotted: Vec<(i32, i32, CellId)> = Vec::new();
     {
-        let mut ctx = DecorContext::recording(noise, SEED, scan_x, scan_y, &mut plotted, hm);
+        let mut ctx = DecorContext::recording(
+            noise,
+            SEED,
+            scan_x,
+            scan_y,
+            &mut plotted,
+            hm,
+            WorldScale::LIVE,
+        );
         LANDMARK_DECORATOR.decorate(&mut ctx);
     }
     plotted
@@ -527,6 +536,7 @@ fn container_recovery() {
                     cy * CHUNK_CELLS,
                     &mut plotted,
                     &mut hm,
+                    WorldScale::LIVE,
                 );
                 stamp_structs(&mut ctx);
             }
@@ -767,8 +777,8 @@ fn walls_stop_at_the_sky_and_never_gap_below_it() {
         let base_y = cy * CHUNK_CELLS;
         let base_x = cx * CHUNK_CELLS;
         for lx in 0..CHUNK_CELLS {
-            let col = column_profile_at(&noise, base_x + lx);
-            let surf = heights.surface_row_at(&noise, base_x + lx, Some(&col));
+            let col = column_profile_at(&noise, base_x + lx, WorldScale::LIVE);
+            let surf = heights.surface_row_at(&noise, base_x + lx, Some(&col), WorldScale::LIVE);
             for ly in 0..CHUNK_CELLS {
                 let wcy = base_y + ly;
                 let wall = back[(ly * CHUNK_CELLS + lx) as usize];

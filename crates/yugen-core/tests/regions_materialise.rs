@@ -35,6 +35,7 @@
 //! surface", which is exactly the class of bug the file exists for.
 
 use std::collections::BTreeMap;
+use yugen_core::config::WorldScale;
 use yugen_core::sim::biomes::{BIOMES, Biome, biome_mix_at, column_profile_at};
 use yugen_core::sim::materials::CellId;
 use yugen_core::sim::noise::Noise;
@@ -68,7 +69,7 @@ const SEARCH: i32 = 40_000;
 fn heartland_from(noise: &Noise, b: Biome, from: i32) -> Option<i32> {
     for d in from..SEARCH {
         for x in [d, -d] {
-            let m = biome_mix_at(noise, x);
+            let m = biome_mix_at(noise, x, WorldScale::LIVE);
             if m.top == b && m.items().len() == 1 {
                 return Some(x);
             }
@@ -109,9 +110,9 @@ fn every_biome_puts_its_own_materials_on_the_ground() {
                     def.id
                 )
             });
-            let col = column_profile_at(&noise, x);
-            let surf = hm.surface_row_at(&noise, x, Some(&col));
-            if shore_weight_at(surf) == 0.0 {
+            let col = column_profile_at(&noise, x, WorldScale::LIVE);
+            let surf = hm.surface_row_at(&noise, x, Some(&col), WorldScale::LIVE);
+            if shore_weight_at(surf, WorldScale::LIVE) == 0.0 {
                 break (x, surf);
             }
             from = x.unsigned_abs() as i32 + 1;

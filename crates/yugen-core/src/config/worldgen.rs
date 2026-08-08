@@ -87,3 +87,93 @@ const _: () = assert!(
     (CHUNK_CELLS as usize).is_multiple_of(GEN_LATTICE),
     "GEN_LATTICE must divide CHUNK_CELLS or chunk edges stop sharing lattice corners"
 );
+
+/// How many cells one unit of authored world-feature length occupies.
+///
+/// Every frequency in `sim::worldgen` is *cycles per cell* and every threshold
+/// and amplitude above is *cells*, so making the world bigger is not a matter of
+/// editing them. It is one transform applied at the boundary of the field layer:
+///
+/// > divide the coordinate going in, multiply the cell length coming out.
+///
+/// Nothing between those two crossings moves. That is why no `*_FREQ` and none of
+/// the depth constants above are touched by a scale change, and it is what keeps
+/// the field layer readable — inside it, every number still means what its doc
+/// comment says it means, in the same units it was authored in.
+///
+/// The unscaled space the field layer works in is called LEGACY cells throughout
+/// worldgen. A world cell is [`WorldScale::coord`] of a legacy one.
+///
+/// # Why this is a parameter and not a constant
+///
+/// `tests/player_golden.rs` replays 4 048 fixed steps against an arena stamped
+/// into a world the fixture cannot regenerate — its provenance is a TypeScript
+/// tool in a repository that no longer exists, and it has no bless path. It pins
+/// its world with a material hash, so the generator moving underneath it is a
+/// failure it cannot absorb. It therefore generates at [`WorldScale::LEGACY`]
+/// forever, which is the identity, while the game runs at [`WorldScale::LIVE`].
+///
+/// A const would have forced that fixture to be retired. A parameter costs one
+/// argument on the worldgen call path and keeps the only long-replay net over
+/// `Player::step` alive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldScale(f64);
+
+impl WorldScale {
+    /// The identity. What `player_golden` generates at, permanently.
+    ///
+    /// Every crossing below is a no-op at this scale, which is what lets the
+    /// threading be proven byte-identical by leaving the goldens green and
+    /// UNBLESSED rather than by review.
+    pub const LEGACY: WorldScale = WorldScale(1.0);
+
+    /// What the game generates at.
+    ///
+    /// Still the identity: this commit threads the parameter and proves the
+    /// threading is byte-identical by leaving `worldgen_golden`, `player_golden`
+    /// and `noise_golden` green with their fixtures untouched. Raising it to 2.0
+    /// is the next commit, and the one that actually changes the world.
+    pub const LIVE: WorldScale = WorldScale(1.0);
+
+    /// A world cell coordinate, in the field layer's legacy-cell space.
+    ///
+    /// This is the ONLY way a world coordinate may enter a noise sample. Dividing
+    /// here is exactly equivalent to halving every frequency, and it is one place
+    /// rather than sixty.
+    #[inline]
+    pub fn coord(self, wc: i32) -> f64 {
+        f64::from(wc) / self.0
+    }
+
+    /// A depth measured in world cells, in legacy cells — so every band threshold
+    /// in this module is compared against the depth it was authored against.
+    #[inline]
+    pub fn depth(self, cells: f64) -> f64 {
+        cells / self.0
+    }
+
+    /// A length authored in legacy cells, in world cells. The outward crossing:
+    /// surface rows and procedural extents come back through here.
+    #[inline]
+    pub fn len(self, cells: f64) -> f64 {
+        cells * self.0
+    }
+
+    /// An absolute row authored in legacy cells, as a world cell ROW.
+    ///
+    /// [`SEA_LEVEL_Y`] and [`SURFACE_ANCHOR_Y`] are the two of these. They are
+    /// positions rather than depths, so they scale outward like a length — the
+    /// waterline sits twice as far from the origin in a world whose columns are
+    /// twice as tall.
+    #[inline]
+    pub fn row(self, legacy_row: i32) -> i32 {
+        (f64::from(legacy_row) * self.0 + 0.5).floor() as i32
+    }
+
+    /// The raw factor, for the few callers that must scale something this type
+    /// has no better name for.
+    #[inline]
+    pub fn factor(self) -> f64 {
+        self.0
+    }
+}

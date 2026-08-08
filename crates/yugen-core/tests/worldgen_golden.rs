@@ -45,6 +45,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::Value as J;
+use yugen_core::config::WorldScale;
 use yugen_core::sim::biomes::column_profile_at;
 use yugen_core::sim::materials::CellId;
 use yugen_core::sim::worldgen::heightmap::Heightmap;
@@ -96,11 +97,11 @@ fn bless() {
     let mut cells: Vec<CellId> = Vec::new();
     let mut wcx = -400;
     while wcx <= 400 {
-        let col = column_profile_at(&noise, wcx);
-        let surf = hm.surface_row_at(&noise, wcx, Some(&col));
+        let col = column_profile_at(&noise, wcx, WorldScale::LIVE);
+        let surf = hm.surface_row_at(&noise, wcx, Some(&col), WorldScale::LIVE);
         let mut wcy = -40;
         while wcy <= 700 {
-            cells.push(material_at(&noise, wcx, wcy, &col, surf));
+            cells.push(material_at(&noise, wcx, wcy, &col, surf, WorldScale::LIVE));
             wcy += 11;
         }
         wcx += 7;
@@ -120,7 +121,7 @@ fn bless() {
     root.insert("chunks".into(), J::Object(chunks));
     root.insert("probes".into(), J::Object(probes));
     for (key, col) in [("spawn", SPAWN_COL), ("spawn100", 100)] {
-        let at = spawn_point(seed, col);
+        let at = spawn_point(seed, col, WorldScale::LIVE);
         // As integers, which is what the file holds and what the check compares
         // (`got.x as i64`). Writing the f32 straight through serialises `40.0`
         // for `40` and puts two lines of pure noise in every future diff.
@@ -241,11 +242,11 @@ fn the_arbitrary_coordinate_probe_matches_the_typescript() {
     let mut probes: Vec<CellId> = Vec::new();
     let mut wcx = -400;
     while wcx <= 400 {
-        let col = column_profile_at(&noise, wcx);
-        let surf = hm.surface_row_at(&noise, wcx, Some(&col));
+        let col = column_profile_at(&noise, wcx, WorldScale::LIVE);
+        let surf = hm.surface_row_at(&noise, wcx, Some(&col), WorldScale::LIVE);
         let mut wcy = -40;
         while wcy <= 700 {
-            probes.push(material_at(&noise, wcx, wcy, &col, surf));
+            probes.push(material_at(&noise, wcx, wcy, &col, surf, WorldScale::LIVE));
             wcy += 11;
         }
         wcx += 7;
@@ -268,7 +269,7 @@ fn spawn_lands_where_the_typescript_put_it() {
     let seed = f["seed"].as_u64().unwrap() as u32;
     for (key, col) in [("spawn", SPAWN_COL), ("spawn100", 100)] {
         let want = ints(&f[key]);
-        let got = spawn_point(seed, col);
+        let got = spawn_point(seed, col, WorldScale::LIVE);
         assert_eq!(
             (got.x as i64, got.y as i64),
             (want[0], want[1]),

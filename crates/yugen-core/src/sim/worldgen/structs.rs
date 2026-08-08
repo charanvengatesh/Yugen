@@ -38,7 +38,7 @@ use std::sync::LazyLock;
 
 use crate::config::{
     CAVERN_DEPTH, CHUNK_CELLS, SEA_LEVEL_Y, SURFACE_AMPLITUDE, SURFACE_ANCHOR_Y, UNDERWORLD_DEPTH,
-    pmod,
+    WorldScale, pmod,
 };
 use crate::sim::biomes::{Biome, ColumnProfile, column_profile_at};
 use crate::sim::decor::{DecorContext, Lattice, origin_cells, origin_columns};
@@ -598,9 +598,16 @@ pub trait SiteQuery {
     fn profile_at(&self, wcx: i32) -> ColumnProfile;
     /// Stable hash in [0,1) from any two integers.
     fn hash(&self, x: i32, y: i32) -> f64;
+    /// The world scale the surrounding terrain was generated at, so a site test
+    /// compares its authored rows against the world's actual ones.
+    fn scale(&self) -> WorldScale;
 }
 
 impl SiteQuery for DecorContext<'_> {
+    #[inline]
+    fn scale(&self) -> WorldScale {
+        DecorContext::scale(self)
+    }
     #[inline]
     fn surface_at(&mut self, wcx: i32) -> i32 {
         DecorContext::surface_at(self, wcx)
@@ -624,14 +631,21 @@ impl SiteQuery for DecorContext<'_> {
 pub struct StructQuery {
     noise: Noise,
     heightmap: Heightmap,
+    scale: WorldScale,
 }
 
 impl StructQuery {
     /// A query context for one world seed.
     pub fn new(seed: u32) -> StructQuery {
+        StructQuery::with_scale(seed, WorldScale::LIVE)
+    }
+
+    /// A query context pinned to a world scale. See [`WorldScale`].
+    pub fn with_scale(seed: u32, scale: WorldScale) -> StructQuery {
         StructQuery {
             noise: Noise::new(seed),
             heightmap: Heightmap::new(),
+            scale,
         }
     }
 
@@ -644,14 +658,19 @@ impl StructQuery {
 
 impl SiteQuery for StructQuery {
     #[inline]
+    fn scale(&self) -> WorldScale {
+        self.scale
+    }
+    #[inline]
     fn surface_at(&mut self, wcx: i32) -> i32 {
         // `None` for the profile: let the memo do its job rather than paying for
         // a profile this caller does not have.
-        self.heightmap.surface_row_at(&self.noise, wcx, None)
+        self.heightmap
+            .surface_row_at(&self.noise, wcx, None, self.scale)
     }
     #[inline]
     fn profile_at(&self, wcx: i32) -> ColumnProfile {
-        column_profile_at(&self.noise, wcx)
+        column_profile_at(&self.noise, wcx, self.scale)
     }
     #[inline]
     fn hash(&self, x: i32, y: i32) -> f64 {
@@ -933,13 +952,14 @@ pub fn resolve_column_site<Q: SiteQuery + ?Sized>(q: &mut Q, ox: i32) -> Option<
         return None; // one hash rejects half of them
     }
 
+    let scale = q.scale();
     let base = q.surface_at(ox);
     // Which placement classes this column can host at all. A shore template needs
     // the beach band; nothing at all is built on the sea floor.
     let mut place_mask = Place::Floating.bit();
-    if base <= SEA_LEVEL_Y {
+    if base <= scale.row(SEA_LEVEL_Y) {
         place_mask |= Place::Surface.bit();
-        if shore_weight_at(base) >= 0.6 {
+        if shore_weight_at(base, scale) >= 0.6 {
             place_mask |= Place::Shore.bit();
         }
     }
@@ -1162,6 +1182,7 @@ pub fn stamp_structs(ctx: &mut DecorContext<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::sim::materials::EMPTY;
 
     /// A chunk-sized canvas plus everything a `DecorContext` needs to exist.
@@ -1259,11 +1280,27 @@ mod tests {
         let (bbx, bby) = (x0 - CHUNK_CELLS + 4, y0 - CHUNK_CELLS + 4);
 
         {
-            let mut ctx = DecorContext::new(&a.noise, 7, bax, bay, &mut a.cells, &mut a.heightmap);
+            let mut ctx = DecorContext::new(
+                &a.noise,
+                7,
+                bax,
+                bay,
+                &mut a.cells,
+                &mut a.heightmap,
+                WorldScale::LEGACY,
+            );
             stamp(&mut ctx, &site);
         }
         {
-            let mut ctx = DecorContext::new(&b.noise, 7, bbx, bby, &mut b.cells, &mut b.heightmap);
+            let mut ctx = DecorContext::new(
+                &b.noise,
+                7,
+                bbx,
+                bby,
+                &mut b.cells,
+                &mut b.heightmap,
+                WorldScale::LEGACY,
+            );
             stamp(&mut ctx, &site);
         }
 
@@ -1342,6 +1379,7 @@ mod tests {
                     0,
                     &mut canvas.cells,
                     &mut canvas.heightmap,
+                    WorldScale::LEGACY,
                 );
                 resolve_column_site(&mut ctx, ox).map(|s| (s.t.id, s.ox, s.oy, s.times, s.mirrored))
             };
@@ -1402,6 +1440,7 @@ mod tests {
                     cy * CHUNK_CELLS,
                     &mut cells,
                     &mut hm,
+                    WorldScale::LEGACY,
                 );
                 stamp_structs(&mut ctx);
                 painted += cells.iter().filter(|&&c| c != EMPTY).count();

@@ -16,6 +16,7 @@ use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
+use yugen_core::config::WorldScale;
 use yugen_core::config::{CAVERN_DEPTH, CHUNK_CELLS, DEEP_DEPTH, SEA_LEVEL_Y};
 use yugen_core::sim::biomes::column_profile_at;
 use yugen_core::sim::materials::{CellId, block};
@@ -83,7 +84,7 @@ fn print_cave_stats(chunk_span_x: i32) {
                 let base_x = cx * CHUNK_CELLS;
                 let base_y = cy * CHUNK_CELLS;
                 for lx in 0..CHUNK_CELLS {
-                    let surf = hm.surface_row_at(&noise, base_x + lx, None);
+                    let surf = hm.surface_row_at(&noise, base_x + lx, None, WorldScale::LIVE);
                     for ly in 0..CHUNK_CELLS {
                         if base_y + ly <= surf {
                             continue; // sky/sea is not "cave"
@@ -126,8 +127,8 @@ fn print_terrain_stats(columns: i32) {
     let mut sum = 0i64;
     for i in 0..columns {
         let wcx = i - (columns >> 1);
-        let col = column_profile_at(&noise, wcx);
-        let s = hm.surface_row_at(&noise, wcx, Some(&col));
+        let col = column_profile_at(&noise, wcx, WorldScale::LIVE);
+        let s = hm.surface_row_at(&noise, wcx, Some(&col), WorldScale::LIVE);
         if s > SEA_LEVEL_Y {
             ocean += 1;
         }

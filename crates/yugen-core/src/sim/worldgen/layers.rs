@@ -18,7 +18,7 @@
 //! of Terraria's underworld.
 
 use super::fields::{clamp01, smooth_ramp};
-use crate::config::{CAVERN_DEPTH, UNDERWORLD_DEPTH, UNDERWORLD_FLOOR};
+use crate::config::{CAVERN_DEPTH, UNDERWORLD_DEPTH, UNDERWORLD_FLOOR, WorldScale};
 use crate::sim::biomes::{Biome, ColumnProfile, UndergroundLayerId, pick_from_mix};
 use crate::sim::materials::{CellId, block};
 use crate::sim::noise::Noise;
@@ -87,12 +87,12 @@ const CAP_DITHER_ANCHOR: f64 = 71.5;
 /// noise on purpose: this is dither, nobody reads the field itself, and it is the
 /// cheapest thing in noise.rs.
 #[inline]
-fn cap_dither(noise: &Noise, wcx: i32, wcy: i32) -> f64 {
+fn cap_dither(noise: &Noise, wcx: i32, wcy: i32, scale: WorldScale) -> f64 {
     let nv = clamp01(
         0.5 + 0.85
             * noise.n2(
-                f64::from(wcx) * CAP_DITHER_FX + CAP_DITHER_ANCHOR,
-                f64::from(wcy) * CAP_DITHER_FY,
+                scale.coord(wcx) * CAP_DITHER_FX + CAP_DITHER_ANCHOR,
+                scale.coord(wcy) * CAP_DITHER_FY,
             ),
     );
     nv * 0.62 + noise.hash2(wcx, wcy) * 0.38
@@ -137,11 +137,14 @@ pub fn cap_at(
     depth: i32,
     col: &ColumnProfile,
     shore: f64,
+    scale: WorldScale,
 ) -> CellId {
+    // The sand/sandstone split is authored as a legacy-cell thickness.
+    let ld = scale.depth(f64::from(depth));
     if shore > 0.0 {
         let d = noise.hash2(wcx + 5501, wcy);
         if d < shore {
-            return if depth < 3 { M_SAND } else { M_SANDSTONE };
+            return if ld < 3.0 { M_SAND } else { M_SANDSTONE };
         }
     }
 
@@ -150,7 +153,7 @@ pub fn cap_at(
         return mix.items()[0].def().cap;
     }
 
-    let v = cap_dither(noise, wcx, wcy);
+    let v = cap_dither(noise, wcx, wcy, scale);
     if let Some(eco) = col.eco_cap {
         let cum = mix.cum();
         // Split the budget across however many interfaces the mix has, so a
@@ -193,8 +196,12 @@ fn surf_biome_at(noise: &Noise, wcx: i32, wcy: i32, col: &ColumnProfile, src: f6
 
 /// Depth crossfade weight from the surface biome's signature to the layer's.
 #[inline]
-pub fn ug_fade_at(depth: i32, col: &ColumnProfile) -> f64 {
-    clamp01((f64::from(depth) - col.ug_fade_start) / (col.ug_fade_end - col.ug_fade_start))
+pub fn ug_fade_at(depth: i32, col: &ColumnProfile, scale: WorldScale) -> f64 {
+    // `ug_fade_start`/`end` are legacy cells, like every other depth in the
+    // profile, so the world depth crosses inward here.
+    clamp01(
+        (scale.depth(f64::from(depth)) - col.ug_fade_start) / (col.ug_fade_end - col.ug_fade_start),
+    )
 }
 
 // --- Solid rock --------------------------------------------------------------
@@ -207,10 +214,10 @@ const VEIN_FREQ: f64 = 0.2;
 /// sites share it and every one of them also feeds it to [`reuse_dither`] — the
 /// value has to be the same float in both uses or the reuse stops being a reuse.
 #[inline]
-fn vein_field(noise: &Noise, wcx: i32, wcy: i32) -> f64 {
+fn vein_field(noise: &Noise, wcx: i32, wcy: i32, scale: WorldScale) -> f64 {
     noise.fbm2(
-        f64::from(wcx) * VEIN_FREQ - 50.0,
-        f64::from(wcy) * VEIN_FREQ - 50.0,
+        scale.coord(wcx) * VEIN_FREQ - 50.0,
+        scale.coord(wcy) * VEIN_FREQ - 50.0,
         2,
     )
 }
@@ -229,6 +236,11 @@ fn vein_field(noise: &Noise, wcx: i32, wcy: i32) -> f64 {
 /// shows as a double edge. Rounding it to a whole cell before the call is not
 /// free: the hardening ramp below reads it continuously, and quantising the input
 /// moves the obsidian dither by up to 1/45 over the last 45 cells of the world.
+///
+/// The arity is what it is: every one of these is an independent input the rock
+/// choice reads, and bundling them into a struct would only move the same eight
+/// values behind a name that explains none of them.
+#[allow(clippy::too_many_arguments)]
 pub fn solid_at(
     noise: &Noise,
     wcx: i32,
@@ -237,6 +249,7 @@ pub fn solid_at(
     col: &ColumnProfile,
     u: f64,
     strata: f64,
+    scale: WorldScale,
 ) -> CellId {
     if depth >= f64::from(UNDERWORLD_FLOOR) {
         return M_OBSIDIAN; // bedrock
@@ -279,7 +292,7 @@ pub fn solid_at(
             return col.ug.items()[0].def().rock;
         }
 
-        let v = vein_field(noise, wcx, wcy);
+        let v = vein_field(noise, wcx, wcy, scale);
         if u <= 0.002 {
             return surf_biome_at(noise, wcx, wcy, col, v).def().rock;
         }
@@ -293,7 +306,7 @@ pub fn solid_at(
         };
     }
 
-    let vein = vein_field(noise, wcx, wcy);
+    let vein = vein_field(noise, wcx, wcy, scale);
     let layer = layer_at(noise, wcx, wcy, col, vein).def();
 
     // Veins first: a seam of crystal or obsidian should cut THROUGH a stratum, the
@@ -336,12 +349,13 @@ pub fn liquid_at(
     depth: f64,
     col: &ColumnProfile,
     u: f64,
+    scale: WorldScale,
 ) -> CellId {
     if depth >= f64::from(UNDERWORLD_DEPTH) {
         return M_LAVA; // the underworld is one lava sea
     }
 
-    let src = vein_field(noise, wcx, wcy);
+    let src = vein_field(noise, wcx, wcy, scale);
     if depth >= f64::from(CAVERN_DEPTH) {
         return layer_at(noise, wcx, wcy, col, src).def().pocket;
     }
@@ -363,6 +377,7 @@ pub fn liquid_at(
 mod tests {
     use super::*;
     use crate::config::SEED;
+    use crate::config::WorldScale;
     use crate::sim::biomes::column_profile_at;
     use crate::sim::materials::MAT_COUNT;
 
@@ -374,7 +389,7 @@ mod tests {
         let noise = Noise::new(SEED);
         for wcy in -40..40 {
             for wcx in -40..40 {
-                let d = cap_dither(&noise, wcx, wcy);
+                let d = cap_dither(&noise, wcx, wcy, WorldScale::LEGACY);
                 assert!((0.0..=1.0).contains(&d), "cap_dither({wcx},{wcy}) = {d}");
                 for v in [-1.0, -0.5, 0.0, 0.37, 1.0] {
                     let d = reuse_dither(&noise, wcx, wcy, v, 4099);
@@ -391,7 +406,7 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut same = 0;
         for wcx in 0..500 {
-            let v = vein_field(&noise, wcx, 300);
+            let v = vein_field(&noise, wcx, 300, WorldScale::LEGACY);
             let a = reuse_dither(&noise, wcx, 300, v, 9176);
             let b = reuse_dither(&noise, wcx, 300, v, 271);
             if (a - b).abs() < 1e-12 {
@@ -419,7 +434,7 @@ mod tests {
     fn every_band_yields_a_real_material() {
         let noise = Noise::new(SEED);
         for wcx in [-4001, -37, 0, 91, 5000] {
-            let col = column_profile_at(&noise, wcx);
+            let col = column_profile_at(&noise, wcx, WorldScale::LEGACY);
             for depth in [
                 0,
                 20,
@@ -431,14 +446,31 @@ mod tests {
                 900,
             ] {
                 let wcy = 48 + depth;
-                let u = ug_fade_at(depth, &col);
+                let u = ug_fade_at(depth, &col, WorldScale::LEGACY);
                 for strata in [-0.9, 0.0, 0.9] {
-                    let m = solid_at(&noise, wcx, wcy, f64::from(depth), &col, u, strata);
+                    let m = solid_at(
+                        &noise,
+                        wcx,
+                        wcy,
+                        f64::from(depth),
+                        &col,
+                        u,
+                        strata,
+                        WorldScale::LEGACY,
+                    );
                     assert!(m != AIR && (m as usize) < MAT_COUNT, "solid_at gave {m}");
-                    let l = liquid_at(&noise, wcx, wcy, f64::from(depth), &col, u);
+                    let l = liquid_at(
+                        &noise,
+                        wcx,
+                        wcy,
+                        f64::from(depth),
+                        &col,
+                        u,
+                        WorldScale::LEGACY,
+                    );
                     assert!(l != AIR && (l as usize) < MAT_COUNT, "liquid_at gave {l}");
                 }
-                let c = cap_at(&noise, wcx, wcy, depth, &col, 0.0);
+                let c = cap_at(&noise, wcx, wcy, depth, &col, 0.0, WorldScale::LEGACY);
                 assert!(c != AIR && (c as usize) < MAT_COUNT, "cap_at gave {c}");
             }
         }
@@ -447,17 +479,34 @@ mod tests {
     #[test]
     fn the_world_has_a_bottom_and_an_underworld_ceiling() {
         let noise = Noise::new(SEED);
-        let col = column_profile_at(&noise, 128);
+        let col = column_profile_at(&noise, 128, WorldScale::LEGACY);
         for depth in [UNDERWORLD_FLOOR, UNDERWORLD_FLOOR + 1, 10_000] {
             assert_eq!(
-                solid_at(&noise, 128, 48 + depth, f64::from(depth), &col, 1.0, 0.0),
+                solid_at(
+                    &noise,
+                    128,
+                    48 + depth,
+                    f64::from(depth),
+                    &col,
+                    1.0,
+                    0.0,
+                    WorldScale::LEGACY
+                ),
                 M_OBSIDIAN,
                 "bedrock is not bedrock at depth {depth}"
             );
         }
         for depth in [UNDERWORLD_DEPTH, UNDERWORLD_DEPTH + 50] {
             assert_eq!(
-                liquid_at(&noise, 128, 48 + depth, f64::from(depth), &col, 1.0),
+                liquid_at(
+                    &noise,
+                    128,
+                    48 + depth,
+                    f64::from(depth),
+                    &col,
+                    1.0,
+                    WorldScale::LEGACY
+                ),
                 M_LAVA
             );
         }
@@ -466,14 +515,17 @@ mod tests {
     #[test]
     fn the_shore_cap_is_sand_over_sandstone_and_only_near_the_top() {
         let noise = Noise::new(SEED);
-        let col = column_profile_at(&noise, 64);
+        let col = column_profile_at(&noise, 64, WorldScale::LEGACY);
         // shore = 1 makes the hash test certain, so the branch is deterministic.
         for depth in 0..3 {
-            assert_eq!(cap_at(&noise, 64, 48 + depth, depth, &col, 1.0), M_SAND);
+            assert_eq!(
+                cap_at(&noise, 64, 48 + depth, depth, &col, 1.0, WorldScale::LEGACY),
+                M_SAND
+            );
         }
         for depth in 3..8 {
             assert_eq!(
-                cap_at(&noise, 64, 48 + depth, depth, &col, 1.0),
+                cap_at(&noise, 64, 48 + depth, depth, &col, 1.0, WorldScale::LEGACY),
                 M_SANDSTONE
             );
         }
@@ -482,15 +534,18 @@ mod tests {
     #[test]
     fn the_underground_fade_is_a_weight() {
         let noise = Noise::new(SEED);
-        let col = column_profile_at(&noise, -777);
+        let col = column_profile_at(&noise, -777, WorldScale::LEGACY);
         let mut prev = -1.0;
         for depth in 0..200 {
-            let u = ug_fade_at(depth, &col);
-            assert!((0.0..=1.0).contains(&u), "ug_fade_at({depth}) = {u}");
+            let u = ug_fade_at(depth, &col, WorldScale::LEGACY);
+            assert!(
+                (0.0..=1.0).contains(&u),
+                "ug_fade_at({depth}, WorldScale::LEGACY) = {u}"
+            );
             assert!(u >= prev, "the fade went backwards at depth {depth}");
             prev = u;
         }
-        assert_eq!(ug_fade_at(0, &col), 0.0);
-        assert_eq!(ug_fade_at(1000, &col), 1.0);
+        assert_eq!(ug_fade_at(0, &col, WorldScale::LEGACY), 0.0);
+        assert_eq!(ug_fade_at(1000, &col, WorldScale::LEGACY), 1.0);
     }
 }

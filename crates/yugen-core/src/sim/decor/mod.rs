@@ -31,6 +31,7 @@ pub mod ores;
 pub mod structures;
 pub mod trees;
 
+use crate::config::WorldScale;
 use crate::config::world::{CHUNK_CELLS, pmod};
 use crate::sim::biomes::{ColumnProfile, column_profile_at};
 use crate::sim::materials::{CellId, EMPTY, MAT_COLLIDE};
@@ -73,6 +74,8 @@ pub struct DecorContext<'a> {
     sink: Sink<'a>,
     /// Surface rows come from here, never from a chunk's contents.
     heightmap: &'a mut Heightmap,
+    /// The world scale the chunk under this pass was generated at.
+    scale: WorldScale,
 }
 
 impl<'a> DecorContext<'a> {
@@ -83,6 +86,7 @@ impl<'a> DecorContext<'a> {
         base_y: i32,
         out: &'a mut [CellId],
         heightmap: &'a mut Heightmap,
+        scale: WorldScale,
     ) -> DecorContext<'a> {
         debug_assert_eq!(out.len(), (CHUNK_CELLS * CHUNK_CELLS) as usize);
         DecorContext {
@@ -92,6 +96,7 @@ impl<'a> DecorContext<'a> {
             base_y,
             sink: Sink::Chunk(out),
             heightmap,
+            scale,
         }
     }
 
@@ -109,6 +114,7 @@ impl<'a> DecorContext<'a> {
         base_y: i32,
         into: &'a mut Vec<(i32, i32, CellId)>,
         heightmap: &'a mut Heightmap,
+        scale: WorldScale,
     ) -> DecorContext<'a> {
         DecorContext {
             noise,
@@ -117,6 +123,7 @@ impl<'a> DecorContext<'a> {
             base_y,
             sink: Sink::Record(into),
             heightmap,
+            scale,
         }
     }
 
@@ -199,13 +206,21 @@ impl<'a> DecorContext<'a> {
         // `None` for the profile: the decorator asked for a column, not for a
         // column it has already profiled, so let the memo do its job rather
         // than paying for a profile the caller does not have.
-        self.heightmap.surface_row_at(self.noise, wcx, None)
+        self.heightmap
+            .surface_row_at(self.noise, wcx, None, self.scale)
+    }
+
+    /// The world scale this chunk was generated at. A decorator that measures
+    /// anything in cells has to put its authored lengths through this.
+    #[inline]
+    pub fn scale(&self) -> WorldScale {
+        self.scale
     }
 
     /// Full climate/biome/layer profile for an absolute column.
     #[inline]
     pub fn profile_at(&self, wcx: i32) -> ColumnProfile {
-        column_profile_at(self.noise, wcx)
+        column_profile_at(self.noise, wcx, self.scale)
     }
 
     /// Stable hash in [0,1) from any two integers.
@@ -317,6 +332,7 @@ pub fn origin_cells(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
 
     #[test]
     fn origin_scans_are_phase_aligned_in_absolute_space() {
@@ -387,7 +403,7 @@ mod tests {
         let noise = Noise::new(1);
         let mut hm = Heightmap::new();
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
-        let mut ctx = DecorContext::new(&noise, 1, 100, 200, &mut out, &mut hm);
+        let mut ctx = DecorContext::new(&noise, 1, 100, 200, &mut out, &mut hm, WorldScale::LEGACY);
 
         ctx.plot(100, 200, 7); // top-left corner, inside
         ctx.plot(99, 200, 9); // one west, outside

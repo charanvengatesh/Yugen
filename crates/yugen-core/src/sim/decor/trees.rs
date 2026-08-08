@@ -956,6 +956,7 @@ impl Decorator for TreeDecorator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::config::world::pmod;
     use crate::config::worldgen::SEED;
     use crate::sim::materials::EMPTY;
@@ -966,7 +967,15 @@ mod tests {
     fn chunk(noise: &Noise, hm: &mut Heightmap, base_x: i32, base_y: i32) -> Vec<CellId> {
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         {
-            let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm);
+            let mut ctx = DecorContext::new(
+                noise,
+                SEED,
+                base_x,
+                base_y,
+                &mut out,
+                hm,
+                WorldScale::LEGACY,
+            );
             TreeDecorator.decorate(&mut ctx);
         }
         out
@@ -1090,7 +1099,7 @@ mod tests {
         let mut n = 0;
         let mut wcx = -20_000;
         while wcx < 20_000 {
-            let surf = hm.surface_row_at(&noise, wcx, None);
+            let surf = hm.surface_row_at(&noise, wcx, None, WorldScale::LEGACY);
             assert!(surf >= top, "the ground line at {wcx} is above the band");
             assert!(
                 surf + ROOT_DEPTH <= bot,
@@ -1119,7 +1128,7 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut hm = Heightmap::new();
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
-        let ctx = DecorContext::new(&noise, SEED, 0, 32, &mut out, &mut hm);
+        let ctx = DecorContext::new(&noise, SEED, 0, 32, &mut out, &mut hm, WorldScale::LEGACY);
 
         let mut tree_candidates = 0;
         let mut trees = 0;
