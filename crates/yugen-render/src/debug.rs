@@ -359,10 +359,21 @@ struct Sources<'w> {
 /// Backquote and was read by nothing — precisely the "declared, read, and
 /// written by nothing" shape this module's own header cites as its reason for
 /// existing. It goes through the binding table now, like every other key.
-fn toggle(keys: Res<ButtonInput<KeyCode>>, mut shown: ResMut<DebugOverlay>) {
-    if BevyKeys(&keys).any_pressed(KEYS.debug) {
-        shown.0 = !shown.0;
+fn toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut shown: ResMut<DebugOverlay>,
+    mut settings: ResMut<crate::settings::Settings>,
+) {
+    if !BevyKeys(&keys).any_pressed(KEYS.debug) {
+        return;
     }
+    // BOTH, and they must stay equal. `settings::apply` pushes the preference
+    // into [`DebugOverlay`] whenever `Settings` changes, so a key press that
+    // moved only the resource would be silently undone by the next time the
+    // player touched any other option. Writing both also means F3 survives a
+    // restart, which is the behaviour somebody who leaves the panel up wants.
+    shown.0 = !shown.0;
+    settings.debug_overlay = shown.0;
 }
 
 /// Fill the readout from the live world.

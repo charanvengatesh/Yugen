@@ -74,10 +74,18 @@ pub struct PageCx<'a> {
     pub picker: &'a crate::worldselect::WorldPicker,
     /// XP the mob system has banked.
     pub xp: i32,
-    /// Which title-card row is under the cursor.
-    pub menu: super::MenuCursor,
+    /// The menu stack: which page, and where the cursor is.
+    pub nav: &'a super::menu::Nav,
+    /// What the options pages read and write.
+    pub settings: &'a crate::settings::Settings,
+    /// Whether a world exists behind the menu. Changes the shape of a page,
+    /// never a value on one.
+    pub in_game: bool,
     /// How brightly the health bar is flashing, `0.0..=1.0`.
     pub flash: f32,
+    /// How opaque the control hints are, after the player's preference and the
+    /// run's age have both had their say.
+    pub hints: f32,
     /// Seconds since this run began, for chrome that fades out.
     pub run_age_s: f32,
     /// What the F3 panel would say. Gathered in `PreUpdate`, so it is this
@@ -101,12 +109,11 @@ pub enum Layer {
     Toast,
     /// The crafting card, over the world.
     Craft,
-    /// The title card.
+    /// The menu system: title, pause, and every options page. See
+    /// [`super::menu`].
     Menu,
     /// The world list.
     WorldSelect,
-    /// The pause card, over a live but stopped world.
-    Pause,
     /// The death card.
     GameOver,
     /// The F3 panel, over everything.
@@ -125,9 +132,11 @@ impl Layer {
                 None => Vec::new(),
             },
             Layer::Craft => crate::craftscreen::screen(cx.crafting, cx.view),
-            Layer::Menu => super::menu_at(cx.menu, cx.view),
+            Layer::Menu => {
+                let rows = super::menu::page_rows(cx.nav.top(), cx.settings, cx.in_game);
+                super::menu::screen(cx.nav.top(), &rows, cx.nav.focus(), cx.in_game, cx.view)
+            }
             Layer::WorldSelect => crate::worldselect::screen(cx.picker, cx.view),
-            Layer::Pause => super::pause(cx),
             Layer::GameOver => super::game_over(cx.view),
             Layer::Debug => crate::debug::overlay(cx.debug, cx.chrome),
         }
@@ -167,20 +176,24 @@ pub fn stack(screen: UiScreen, on: Overlays, out: &mut Vec<Layer>) {
         UiScreen::WorldSelect => out.push(Layer::WorldSelect),
         UiScreen::GameOver => out.push(Layer::GameOver),
         UiScreen::Playing => {
-            out.extend([Layer::Vitals, Layer::Panel, Layer::Toast]);
-            if on.hints {
-                out.push(Layer::Hints);
-            }
-            // Over the HUD, because it is a card the player opened and the
-            // hotbar underneath it is not what they are looking at.
-            if on.crafting {
-                out.push(Layer::Craft);
-            }
-            // Over that in turn: pause is the only thing that can be opened
-            // while the crafting card is up, and it must not be the thing
-            // underneath.
+            // A menu REPLACES the HUD rather than covering it. The world keeps
+            // drawing underneath — that is what makes pause a layer and not a
+            // scene — but the health bar, the hotbar, the hints and any toast
+            // go, because none of them is answering a question the player has
+            // while a menu is open, and a toast fading out over an options row
+            // is just two things written on top of each other.
             if on.paused {
-                out.push(Layer::Pause);
+                out.push(Layer::Menu);
+            } else {
+                out.extend([Layer::Vitals, Layer::Panel, Layer::Toast]);
+                if on.hints {
+                    out.push(Layer::Hints);
+                }
+                // Over the HUD, because it is a card the player opened and the
+                // hotbar underneath it is not what they are looking at.
+                if on.crafting {
+                    out.push(Layer::Craft);
+                }
             }
         }
     }
@@ -239,37 +252,37 @@ mod tests {
     }
 
     #[test]
-    fn the_pause_card_draws_over_a_live_hud_rather_than_replacing_it() {
-        // This is the whole reason pause is a layer and not a `Scene`: the
-        // world and its HUD are still there, and still being drawn.
+    fn a_menu_replaces_the_hud_but_not_the_world() {
+        // The world is still drawn — that is the whole reason pause is a layer
+        // and not a `Scene`, and `scenes::running` gates the stepping rather
+        // than the drawing. What goes is the HUD: nothing on it answers a
+        // question the player has with a menu open.
         let layers = stacked(
             UiScreen::Playing,
             Overlays {
                 paused: true,
                 hints: true,
-                ..Overlays::default()
-            },
-        );
-        assert!(layers.contains(&Layer::Vitals), "pause hid the HUD");
-        assert!(layers.contains(&Layer::Panel), "pause hid the hotbar");
-        let vitals = layers.iter().position(|l| *l == Layer::Vitals);
-        let pause = layers.iter().position(|l| *l == Layer::Pause);
-        assert!(vitals < pause, "the pause card is under the HUD");
-    }
-
-    #[test]
-    fn pause_draws_over_the_crafting_card_and_not_under_it() {
-        let layers = stacked(
-            UiScreen::Playing,
-            Overlays {
-                paused: true,
                 crafting: true,
                 ..Overlays::default()
             },
         );
-        let craft = layers.iter().position(|l| *l == Layer::Craft);
-        let pause = layers.iter().position(|l| *l == Layer::Pause);
-        assert!(craft < pause, "pause went under the crafting card");
+        assert_eq!(layers, vec![Layer::Menu], "{layers:?}");
+    }
+
+    #[test]
+    fn the_hud_comes_back_when_the_menu_closes() {
+        let layers = stacked(
+            UiScreen::Playing,
+            Overlays {
+                hints: true,
+                crafting: true,
+                ..Overlays::default()
+            },
+        );
+        for want in [Layer::Vitals, Layer::Panel, Layer::Hints, Layer::Craft] {
+            assert!(layers.contains(&want), "{want:?} did not come back");
+        }
+        assert!(!layers.contains(&Layer::Menu));
     }
 
     #[test]
@@ -282,9 +295,10 @@ mod tests {
 
     #[test]
     fn nothing_but_playing_draws_the_pause_card() {
-        // Pause is reachable only from a live world. A pause card over the
-        // title screen would be a card nothing could dismiss.
-        for screen in [UiScreen::Menu, UiScreen::WorldSelect, UiScreen::GameOver] {
+        // Pause is reachable only from a live world. `UiScreen::Menu` draws the
+        // menu system anyway — it IS the title card — so the interesting cases
+        // are the two screens that own their own input.
+        for screen in [UiScreen::WorldSelect, UiScreen::GameOver] {
             let layers = stacked(
                 screen,
                 Overlays {
@@ -292,7 +306,10 @@ mod tests {
                     ..Overlays::default()
                 },
             );
-            assert!(!layers.contains(&Layer::Pause), "{screen:?} paused");
+            assert!(
+                !layers.contains(&Layer::Menu),
+                "{screen:?} paused over its own card"
+            );
         }
     }
 }

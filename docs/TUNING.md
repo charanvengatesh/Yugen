@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 100 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 638 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 645 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -933,20 +933,20 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_PARTICLES` | `2048` | Slots in the pool, and therefore sprite entities the plugin spawns. | 133 |
-| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 141 |
-| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 162 |
-| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 197 |
-| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 204 |
-| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 210 |
-| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 219 |
-| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 226 |
-| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 356 |
-| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 360 |
-| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 363 |
-| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 376 |
-| `FADE_IN` | `2` | Ease alpha in as well as out. | 378 |
-| `COLLIDE` | `4` | Test against the cell grid on every step. | 380 |
+| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 146 |
+| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 154 |
+| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 175 |
+| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 210 |
+| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 217 |
+| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 223 |
+| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 232 |
+| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 239 |
+| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 369 |
+| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 373 |
+| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 376 |
+| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 389 |
+| `FADE_IN` | `2` | Ease alpha in as well as out. | 391 |
+| `COLLIDE` | `4` | Test against the cell grid on every step. | 393 |
 
 ### `crates/yugen-render/src/player.rs`
 
@@ -985,6 +985,12 @@ only the exported surface is held to the rule.
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `ARRANGE_FRAMES` | `8` | Frames a caller should allow for [`arrange_the_scene`] to finish. | 199 |
+
+### `crates/yugen-render/src/settings.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `AUTO_ZOOM` (private) | `2.0` | The zoom floor `RenderScale::Auto` means. | 437 |
 
 ### `crates/yugen-render/src/shear.rs`
 
@@ -1054,35 +1060,46 @@ only the exported surface is held to the rule.
 | `HINT_LINES` (private) | `3` | Lines of control hint in the top-right stack. | 215 |
 | `HINT_PITCH` (private) | `14` | Pitch of the hint stack, in buffer px. | 218 |
 
+### `crates/yugen-render/src/ui/menu.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `ROW_W` (private) | `240` | Width of a menu row, in buffer px. | 538 |
+| `ROW_H` (private) | `18` | Height of a menu row. | 541 |
+| `ROW_GAP` (private) | `4` | Blank px between one row and the next. | 544 |
+| `HEAD_GAP` (private) | `12` | Blank px between the heading's descender and the first row. | 547 |
+| `SLIDER_W` (private) | `84` | Width of the bar in a slider row, in buffer px. | 573 |
+| `SLIDER_H` (private) | `5` | Height of that bar. | 576 |
+
 ### `crates/yugen-render/src/ui/mod.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `LINE_GAP` (private) | `2` | Blank rows between one line's cap and the next, in font pixels. | 256 |
-| `SMALL_GAP` (private) | `1` | Blank columns after a [`Face::Small`] cell, in font pixels. | 266 |
-| `SMALL_W` (private) | `3` | [`Face::Small`]'s cell width in font pixels. | 269 |
-| `SMALL_H` (private) | `5` | [`Face::Small`]'s cell height in font pixels. | 273 |
-| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 800 |
-| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 803 |
-| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 810 |
-| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 816 |
-| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 824 |
-| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 830 |
-| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 836 |
-| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 842 |
-| `STAT_PAD` (private) | `3` | Inset from the stat plate's edge to its text. | 1249 |
-| `PLATE_PAD` (private) | `5` | Inset from the vitals plate's edge to its content. | 1252 |
-| `GUTTER` (private) | `50` | Left edge of both bars, measured from the content's left edge. | 1258 |
-| `ROW_PITCH` (private) | `11` | Baseline-to-baseline of the vitals plate's two rows. | 1261 |
-| `BAR_H` (private) | `7` | Height of the health bar, in buffer px. | 1264 |
-| `DASH_W` (private) | `56` | Width of the dash bar. | 1271 |
-| `DASH_H` (private) | `3` | Height of the dash bar. | 1274 |
-| `FLASH_S` | `0.35` | Seconds the damage flash takes to decay. | 1280 |
-| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1306 |
-| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1313 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 2109 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 2121 |
-| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2307 |
+| `LINE_GAP` (private) | `2` | Blank rows between one line's cap and the next, in font pixels. | 257 |
+| `SMALL_GAP` (private) | `1` | Blank columns after a [`Face::Small`] cell, in font pixels. | 267 |
+| `SMALL_W` (private) | `3` | [`Face::Small`]'s cell width in font pixels. | 270 |
+| `SMALL_H` (private) | `5` | [`Face::Small`]'s cell height in font pixels. | 274 |
+| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 801 |
+| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 804 |
+| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 811 |
+| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 817 |
+| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 825 |
+| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 831 |
+| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 837 |
+| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 843 |
+| `STAT_PAD` (private) | `3` | Inset from the stat plate's edge to its text. | 1250 |
+| `PLATE_PAD` (private) | `5` | Inset from the vitals plate's edge to its content. | 1253 |
+| `GUTTER` (private) | `50` | Left edge of both bars, measured from the content's left edge. | 1259 |
+| `ROW_PITCH` (private) | `11` | Baseline-to-baseline of the vitals plate's two rows. | 1262 |
+| `BAR_H` (private) | `7` | Height of the health bar, in buffer px. | 1265 |
+| `DASH_W` (private) | `56` | Width of the dash bar. | 1272 |
+| `DASH_H` (private) | `3` | Height of the dash bar. | 1275 |
+| `FLASH_S` | `0.35` | Seconds the damage flash takes to decay. | 1281 |
+| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1307 |
+| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1314 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1945 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1957 |
+| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2143 |
 
 ### `crates/yugen-render/src/ui/theme.rs`
 
@@ -1110,7 +1127,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 330 |
+| `AUTOSAVE_EVERY_S` | `30.0` | Seconds between autosaves while a world with a save directory is running. | 332 |
 
 ### `crates/yugen-render/src/worldselect.rs`
 
@@ -1123,5 +1140,5 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 61 |
+| `SCREENSHOT_WARMUP_FRAMES` (private) | `30` | Frames to render before `--screenshot` captures, by default. | 62 |
 

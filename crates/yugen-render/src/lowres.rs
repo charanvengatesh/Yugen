@@ -79,6 +79,22 @@ pub struct CanvasCamera;
 #[derive(Component)]
 pub struct CanvasSprite;
 
+/// The smallest a buffer pixel may be, in physical pixels.
+///
+/// The player's Render Scale, as the number `View::for_screen_at` wants. It is
+/// a resource here rather than a read of `settings::Settings` so that `lowres`
+/// keeps knowing nothing about menus — `settings::apply` pushes it in, the same
+/// way it pushes every other preference to the module that owns the behaviour.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct ZoomFloor(pub f32);
+
+impl Default for ZoomFloor {
+    /// The value `View::for_screen` has always used.
+    fn default() -> ZoomFloor {
+        ZoomFloor(2.0)
+    }
+}
+
 /// The offscreen buffer and the geometry that produced it.
 #[derive(Resource, Clone, Debug)]
 pub struct LowResTarget {
@@ -117,6 +133,7 @@ pub struct LowResPlugin;
 impl Plugin for LowResPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::BLACK))
+            .init_resource::<ZoomFloor>()
             .add_systems(Startup, setup)
             .add_systems(Update, (fit_canvas, follow_focus));
     }
@@ -124,12 +141,13 @@ impl Plugin for LowResPlugin {
 
 /// Allocate the buffer sized for the window as it opens, and spawn both cameras.
 fn setup(
+    floor: Res<ZoomFloor>,
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     window: Single<&Window, With<PrimaryWindow>>,
 ) {
     let physical = UVec2::new(window.physical_width(), window.physical_height());
-    let view = View::for_screen(physical.x, physical.y);
+    let view = View::for_screen_at(physical.x, physical.y, floor.0);
     let canvas = images.add(new_canvas(view));
     let target = LowResTarget {
         canvas: canvas.clone(),
@@ -219,17 +237,21 @@ fn new_canvas(view: View) -> Image {
 /// size — and that is not a resize message.
 fn fit_canvas(
     window: Single<&Window, With<PrimaryWindow>>,
+    floor: Res<ZoomFloor>,
     mut target: ResMut<LowResTarget>,
     mut images: ResMut<Assets<Image>>,
     mut blit: Single<&mut Sprite, With<CanvasSprite>>,
     mut projection: Single<&mut Projection, With<CanvasCamera>>,
 ) {
     let physical = UVec2::new(window.physical_width(), window.physical_height());
-    if physical == target.physical || physical.x == 0 || physical.y == 0 {
+    // `floor.is_changed()` as well as the size, because Render Scale can move
+    // without the window doing anything — and the buffer is the thing that has
+    // to be rebuilt when it does.
+    if (physical == target.physical && !floor.is_changed()) || physical.x == 0 || physical.y == 0 {
         return;
     }
 
-    let view = View::for_screen(physical.x, physical.y);
+    let view = View::for_screen_at(physical.x, physical.y, floor.0);
     if view != target.view
         && let Some(mut canvas) = images.get_mut(&target.canvas)
     {

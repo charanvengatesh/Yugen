@@ -69,6 +69,7 @@ pub mod player;
 pub mod player_art;
 pub mod scene;
 pub mod scenes;
+pub mod settings;
 pub mod shear;
 pub mod sky;
 pub mod sprite;
@@ -103,6 +104,7 @@ impl PluginGroup for YugenRenderPlugin {
             // Bakes in `PreStartup`, so anything in `Startup` can read the
             // atlases without an ordering edge.
             .add(sprite::SpritePlugin)
+            .add(settings::SettingsPlugin)
             .add(scenes::ScenesPlugin)
             .add(craftscreen::CraftScreenPlugin)
             .add(worldselect::WorldSelectPlugin)

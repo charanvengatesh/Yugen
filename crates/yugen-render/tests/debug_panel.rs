@@ -20,7 +20,8 @@
 mod common;
 
 use bevy::prelude::*;
-use yugen_render::debug::{DebugOverlay, DebugReadout};
+use yugen_render::debug::DebugReadout;
+use yugen_render::settings::Settings;
 use yugen_render::ui::{UiFrame, UiPrim};
 
 /// A headless app with its render plugins finished, on the playing screen.
@@ -66,7 +67,10 @@ fn the_panel_reaches_the_display_list_when_it_is_switched_on() {
         "the panel drew without being asked for: {before}"
     );
 
-    app.world_mut().insert_resource(DebugOverlay(true));
+    // Through `Settings`, which is where the preference lives — see
+    // `debug::toggle`. Writing `DebugOverlay` alone would be undone the next
+    // time `settings::apply` ran.
+    app.world_mut().resource_mut::<Settings>().debug_overlay = true;
     app.update();
 
     let after = frame_text(&app);
@@ -104,11 +108,11 @@ fn the_readout_is_gathered_even_while_the_panel_is_hidden() {
 #[test]
 fn switching_the_panel_off_takes_it_back_off_the_screen() {
     let mut app = ready("debug-toggle-off");
-    app.world_mut().insert_resource(DebugOverlay(true));
+    app.world_mut().resource_mut::<Settings>().debug_overlay = true;
     app.update();
     assert!(frame_text(&app).contains("frame"));
 
-    app.world_mut().insert_resource(DebugOverlay(false));
+    app.world_mut().resource_mut::<Settings>().debug_overlay = false;
     app.update();
     assert!(
         !frame_text(&app).contains("frame"),

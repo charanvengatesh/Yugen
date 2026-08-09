@@ -43,6 +43,7 @@ use yugen_render::mobs::Creatures;
 use yugen_render::player::{NoPlayer, PlayerBody};
 use yugen_render::scene::{ScenePlugin, StartAt, StartWith, StartupEdit};
 use yugen_render::scenes::Scene;
+use yugen_render::settings::{self, SettingsFile};
 use yugen_render::world::{SimWorld, WorldFocus, WorldSave};
 use yugen_render::worldselect::WorldPicker;
 
@@ -175,10 +176,15 @@ fn main() -> AppExit {
     .add_plugins(YugenRenderPlugin);
 
     // The world-select screen needs somewhere to look before it is entered.
+    let saves = args.saves.clone().unwrap_or_else(saves_root);
     app.insert_resource(WorldPicker {
-        root: args.saves.clone().unwrap_or_else(saves_root),
+        root: saves.clone(),
         ..default()
     });
+
+    // And the settings file sits beside it, so `--saves` moves both together
+    // and a test run never writes over the developer's own options.
+    app.insert_resource(SettingsFile(Some(settings::path_beside(&saves))));
 
     // Before `Startup`, which is where the world is built from it.
     if args.world.is_some() || args.seed.is_some() {
@@ -255,7 +261,9 @@ fn main() -> AppExit {
     // Started ON rather than toggled, because a headless `--screenshot` run has
     // nobody to press F3 and the panel is most useful in exactly those captures.
     if args.debug_overlay {
-        app.insert_resource(yugen_render::debug::DebugOverlay(true));
+        app.world_mut()
+            .resource_mut::<settings::Settings>()
+            .debug_overlay = true;
     }
 
     // A script decides for itself when the run is over, so it also decides when

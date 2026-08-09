@@ -157,12 +157,21 @@ fn smoothstep01(v: f32) -> f32 {
 #[derive(Clone, Copy, Debug)]
 pub struct DayNight {
     t: f32,
+    /// Real seconds in one full cycle. [`DAY_LENGTH_S`] unless the player has
+    /// moved it — see `settings::Settings::day_minutes`.
+    ///
+    /// A field and not the constant, because the cycle is the one piece of
+    /// world tuning a player has an opinion about: some want to watch the light
+    /// move and some want to dig without night arriving twice an hour. Floored
+    /// at one second on read, so a zero can never divide.
+    pub length_s: f32,
 }
 
 impl DayNight {
     /// A clock at cycle position `start`.
     pub fn new(start: f32) -> DayNight {
         DayNight {
+            length_s: DAY_LENGTH_S,
             t: start - start.floor(),
         }
     }
@@ -174,7 +183,7 @@ impl DayNight {
     /// (about `2.8e-5`) stays exactly representable in `f32`. Letting it grow
     /// would quietly lose the tick entirely after a few hours of play.
     pub fn update(&mut self, dt: f32) {
-        let t = self.t + dt / DAY_LENGTH_S;
+        let t = self.t + dt / self.length_s.max(1.0);
         self.t = t - t.floor();
     }
 

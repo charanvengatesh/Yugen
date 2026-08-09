@@ -137,6 +137,7 @@ impl Plugin for WorldSimPlugin {
             // this one did. The binary's `--world` overwrites it before Startup.
             .init_resource::<WorldSave>()
             .init_resource::<FixedStep>()
+            .init_resource::<AutosaveEvery>()
             .add_systems(Startup, (clamp_catch_up, spawn_world).chain())
             .configure_sets(FixedUpdate, (SimSet::Stream, SimSet::Simulate).chain())
             .add_systems(
@@ -181,9 +182,10 @@ fn autosave(
     run: RunSources,
     mut since: Local<f32>,
     exiting: MessageReader<AppExit>,
+    every: Res<AutosaveEvery>,
 ) {
     *since += time.delta_secs();
-    if exiting.is_empty() && *since < AUTOSAVE_EVERY_S {
+    if exiting.is_empty() && *since < every.0 {
         return;
     }
     *since = 0.0;
@@ -327,7 +329,23 @@ fn clamp_catch_up(mut virt: ResMut<Time<Virtual>>) {
 /// written, and only the ones marked diverged reach the disk — and the cost of
 /// getting this wrong is asymmetric: a save that is thirty seconds stale after a
 /// crash is a annoyance, and one that never happened is the run.
-const AUTOSAVE_EVERY_S: f32 = 30.0;
+pub const AUTOSAVE_EVERY_S: f32 = 30.0;
+
+/// Seconds between autosaves, as the player has set them.
+///
+/// A resource rather than [`AUTOSAVE_EVERY_S`] read directly, because this is
+/// the one tuning value where the right answer depends on the machine: a slow
+/// disk makes a 10-second flush a stutter every ten seconds, and a fast one
+/// makes a 5-minute flush five minutes of digging to lose. The constant is the
+/// default and the resource is what `autosave` reads.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct AutosaveEvery(pub f32);
+
+impl Default for AutosaveEvery {
+    fn default() -> AutosaveEvery {
+        AutosaveEvery(AUTOSAVE_EVERY_S)
+    }
+}
 
 /// Where a world's chunk edits are kept, if anywhere.
 ///

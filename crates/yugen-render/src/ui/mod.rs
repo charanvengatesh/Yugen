@@ -237,6 +237,7 @@ use yugen_core::sim::materials::{CellId, mat_by_code};
 
 pub mod font_table;
 pub mod layout;
+pub mod menu;
 pub mod page;
 pub mod theme;
 
@@ -1389,174 +1390,14 @@ pub fn toast(text: &str, alpha: f32, view: View) -> Vec<UiPrim> {
 // Screens.ts
 // ---------------------------------------------------------------------------
 
-/// The dimming plate both screen cards are drawn on.
+/// The dimming plate the death card is drawn on.
+///
+/// The menu system has its own — see `menu::screen`, which picks between a
+/// scrim and a plate depending on whether there is a world behind it. This one
+/// stays because the death card is not a menu: it has no rows, no cursor and
+/// exactly one thing to press.
 fn overlay(out: &mut Vec<UiPrim>, view: View) {
-    out.push(UiPrim::rect(0, 0, view.w, view.h, rgba(18, 20, 30, 0.82)));
-}
-
-/// The title card. `drawMenu` in `src/ui/Screens.ts`.
-pub fn menu(view: View) -> Vec<UiPrim> {
-    menu_at(MenuCursor::default(), view)
-}
-
-/// What the title card offers, in the order it lists them.
-///
-/// Two, and deliberately not four. "Continue" belongs on the world list, which
-/// already knows which saves exist and which one was last played; putting it
-/// here would mean the menu reading the saves directory to decide whether to
-/// grey a row out, which is the world list's whole job. "Settings" would be a
-/// screen with nothing on it.
-pub const MENU_ITEMS: [&str; 2] = ["Play", "Quit"];
-
-/// Which title-card row is under the cursor.
-///
-/// A resource rather than a field on a screen struct, because the menu has no
-/// other state and inventing one to hold a single `usize` would be the kind of
-/// ceremony `worldselect`'s `WorldPicker` earns and this does not.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MenuCursor(pub usize);
-
-impl MenuCursor {
-    /// Move by `delta`, wrapping at both ends.
-    ///
-    /// Wrapping rather than clamping, on two items: pressing down twice to get
-    /// back to the top is what every list in this game does, and a two-row list
-    /// that stopped at the bottom would feel broken rather than bounded.
-    pub fn step(&mut self, delta: i32) {
-        let n = MENU_ITEMS.len() as i32;
-        self.0 = (((self.0 as i32 + delta) % n + n) % n) as usize;
-    }
-
-    /// The row under the cursor, clamped so a stale index cannot index past the
-    /// list if [`MENU_ITEMS`] ever shrinks.
-    pub fn item(self) -> &'static str {
-        MENU_ITEMS[self.0.min(MENU_ITEMS.len() - 1)]
-    }
-}
-
-/// The title card. `drawMenu` in `src/ui/Screens.ts`, grown a cursor.
-///
-/// The port's menu was one line of prose — *"Press Enter or Space to start"* —
-/// which is what the TypeScript had and is a promise with exactly one thing
-/// behind it. A list is what lets a second thing exist without the card having
-/// to be redesigned around it, and `stack` already makes adding one cheap.
-pub fn menu_at(cursor: MenuCursor, view: View) -> Vec<UiPrim> {
-    let mut out = Vec::new();
-    overlay(&mut out, view);
-    let (cx, cy) = (view.w / 2, view.h / 2);
-
-    out.push(UiPrim::text(
-        "Yūgen",
-        cx,
-        theme::CARD_TITLE.baseline_from_middle(cy - 84),
-        Align::Centre,
-        theme::CARD_TITLE,
-        theme::INK,
-    ));
-    // A hairline under the title, drawn from the em-width block glyph rather
-    // than a rect, so it sits on the same grid the type does.
-    out.push(UiPrim::rect(cx - 60, cy - 40, 120, 1, theme::EDGE));
-
-    for (i, label) in MENU_ITEMS.iter().enumerate() {
-        let picked = i == cursor.0;
-        let row_y = cy + 4 + i as i32 * 26;
-        if picked {
-            // The selection is a plate and a mark, not a colour: the same
-            // reasoning `build_hud`'s selected slot uses, that a signal carried
-            // only by hue is a signal lost against a bright world.
-            let w = theme::CARD_BODY.measure(label) + 48;
-            out.push(UiPrim::rect(cx - w / 2, row_y - 11, w, 24, theme::PLATE));
-        }
-        out.push(UiPrim::text(
-            if picked {
-                format!("\u{00bb} {label}")
-            } else {
-                (*label).to_string()
-            },
-            cx,
-            theme::CARD_BODY.baseline_from_middle(row_y),
-            Align::Centre,
-            theme::CARD_BODY,
-            if picked { theme::INK } else { theme::INK_MUTED },
-        ));
-    }
-
-    out.push(UiPrim::text(
-        "\u{2191}/\u{2193} choose   Enter select",
-        cx,
-        theme::CARD_HINT.baseline_from_middle(cy + 76),
-        Align::Centre,
-        theme::CARD_HINT,
-        theme::INK_DIM,
-    ));
-    out
-}
-
-/// The pause card, over a live world.
-///
-/// # Why this is a card and not a screen
-///
-/// `scenes::Scene` deliberately had no `Paused`, and its comment said why:
-/// *"the original had neither, and inventing one here would be a design change
-/// wearing a port's clothes."* This IS that design change, made on purpose, and
-/// the comment has been rewritten to say so. But it is still not a `Scene`:
-/// `start_a_run` hangs off `OnEnter(Scene::Playing)`, so leaving a `Scene::Paused`
-/// back to `Playing` would re-fire that hook and rebuild the world under the
-/// live player — the exact hazard `Scene`'s own docs warn about. Pause is a
-/// resource and a layer drawn OVER the HUD, which is also what makes it honest:
-/// the world is still there, and the player can still see it.
-///
-/// # What it shows
-///
-/// The controls, which is where the HUD's fading hint stack went. A player who
-/// has forgotten which key crafts is a player who has stopped playing for a
-/// moment, and this is where they already are.
-pub fn pause_at(chrome: layout::Chrome, view: View) -> Vec<UiPrim> {
-    let mut out = Vec::new();
-    // A lighter scrim than the title card's: the world underneath is the thing
-    // the player is coming back to, and dimming it to the same degree as a menu
-    // would say the run had ended.
-    out.push(UiPrim::rect(0, 0, view.w, view.h, theme::PLATE));
-
-    let cx = view.w / 2;
-    let cy = view.h / 2;
-    out.push(UiPrim::text(
-        "Paused",
-        cx,
-        theme::CARD_BODY.baseline_from_middle(cy - 48),
-        Align::Centre,
-        theme::CARD_BODY,
-        theme::INK,
-    ));
-    out.push(UiPrim::text(
-        "Esc to resume",
-        cx,
-        theme::CARD_HINT.baseline_from_middle(cy - 24),
-        Align::Centre,
-        theme::CARD_HINT,
-        theme::INK_DIM,
-    ));
-
-    // The hint stack the HUD fades out, at rest and centred.
-    for (row, line) in [
-        "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
-        "LMB dig   RMB place   1-0 / wheel hotbar",
-        "F use   C craft   G creative   Alt wall",
-    ]
-    .iter()
-    .enumerate()
-    {
-        out.push(UiPrim::text(
-            *line,
-            cx,
-            theme::MINOR.baseline_from_middle(cy + 12 + row as i32 * 16),
-            Align::Centre,
-            theme::MINOR,
-            theme::INK_FAINT,
-        ));
-    }
-    let _ = chrome;
-    out
+    out.push(UiPrim::rect(0, 0, view.w, view.h, theme::SCRIM));
 }
 
 /// The death card. `drawGameOver` in `src/ui/Screens.ts`.
@@ -1618,12 +1459,7 @@ pub(crate) fn vitals(cx: &page::PageCx) -> Vec<UiPrim> {
 
 /// [`hints_at`], faded by how long this run has been going.
 pub(crate) fn hints(cx: &page::PageCx) -> Vec<UiPrim> {
-    hints_at(hints_alpha(cx.run_age_s), cx.chrome)
-}
-
-/// [`pause_at`], reading from the frame's context.
-pub(crate) fn pause(cx: &page::PageCx) -> Vec<UiPrim> {
-    pause_at(cx.chrome, cx.view)
+    hints_at(cx.hints, cx.chrome)
 }
 
 // ---------------------------------------------------------------------------
@@ -2394,8 +2230,10 @@ struct HudSources<'w> {
     paused: Res<'w, crate::scenes::Paused>,
     /// How long this run has been going, for chrome that fades out.
     run_age: Res<'w, RunAge>,
-    /// Which title-card row is under the cursor.
-    menu: Res<'w, MenuCursor>,
+    /// The menu stack.
+    nav: Res<'w, menu::Nav>,
+    /// What the options pages show.
+    settings: Res<'w, crate::settings::Settings>,
     /// How recently the player was hurt.
     flash: Res<'w, DamageFlash>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
@@ -2436,7 +2274,6 @@ impl Plugin for UiPlugin {
         app.init_resource::<UiScreen>()
             .init_resource::<Toast>()
             .init_resource::<RunAge>()
-            .init_resource::<MenuCursor>()
             .init_resource::<DamageFlash>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
@@ -2534,8 +2371,15 @@ fn compose(
         crafting: &sources.crafting,
         picker: &sources.picker,
         xp: sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
-        menu: *sources.menu,
+        nav: &sources.nav,
+        settings: &sources.settings,
+        in_game: *sources.screen == UiScreen::Playing,
         flash: sources.flash.alpha(),
+        hints: match sources.settings.hints {
+            crate::settings::HintMode::Always => 1.0,
+            crate::settings::HintMode::Fade => hints_alpha(sources.run_age.0),
+            crate::settings::HintMode::Never => 0.0,
+        },
         run_age_s: sources.run_age.0,
         debug: &sources.debug,
     };
@@ -2544,7 +2388,7 @@ fn compose(
         crafting: sources.crafting.open,
         paused: sources.paused.0,
         debug: sources.debug_shown.0,
-        hints: hints_alpha(cx.run_age_s) > 0.0,
+        hints: cx.hints > 0.0,
     };
 
     // `Local` so the order buffer is reused rather than allocated every frame,
@@ -2876,11 +2720,7 @@ mod tests {
     #[test]
     fn no_screen_sets_a_character_the_face_cannot_draw() {
         let v = view();
-        let chrome = layout::Chrome::of(v);
         let mut prims = Vec::new();
-        prims.extend(menu_at(MenuCursor(0), v));
-        prims.extend(menu_at(MenuCursor(1), v));
-        prims.extend(pause_at(chrome, v));
         prims.extend(game_over(v));
         prims.extend(hud(50.0, true, v));
         prims.extend(hud_with(50.0, false, 12.0, 340, v));
@@ -3736,7 +3576,7 @@ mod tests {
     #[test]
     fn both_screen_cards_dim_the_whole_buffer_before_anything_else() {
         for v in [view(), odd_view()] {
-            for prims in [menu(v), game_over(v)] {
+            for prims in [game_over(v)] {
                 match prims[0] {
                     UiPrim::Rect { x, y, w, h, .. } => assert_eq!((x, y, w, h), (0, 0, v.w, v.h)),
                     ref other => panic!("the card must dim first, got {other:?}"),
@@ -3754,7 +3594,7 @@ mod tests {
             w: 480,
             h: 270,
         };
-        for prims in [menu(v), game_over(v)] {
+        for prims in [game_over(v)] {
             for (text, x, _, style) in texts(&prims) {
                 assert_eq!(x, v.w / 2 - style.measure(text) / 2, "{text:?} off centre");
             }
@@ -3992,7 +3832,6 @@ mod tests {
         all.extend(build_hud(&creative_tool(), &inv, &NoIcons, v));
         all.extend(hud(50.0, true, v));
         all.extend(toast("x", 1.0, v));
-        all.extend(menu(v));
         all.extend(game_over(v));
         for prim in &all {
             if let UiPrim::Rect { w, h, .. } = prim {
