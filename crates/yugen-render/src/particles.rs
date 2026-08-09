@@ -127,6 +127,19 @@ use crate::world::{SimSet, SimWorld};
 
 /// Slots in the pool, and therefore sprite entities the plugin spawns.
 ///
+/// Scale `count` by a `0.0..=1.0` budget, keeping at least one whenever the
+/// budget is not zero.
+///
+/// At least one, because an effect that fires at 10% should still be visible —
+/// a dig that emits nothing reads as the dig having failed, which is a worse
+/// lie than a thin puff of dust.
+fn js_budget(count: usize, budget: f32) -> usize {
+    if budget <= 0.0 {
+        return 0;
+    }
+    ((count as f32 * budget.clamp(0.0, 1.0)).round() as usize).max(1)
+}
+
 /// The TypeScript's default capacity, unchanged. It is about eight simultaneous
 /// full-strength bursts, which is more than a screen ever shows at once; the
 /// headroom is for the frame a player lands in lava next to three dying slimes.
@@ -587,6 +600,14 @@ impl Default for JuiceRng {
 /// is this shape and why nothing grows it.
 #[derive(Resource)]
 pub struct ParticleSystem {
+    /// Fraction of every emission that is actually spawned, `0.0..=1.0`.
+    ///
+    /// A thinning factor and not a hard ceiling on the pool: capping the pool
+    /// would let whichever effect fired first in a frame take all of it and
+    /// leave the rest with nothing, which looks like a bug rather than a
+    /// setting. See `settings::Settings::particles`.
+    pub budget: f32,
+
     // --- SoA. Parallel; index i is one particle. Never resized. ---
     px: [f32; MAX_PARTICLES],
     py: [f32; MAX_PARTICLES],
@@ -628,6 +649,7 @@ impl ParticleSystem {
     /// An empty pool.
     pub fn new() -> ParticleSystem {
         ParticleSystem {
+            budget: 1.0,
             px: [0.0; MAX_PARTICLES],
             py: [0.0; MAX_PARTICLES],
             vx: [0.0; MAX_PARTICLES],
@@ -701,6 +723,13 @@ impl ParticleSystem {
     /// the first refusal rather than continuing to try, because a pool that had
     /// no slot for particle three has none for particle four either.
     pub fn emit(&mut self, x: f32, y: f32, count: usize, opts: &EmitOpts) {
+        // The player's cap, applied at the point of emission so a lowered
+        // setting thins every effect evenly rather than starving whichever one
+        // happens to fire last in the frame.
+        let count = js_budget(count, self.budget);
+        if count == 0 {
+            return;
+        }
         let mut flags = 0u8;
         if opts.glow {
             flags |= flag::GLOW;

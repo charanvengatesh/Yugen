@@ -192,6 +192,11 @@ pub struct Screenshake {
     /// The stream the offset is drawn from — see [`JuiceRng`] on why it is not
     /// the sim's.
     rng: JuiceRng,
+    /// Player-set magnitude, 0..1. Applied where trauma is ADDED rather than
+    /// where the offset is read, so turning shake down also shortens how long
+    /// it lasts — a decaying half-strength shake, not a full-length one drawn
+    /// smaller. Zero means the camera never moves at all.
+    pub scale: f32,
 }
 
 impl Screenshake {
@@ -201,6 +206,7 @@ impl Screenshake {
             trauma: 0.0,
             off: Vec2::ZERO,
             rng: JuiceRng::new(),
+            scale: 1.0,
         }
     }
 
@@ -214,7 +220,7 @@ impl Screenshake {
 
     /// Add shake energy. Clamped, so nothing rattles forever.
     pub fn add(&mut self, magnitude: f32) {
-        self.trauma = (self.trauma + magnitude).min(1.0);
+        self.trauma = (self.trauma + magnitude * self.scale.clamp(0.0, 1.0)).min(1.0);
     }
 
     /// Decay the trauma and resample the offset.

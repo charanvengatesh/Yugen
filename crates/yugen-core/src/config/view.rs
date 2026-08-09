@@ -54,9 +54,20 @@ impl View {
     /// The buffer is rounded to whole px because it is upscaled with hard pixel
     /// edges, and a fractional buffer edge would resample the whole frame.
     pub fn for_screen(screen_w: u32, screen_h: u32) -> View {
+        View::for_screen_at(screen_w, screen_h, ZOOM_MIN)
+    }
+
+    /// [`View::for_screen`] with the zoom floor supplied.
+    ///
+    /// The floor is still a FLOOR and not an override: a player who picks 2x on
+    /// a display too large to satisfy the cell cap at 2x gets more than 2x, for
+    /// the same reason the automatic path does — showing unstreamed world is
+    /// not a setting anybody chose. The Render Scale option therefore reads
+    /// "at least this big", which is what a GUI scale means everywhere.
+    pub fn for_screen_at(screen_w: u32, screen_h: u32, zoom_min: f32) -> View {
         let sw = screen_w.max(1) as f32;
         let sh = screen_h.max(1) as f32;
-        let zoom = ZOOM_MIN.max(sw / MAX_VIEW_W).max(sh / MAX_VIEW_H);
+        let zoom = zoom_min.max(1.0).max(sw / MAX_VIEW_W).max(sh / MAX_VIEW_H);
         View {
             zoom,
             w: (sw / zoom).round() as i32,

@@ -27,12 +27,17 @@ use yugen_core::sim::save::read_run;
 use crate::daynight::WorldClock;
 use crate::input::{BevyKeys, FixedSubstep, PlayerIntent, Tool};
 use crate::items::{GroundItems, Pack};
+use crate::lowres::LowResTarget;
 use crate::mobs::Creatures;
 use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
 use crate::scenes::{Paused, Scene};
+use crate::settings::Settings;
 use crate::sprite::SpriteAtlases;
-use crate::ui::{IconAtlas, Icons, MenuCursor, RunAge, UiScreen};
+use crate::ui::layout::Region;
+use crate::ui::menu::{self, Action, Control, Nav, Slide};
+use crate::ui::{IconAtlas, Icons, RunAge, UiScreen};
 use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
+use yugen_core::config::View;
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
 ///
@@ -68,11 +73,21 @@ impl Plugin for GluePlugin {
             // `.after(InputSystems)` for the reason `input::gather_intent`
             // states: that set is what repopulates `just_pressed`, and this
             // reads it.
+            .init_resource::<Nav>()
             .add_systems(
                 PreUpdate,
                 toggle_pause
                     .after(bevy::input::InputSystems)
                     .run_if(in_state(Scene::Playing)),
+            )
+            // After `toggle_pause`, so the frame that opens the pause card does
+            // not also drive the menu with the same Escape press.
+            .add_systems(
+                PreUpdate,
+                (root_the_menu, drive_menu)
+                    .chain()
+                    .after(toggle_pause)
+                    .run_if(menu_is_up),
             )
             .add_systems(
                 FixedUpdate,
@@ -95,12 +110,7 @@ impl Plugin for GluePlugin {
             // maintained.
             .add_systems(
                 Update,
-                (
-                    follow_scene,
-                    death_ends_the_run,
-                    menu_chosen.run_if(in_state(Scene::Menu)),
-                    confirm_advances_the_scene,
-                )
+                (follow_scene, death_ends_the_run, confirm_advances_the_scene)
                     .chain()
                     .run_if(resource_exists::<State<Scene>>),
             )
@@ -430,30 +440,209 @@ fn give_starting_kit(inv: &mut Inventory) {
     inv.select_slot(0);
 }
 
-/// Up and down move the title card's cursor; `Quit` leaves the game.
+/// Is a menu on screen at all?
 ///
-/// Bound to the jump and down keys rather than to new ones, which is what
-/// `worldselect` does with the same list and for the same reason: the player
-/// has one pair of keys for "up" and "down" and a menu is not the place to
-/// teach them a second.
+/// The title card always, and a paused world. Not the world list, which is its
+/// own screen with its own keys — see `worldselect`.
+fn menu_is_up(scene: Res<State<Scene>>, paused: Res<Paused>) -> bool {
+    match scene.get() {
+        Scene::Menu => true,
+        Scene::Playing => paused.0,
+        Scene::WorldSelect | Scene::GameOver => false,
+    }
+}
+
+/// Keep [`Nav`] rooted at the card the current scene calls for.
 ///
-/// The exit is here and not in `confirm_advances_the_scene` because that
-/// function is deliberately the only thing in the tree that writes
-/// `NextState<Scene>`, and quitting is not a scene change.
-fn menu_chosen(
+/// Without this, opening Options from the pause card, quitting to the title and
+/// pressing Escape would pop back into a pause card over a world that is no
+/// longer there. The root follows the scene; the stack above it is the
+/// player's.
+fn root_the_menu(scene: Res<State<Scene>>, paused: Res<Paused>, mut nav: ResMut<Nav>) {
+    let want = match scene.get() {
+        Scene::Playing if paused.0 => menu::Page::Pause,
+        Scene::Menu => menu::Page::Title,
+        _ => return,
+    };
+    if nav.depth() == 1 && nav.top() != want {
+        nav.reset(want);
+    }
+}
+
+/// Everything the menus do: move, press, drag, and go back.
+///
+/// # Why this is one system and lives in `glue`
+///
+/// `ui::menu` owns the pages, the widgets and the arithmetic, and every bit of
+/// that is pure — it can be driven in a test with no app. What it cannot own is
+/// the CONSEQUENCES: "Singleplayer" is a scene change, "Back to Game" is a
+/// resource, "Quit Game" is an `AppExit`, and "Fullscreen" is a window. Those
+/// are four different halves of the game and joining them is what this module
+/// is for.
+///
+/// The whole interaction is here rather than split across a keyboard system and
+/// a mouse one, because both produce the same [`Action`]s and a second copy of
+/// the action table is how a menu ends up doing one thing on click and another
+/// on Enter.
+#[allow(clippy::too_many_arguments)]
+fn drive_menu(
     keys: Res<ButtonInput<KeyCode>>,
-    mut cursor: ResMut<MenuCursor>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    target: Option<Res<LowResTarget>>,
+    mut nav: ResMut<Nav>,
+    mut settings: ResMut<Settings>,
+    mut paused: ResMut<Paused>,
+    mut next: ResMut<NextState<Scene>>,
+    scene: Res<State<Scene>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let in_game = *scene.get() == Scene::Playing;
+    let rows = menu::page_rows(nav.top(), &settings, in_game);
+    if rows.is_empty() {
+        return;
+    }
     let bevy_keys = BevyKeys(&keys);
+    let view = target.as_ref().map(|t| t.view);
+
+    // --- The pointer, in buffer pixels --------------------------------------
+    //
+    // The buffer is upscaled to fill the window, so this is one division. It is
+    // `None` whenever there is no window, no cursor in it, or no target yet,
+    // and every mouse branch below is skipped rather than guessing at (0, 0).
+    let pointer = view.and_then(|view| {
+        let window = windows.iter().next()?;
+        let p = window.cursor_position()?;
+        let (ww, wh) = (window.width(), window.height());
+        (ww > 0.0 && wh > 0.0).then(|| {
+            IVec2::new(
+                (p.x / ww * view.w as f32) as i32,
+                (p.y / wh * view.h as f32) as i32,
+            )
+        })
+    });
+
+    // Hover moves the cursor, as it does in every menu this is modelled on.
+    if let (Some(view), Some(p)) = (view, pointer)
+        && let Some(row) = menu::row_at(view, nav.top(), rows.len(), nav.focus(), p.x, p.y)
+        && rows[row].control.selectable()
+    {
+        nav.focus_on(row);
+    }
+
+    // --- Moving -------------------------------------------------------------
     if bevy_keys.any_pressed(KEYS.jump) {
-        cursor.step(-1);
+        let to = menu::step_focus(&rows, nav.focus(), -1);
+        nav.focus_on(to);
     }
     if bevy_keys.any_pressed(KEYS.down) {
-        cursor.step(1);
+        let to = menu::step_focus(&rows, nav.focus(), 1);
+        nav.focus_on(to);
     }
-    if bevy_keys.any_pressed(KEYS.confirm) && cursor.item() == "Quit" {
-        exit.write(AppExit::Success);
+
+    // --- Dragging a slider --------------------------------------------------
+    //
+    // Held rather than just-pressed, so the handle follows the mouse. Left and
+    // right nudge it by a step, which is the only way to set one precisely and
+    // the only way to set one at all without a mouse.
+    let focused = rows.get(nav.focus());
+    if let Some(Control::Slider { of, at, .. }) = focused.map(|r| &r.control) {
+        let (of, at) = (*of, *at);
+        if let (Some(view), Some(p)) = (view, pointer)
+            && buttons.pressed(MouseButton::Left)
+            && let Some(row) = menu::row_at(view, nav.top(), rows.len(), nav.focus(), p.x, p.y)
+            && row == nav.focus()
+        {
+            let r = drag_rect(view, nav.top(), rows.len(), nav.focus());
+            of.set(&mut settings, menu::slider_at(r, p.x));
+        }
+        let mut nudge = 0.0;
+        if bevy_keys.any_pressed(KEYS.left) {
+            nudge -= Slide::KEY_STEP;
+        }
+        if bevy_keys.any_pressed(KEYS.right) {
+            nudge += Slide::KEY_STEP;
+        }
+        if nudge != 0.0 {
+            of.set(&mut settings, at + nudge);
+        }
+    }
+
+    // --- Pressing -----------------------------------------------------------
+    let clicked = pointer.is_some()
+        && buttons.just_pressed(MouseButton::Left)
+        && view.zip(pointer).is_some_and(|(view, p)| {
+            menu::row_at(view, nav.top(), rows.len(), nav.focus(), p.x, p.y) == Some(nav.focus())
+        });
+    let pressed = bevy_keys.any_pressed(KEYS.confirm) || clicked;
+
+    if pressed && let Some(action) = rows.get(nav.focus()).and_then(menu::activate) {
+        do_menu_action(
+            action,
+            &mut nav,
+            &mut settings,
+            &mut paused,
+            &mut next,
+            &mut exit,
+        );
+        return;
+    }
+
+    // --- Going back ---------------------------------------------------------
+    //
+    // Escape pops the stack, and at the ROOT it means whatever that root is
+    // for: leaving the pause card resumes, and there is nothing to leave on the
+    // title card. That single rule is why the stack is a stack.
+    if bevy_keys.any_pressed(KEYS.pause) && !nav.pop() && nav.top() == menu::Page::Pause {
+        paused.0 = false;
+    }
+}
+
+/// Where the focused row was drawn, for the slider drag.
+fn drag_rect(view: View, page: menu::Page, len: usize, focus: usize) -> Region {
+    let (first, count) = menu::visible_window(view, page, len, focus);
+    menu::slot_rect(view, page, count, focus.saturating_sub(first))
+}
+
+/// Carry out one menu [`Action`].
+///
+/// Split out so the navigation and the world actions can be tested through one
+/// entry point — `menu::apply_to_settings` covers the settings half purely, and
+/// this is the half that needs the app.
+fn do_menu_action(
+    action: Action,
+    nav: &mut Nav,
+    settings: &mut Settings,
+    paused: &mut Paused,
+    next: &mut NextState<Scene>,
+    exit: &mut MessageWriter<AppExit>,
+) {
+    if menu::apply_to_settings(action, settings) {
+        return;
+    }
+    match action {
+        Action::Open(page) => nav.push(page),
+        Action::Back => {
+            nav.pop();
+        }
+        // The title card asks WHICH world before starting one, exactly as it
+        // did before there were menus. See `confirm_advances_the_scene`.
+        Action::Play => next.set(Scene::WorldSelect),
+        Action::Resume => paused.0 = false,
+        // `autosave` runs in `Last` and is gated on a save directory, so the
+        // world is already on disk by the time this lands; there is nothing to
+        // flush here beyond leaving the scene.
+        Action::Quit => {
+            paused.0 = false;
+            nav.reset(menu::Page::Title);
+            next.set(Scene::Menu);
+        }
+        Action::Exit => {
+            exit.write(AppExit::Success);
+        }
+        // Handled by `apply_to_settings` above; listed so a new variant is a
+        // compile error here rather than a button that silently does nothing.
+        Action::Flip(_) | Action::Step(_) => {}
     }
 }
 
@@ -493,7 +682,6 @@ fn confirm_advances_the_scene(
     keys: Res<ButtonInput<KeyCode>>,
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
-    cursor: Res<MenuCursor>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.confirm) {
         return;
@@ -504,13 +692,10 @@ fn confirm_advances_the_scene(
         // sending the player back to a directory listing to do it would be a
         // different game.
         //
-        // Which row was chosen is `menu_chosen`'s business; this only knows
-        // that "Play" is the one that advances.
-        Scene::Menu => {
-            if cursor.item() == "Play" {
-                next.set(Scene::WorldSelect);
-            }
-        }
+        // `drive_menu` owns the title card now, including what confirm does
+        // on it. This must not also act, or pressing Enter on "Singleplayer"
+        // would advance the scene twice.
+        Scene::Menu => {}
         Scene::GameOver => next.set(Scene::Playing),
         // `WorldSelect` reads confirm itself — see `crate::worldselect` — and
         // this must not also act on it, or picking a world would start the
