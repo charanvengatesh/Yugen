@@ -26,8 +26,6 @@ pub struct Kind {
     pub schema: Schema,
     /// Directory under `content/`.
     pub dir: &'static str,
-    /// File extension, without the dot.
-    pub ext: &'static str,
     /// Output module name under `yugen-data/src/`.
     pub out: &'static str,
 }
@@ -39,37 +37,31 @@ pub fn kinds() -> Vec<Kind> {
         Kind {
             schema: block::schema(),
             dir: "blocks",
-            ext: "block",
             out: "blocks",
         },
         Kind {
             schema: item::schema(),
             dir: "items",
-            ext: "item",
             out: "items",
         },
         Kind {
             schema: mob::schema(),
             dir: "mobs",
-            ext: "mob",
             out: "mobs",
         },
         Kind {
             schema: sprite::schema(),
             dir: "sprites",
-            ext: "sprite",
             out: "sprites",
         },
         Kind {
             schema: structure::schema(),
             dir: "structures",
-            ext: "struct",
             out: "structs",
         },
         Kind {
             schema: feature::schema(),
             dir: "worldgen",
-            ext: "feature",
             out: "worldgen",
         },
     ]
