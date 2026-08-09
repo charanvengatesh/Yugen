@@ -36,6 +36,8 @@ purity suite and the benches never link a renderer.
   the port changed against the original, and where a new thing goes. Start here.
 - `docs/TUNING.md` — generated index of every tuned number in the game.
 - `content/FORMAT.md` — normative spec for the authoring format.
+- `docs/SAVE.md` — normative spec for the on-disk format, and the rules about
+  versioning it, what a save owns, and when one is written.
 - `crates/contentc/SCHEMA-AUTHORING.md` — how to add a field to the game.
 - `docs/ARCHITECTURE-ts-reference.md` — the TypeScript original's architecture.
   Kept because it is the reference this port is measured against, not because it

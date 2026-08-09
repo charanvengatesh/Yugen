@@ -2,6 +2,9 @@
 
 - `README.md` — the crate layout and what each one owns.
 - `content/FORMAT.md` — normative spec for the authoring format (TOML).
+- `docs/SAVE.md` — normative spec for the on-disk format. Read before touching
+  `sim/save.rs`: its versioning, ownership and cadence rules are policy, and the
+  file marks which clauses the code does not yet satisfy.
 - `crates/contentc/SCHEMA-AUTHORING.md` — how to add a field to the game.
 - `docs/ARCHITECTURE-ts-reference.md` — the TypeScript original's architecture.
   Kept because it is the reference this port is measured against, not because it
