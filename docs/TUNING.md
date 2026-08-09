@@ -687,44 +687,49 @@ only the exported surface is held to the rule.
 | `SUB_DENSITY` (private) | `0.24` |  | 524 |
 | `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 526 |
 
-### `crates/yugen-render/src/ambience.rs`
+### `crates/yugen-render/src/ambience/scan.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 124 |
-| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 131 |
-| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 143 |
-| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 147 |
-| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 154 |
-| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 161 |
-| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 164 |
-| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 168 |
-| `FIREFLY_MIREFEN` (private) | `0.6` | How much of a swamp's fireflies the Mirefen carries. | 173 |
-| `DRIP_SCALD` (private) | `0.7` | How much of a grotto's drip the Scald condenses. | 177 |
-| `GLINT_RIME` (private) | `0.65` | How much of a geode's glint the Rime Hollows throw. | 184 |
-| `CAVEDUST_DUST_HOLLOWS` (private) | `1.6` | How much MORE cave dust the Dust Hollows raise than the Stone Caverns that anchor the emitter. | 188 |
-| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 194 |
-| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 197 |
-| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 200 |
-| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 212 |
-| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 217 |
-| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 224 |
-| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 229 |
-| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 241 |
-| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 248 |
-| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 252 |
-| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 259 |
-| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 268 |
-| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 275 |
-| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 279 |
-| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 286 |
-| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 292 |
-| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 298 |
-| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 309 |
-| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 339 |
-| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 424 |
-| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 427 |
-| `HOT_STRIDE_CELLS` (private) | `4` | Cells between hot-list samples. | 804 |
+| `HOT_STRIDE_CELLS` (private) | `4` | Cells between hot-list samples. | 124 |
+
+### `crates/yugen-render/src/ambience/spawn.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 26 |
+| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 33 |
+| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 45 |
+| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 49 |
+| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 56 |
+| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 63 |
+| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 66 |
+| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 70 |
+| `FIREFLY_MIREFEN` (private) | `0.6` | How much of a swamp's fireflies the Mirefen carries. | 75 |
+| `DRIP_SCALD` (private) | `0.7` | How much of a grotto's drip the Scald condenses. | 79 |
+| `GLINT_RIME` (private) | `0.65` | How much of a geode's glint the Rime Hollows throw. | 86 |
+| `CAVEDUST_DUST_HOLLOWS` (private) | `1.6` | How much MORE cave dust the Dust Hollows raise than the Stone Caverns that anchor the emitter. | 90 |
+| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 96 |
+| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 99 |
+| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 102 |
+| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 114 |
+| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 119 |
+| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 126 |
+| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 131 |
+| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 143 |
+| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 150 |
+| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 154 |
+| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 161 |
+| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 170 |
+| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 177 |
+| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 181 |
+| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 188 |
+| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 194 |
+| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 200 |
+| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 211 |
+| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 241 |
+| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 326 |
+| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 329 |
 
 ### `crates/yugen-render/src/cellmap.rs`
 
