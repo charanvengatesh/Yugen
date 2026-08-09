@@ -26,6 +26,23 @@ pub enum ItemCategory {
     Accessory,
 }
 
+impl ItemCategory {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<ItemCategory> {
+        Some(match code {
+            0 => ItemCategory::Material,
+            1 => ItemCategory::Placeable,
+            2 => ItemCategory::Tool,
+            3 => ItemCategory::Weapon,
+            4 => ItemCategory::Consumable,
+            5 => ItemCategory::Accessory,
+            _ => return None,
+        })
+    }
+}
+
 /// Where it can be made. `hand` = anywhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -34,6 +51,21 @@ pub enum ItemCraftStation {
     Workbench,
     Furnace,
     Anvil,
+}
+
+impl ItemCraftStation {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<ItemCraftStation> {
+        Some(match code {
+            0 => ItemCraftStation::Hand,
+            1 => ItemCraftStation::Workbench,
+            2 => ItemCraftStation::Furnace,
+            3 => ItemCraftStation::Anvil,
+            _ => return None,
+        })
+    }
 }
 
 /// Classification bits. Also packed into ITEM_TAGS for masked tests.
@@ -59,6 +91,34 @@ pub enum ItemTags {
     Light,
 }
 
+impl ItemTags {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<ItemTags> {
+        Some(match code {
+            0 => ItemTags::Ore,
+            1 => ItemTags::Bar,
+            2 => ItemTags::Gem,
+            3 => ItemTags::Stone,
+            4 => ItemTags::Soil,
+            5 => ItemTags::Wood,
+            6 => ItemTags::Plant,
+            7 => ItemTags::Ice,
+            8 => ItemTags::Fuel,
+            9 => ItemTags::Pickaxe,
+            10 => ItemTags::Sword,
+            11 => ItemTags::Food,
+            12 => ItemTags::Relic,
+            13 => ItemTags::Buildable,
+            14 => ItemTags::Bow,
+            15 => ItemTags::Ammo,
+            16 => ItemTags::Light,
+            _ => return None,
+        })
+    }
+}
+
 /// Status applied on use. Names are the contract with the buff system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -68,6 +128,22 @@ pub enum ItemEffect {
     Fireward,
     Haste,
     Light,
+}
+
+impl ItemEffect {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<ItemEffect> {
+        Some(match code {
+            0 => ItemEffect::None,
+            1 => ItemEffect::Regen,
+            2 => ItemEffect::Fireward,
+            3 => ItemEffect::Haste,
+            4 => ItemEffect::Light,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

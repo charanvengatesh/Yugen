@@ -42,6 +42,37 @@ pub fn schema() -> Schema {
 | `default: (d) => ...` | `.default_fn(\|d\| Some(Value::Str(d.str_of("id").into())))` — return `Option<Value>` |
 | `map: STATE` | `.map(&[("empty", 0), ("solid", 1), ...])` |
 | `tsAlias: "BlockTexture"` | `.alias("BlockTexture")` |
+
+### Enums the game reads as a number
+
+An `enum(...)` field emits a named Rust enum, and a field typed as one arrives
+already typed on the def struct. A **mapped** enum does not: `.map(...)` turns
+the variant into a code, so the def holds a number.
+
+That is the right default — an enum nothing names would be dead — right up
+until the field is also `hot`. Then it lands in a flat `u8` array, and whatever
+loop reads that array has to turn the byte back into a variant. There is only
+one place that can happen, and before `.alias(...)` opted into it, that place
+was a hand-written copy of the same variant list somewhere in `yugen-core`,
+with the codes load-bearing on both sides and nothing checking they agreed.
+
+**Naming a mapped enum is how a schema says the game meets this one as a
+number.** `contentc` then emits the enum *and* a total
+`from_code(u8) -> Option<T>`, and the consumer imports both instead of restating
+them:
+
+```rust
+Field::new(&enum_of(KIND))
+    .alias("FeatureKind")   // <- emits the enum and its from_code
+    .map(KIND)
+    .required()
+    .hot(vec![table("FEAT_KIND", ArrayKind::U8, 0.0, "Generator code.", ...)])
+```
+
+`from_code` returns `Option` and never defaults. A code this build does not know
+is a variant added by content it has not caught up with; what to do about that
+differs per field — a placement class falls back to the safest lattice, a
+generator grows nothing — so the decision stays with the caller.
 | `tsElement` + `fields` | `.element("BlockDrop", vec![("item".into(), Field::new("ref(item)").required()), ...])` |
 | `check: (v) => msg \| undefined` | `.check(\|v\| ...Option<String>)`, or `.between(0.0, 255.0)` for a range |
 | `hot: true` + `hotArray` | `.hot(vec![table(...)])` — always a `Vec`, even for one |

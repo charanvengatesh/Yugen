@@ -99,6 +99,7 @@ pub fn schema() -> Schema {
                     .doc(
                         "Which generator in src/sim/gen/features.ts grows this. Adding one needs code.",
                     )
+                    .alias("FeatureKind")
                     .map(KIND)
                     .required()
                     .hot(vec![table(
@@ -115,6 +116,7 @@ pub fn schema() -> Schema {
                     .doc(
                         "Which lattice offers a site: a 1D column grid for sky/surface, 2D for underground.",
                     )
+                    .alias("FeaturePlace")
                     .map(PLACE)
                     .required()
                     .hot(vec![table(

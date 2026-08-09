@@ -619,8 +619,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SHAFT_FREQ` (private) | `0.011` | Abandoned mineshaft. | 543 |
-| `SHAFT_ANCHOR` (private) | `517.3` | Abandoned mineshaft. | 544 |
+| `SHAFT_FREQ` (private) | `0.011` | Abandoned mineshaft. | 506 |
+| `SHAFT_ANCHOR` (private) | `517.3` | Abandoned mineshaft. | 507 |
 
 ### `crates/yugen-core/src/sim/worldgen/fields.rs`
 

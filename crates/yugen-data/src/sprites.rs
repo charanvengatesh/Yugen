@@ -27,6 +27,29 @@ pub enum SpriteSeqState {
     Hurt,
 }
 
+impl SpriteSeqState {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<SpriteSeqState> {
+        Some(match code {
+            0 => SpriteSeqState::Idle,
+            1 => SpriteSeqState::Run,
+            2 => SpriteSeqState::Skid,
+            3 => SpriteSeqState::Jump,
+            4 => SpriteSeqState::DoubleJump,
+            5 => SpriteSeqState::Fall,
+            6 => SpriteSeqState::Land,
+            7 => SpriteSeqState::Dash,
+            8 => SpriteSeqState::WallSlide,
+            9 => SpriteSeqState::Swim,
+            10 => SpriteSeqState::Punch,
+            11 => SpriteSeqState::Hurt,
+            _ => return None,
+        })
+    }
+}
+
 /// How the frames are stepped. Names are the contract with the runtime's
 /// picker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,6 +60,22 @@ pub enum SpriteSeqMode {
     Once,
     Phase,
     Ambient,
+}
+
+impl SpriteSeqMode {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<SpriteSeqMode> {
+        Some(match code {
+            0 => SpriteSeqMode::Hold,
+            1 => SpriteSeqMode::Loop,
+            2 => SpriteSeqMode::Once,
+            3 => SpriteSeqMode::Phase,
+            4 => SpriteSeqMode::Ambient,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -30,6 +30,25 @@ pub enum BlockTexture {
     Glassy,
 }
 
+impl BlockTexture {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<BlockTexture> {
+        Some(match code {
+            0 => BlockTexture::Flat,
+            1 => BlockTexture::Speckle,
+            2 => BlockTexture::Grain,
+            3 => BlockTexture::Crystalline,
+            4 => BlockTexture::Layered,
+            5 => BlockTexture::Fibrous,
+            6 => BlockTexture::Molten,
+            7 => BlockTexture::Glassy,
+            _ => return None,
+        })
+    }
+}
+
 /// Player-contact effect on a solid surface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -39,6 +58,22 @@ pub enum BlockSurface {
     ConveyorL,
     ConveyorR,
     Sticky,
+}
+
+impl BlockSurface {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<BlockSurface> {
+        Some(match code {
+            0 => BlockSurface::Ice,
+            1 => BlockSurface::Bounce,
+            2 => BlockSurface::ConveyorL,
+            3 => BlockSurface::ConveyorR,
+            4 => BlockSurface::Sticky,
+            _ => return None,
+        })
+    }
 }
 
 /// Classification bits. Also packed into MAT_TAGS for hot-path tests.
@@ -56,6 +91,28 @@ pub enum BlockTags {
     Hazard,
     Diggable,
     Buildable,
+}
+
+impl BlockTags {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<BlockTags> {
+        Some(match code {
+            0 => BlockTags::Rock,
+            1 => BlockTags::Soil,
+            2 => BlockTags::Ore,
+            3 => BlockTags::Liquid,
+            4 => BlockTags::Gas,
+            5 => BlockTags::Flora,
+            6 => BlockTags::Foliage,
+            7 => BlockTags::Ice,
+            8 => BlockTags::Hazard,
+            9 => BlockTags::Diggable,
+            10 => BlockTags::Buildable,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

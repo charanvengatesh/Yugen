@@ -575,8 +575,24 @@ fn collect_enums(schema: &Schema) -> Result<Vec<EnumDecl>> {
         while let TypeNode::List(of) = node {
             node = *of;
         }
+        // A MAPPED enum is emitted only when it is also aliased, and the alias
+        // is the opt-in.
+        //
+        // Mapping turns a variant into a number, so the def struct holds a
+        // number and an emitted enum would normally be a type nothing names —
+        // which is why mapped fields were skipped outright. But a mapped field
+        // is usually also `hot`, and the loop reading that flat `u8` array has
+        // to turn the byte back into a variant somewhere. Skipping it meant
+        // that somewhere was a hand-written copy of the same list in
+        // `yugen-core`, with the codes load-bearing on both sides and nothing
+        // checking they agreed.
+        //
+        // So: naming one is how a schema says "the game reads this as a
+        // number and needs the vocabulary back". Unnamed mapped fields still
+        // emit nothing, so no dead enum appears for a code the game never
+        // converts.
         if let TypeNode::Enum(values) = node
-            && field.map.is_none()
+            && (field.map.is_none() || field.alias.is_some())
         {
             found.push((enum_name(scope, key, field), values, field.doc.clone()));
         }
@@ -651,6 +667,42 @@ fn print(
         for v in values {
             out.push(format!("    {},", names::pascal(v)));
         }
+        out.push("}".to_string());
+        out.push(String::new());
+
+        // A converter from the code, for the enums the game meets as a NUMBER.
+        //
+        // A field typed as one of these arrives already typed on the def
+        // struct, and needs nothing. A field that is also `hot` does not: it
+        // lands in a flat `u8` array, and the per-cell loop that reads it has
+        // to turn the byte back into the variant. Before this existed the only
+        // way to do that was to write the enum out a second time by hand
+        // beside the loop — see the git history of
+        // `yugen-core/src/sim/worldgen/features.rs`, which carried a copy of
+        // this exact list with a comment admitting the values were
+        // "load-bearing on both sides".
+        //
+        // `Option` rather than a default, and total rather than panicking. A
+        // code this build does not know is a variant added by content it has
+        // not caught up with, and the honest answer is "I do not have that
+        // one". What to DO about that is the caller's decision and differs by
+        // field — the placement class falls back to the safest lattice, the
+        // generator grows nothing — so the emitted converter refuses to make
+        // it for them.
+        out.push(format!("impl {name} {{"));
+        out.push("    /// The variant a compiled code stands for, or `None` if this".to_string());
+        out.push("    /// build has no such variant.".to_string());
+        out.push("    #[inline]".to_string());
+        out.push(format!(
+            "    pub const fn from_code(code: u8) -> Option<{name}> {{"
+        ));
+        out.push("        Some(match code {".to_string());
+        for (i, v) in values.iter().enumerate() {
+            out.push(format!("            {i} => {name}::{},", names::pascal(v)));
+        }
+        out.push("            _ => return None,".to_string());
+        out.push("        })".to_string());
+        out.push("    }".to_string());
         out.push("}".to_string());
         out.push(String::new());
     }

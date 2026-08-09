@@ -20,6 +20,22 @@ pub enum MobBrain {
     Burrower,
 }
 
+impl MobBrain {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobBrain> {
+        Some(match code {
+            0 => MobBrain::Walker,
+            1 => MobBrain::Hopper,
+            2 => MobBrain::Flyer,
+            3 => MobBrain::Skitter,
+            4 => MobBrain::Burrower,
+            _ => return None,
+        })
+    }
+}
+
 /// Damage tags this creature ignores entirely — a fire elemental should not
 /// burn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,6 +48,22 @@ pub enum MobSpecImmune {
     Poison,
 }
 
+impl MobSpecImmune {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobSpecImmune> {
+        Some(match code {
+            0 => MobSpecImmune::Fire,
+            1 => MobSpecImmune::Acid,
+            2 => MobSpecImmune::Ice,
+            3 => MobSpecImmune::Impact,
+            4 => MobSpecImmune::Poison,
+            _ => return None,
+        })
+    }
+}
+
 /// Depth bands this may spawn in. The coarse habitat knob.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -40,6 +72,21 @@ pub enum MobSpecBands {
     Shallow,
     Cavern,
     Deep,
+}
+
+impl MobSpecBands {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobSpecBands> {
+        Some(match code {
+            0 => MobSpecBands::Surface,
+            1 => MobSpecBands::Shallow,
+            2 => MobSpecBands::Cavern,
+            3 => MobSpecBands::Deep,
+            _ => return None,
+        })
+    }
 }
 
 /// What it throws. Speed, size and on-hit rider come from the table in
@@ -53,6 +100,21 @@ pub enum MobProjectile {
     Stone,
 }
 
+impl MobProjectile {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobProjectile> {
+        Some(match code {
+            0 => MobProjectile::IceShard,
+            1 => MobProjectile::Ember,
+            2 => MobProjectile::Spore,
+            3 => MobProjectile::Stone,
+            _ => return None,
+        })
+    }
+}
+
 /// Which pose this sequence supplies. Closed vocabulary — a typo is a build
 /// error. The facade names this union `MobPose`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -61,6 +123,20 @@ pub enum MobSpecSeqState {
     Idle,
     Move,
     Air,
+}
+
+impl MobSpecSeqState {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobSpecSeqState> {
+        Some(match code {
+            0 => MobSpecSeqState::Idle,
+            1 => MobSpecSeqState::Move,
+            2 => MobSpecSeqState::Air,
+            _ => return None,
+        })
+    }
 }
 
 /// How the frames are stepped. Names are the contract with the runtime's
@@ -73,6 +149,22 @@ pub enum MobSpecSeqMode {
     Once,
     Phase,
     Ambient,
+}
+
+impl MobSpecSeqMode {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<MobSpecSeqMode> {
+        Some(match code {
+            0 => MobSpecSeqMode::Hold,
+            1 => MobSpecSeqMode::Loop,
+            2 => MobSpecSeqMode::Once,
+            3 => MobSpecSeqMode::Phase,
+            4 => MobSpecSeqMode::Ambient,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

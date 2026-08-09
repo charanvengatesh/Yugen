@@ -61,67 +61,30 @@ pub use yugen_data::worldgen::{
     FEAT_SIZE0, FEAT_SIZE1, FEATURE_COUNT, FEATURE_IDS, FEATURES, FeatureDef, FeatureMat, feature,
 };
 
-// --- Codes mirrored from crates/contentc/src/schemas/feature.rs --------------
-// The schema maps these to numbers so this file matches on an enum. Values are
-// load-bearing on both sides; written out rather than imported because
-// `contentc` is the compiler and must not enter the game.
+// --- The compiled vocabularies ----------------------------------------------
+//
+// `FeatureKind` and `FeaturePlace` are GENERATED, and used to be written out
+// here by hand with a comment conceding the codes were "load-bearing on both
+// sides". They were: the schema assigned the numbers, this file restated them,
+// and nothing checked the two lists agreed. Adding a generator meant editing
+// both and remembering which order the variants were in.
+//
+// `contentc` emits the enum and its `from_code` now — see `collect_enums`,
+// where naming a mapped enum is the opt-in that says the game meets this one as
+// a number and needs the vocabulary back.
 
-/// Which generator grows this feature. Adding one needs code.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Kind {
-    Island = 0,
-    Mineshaft = 1,
-    Dungeon = 2,
-    Lake = 3,
-    Geode = 4,
-    Grove = 5,
-    OreBlob = 6,
-}
+pub use yugen_data::worldgen::{FeatureKind as Kind, FeaturePlace as Place};
 
-impl Kind {
-    /// The code the compiled `FEAT_KIND` table holds. Total: an unknown code
-    /// falls through the placement match and grows nothing, which is what a
-    /// generator this build does not have should do.
-    #[inline]
-    fn from_code(c: u8) -> Option<Kind> {
-        Some(match c {
-            0 => Kind::Island,
-            1 => Kind::Mineshaft,
-            2 => Kind::Dungeon,
-            3 => Kind::Lake,
-            4 => Kind::Geode,
-            5 => Kind::Grove,
-            6 => Kind::OreBlob,
-            _ => return None,
-        })
-    }
-}
-
-/// How the origin is found. `Sky` and `Surface` scan a 1D COLUMN grid and derive
-/// the row from the ground line — a lake has to be at the surface by definition,
-/// and scanning a 2D grid for it would spend most of its hashes underground.
-/// `Underground` scans a real 2D grid and gates on depth.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Place {
-    Sky = 0,
-    Surface = 1,
-    Underground = 2,
-}
-
-impl Place {
-    /// The code the compiled `FEAT_PLACE` table holds. Total, defaulting to the
-    /// 2D lattice — the class that gates on depth and therefore cannot spray a
-    /// feature across the sky if content ever grows a code this build lacks.
-    #[inline]
-    fn from_code(c: u8) -> Place {
-        match c {
-            0 => Place::Sky,
-            1 => Place::Surface,
-            _ => Place::Underground,
-        }
-    }
+/// Which lattice offers a site, defaulting to the 2D one.
+///
+/// The generated `from_code` is honest and returns `None` for a code this build
+/// does not have; what to DO about that is this file's decision and not the
+/// compiler's. Falling back to `Underground` is the safe answer, because it is
+/// the class that gates on depth and therefore cannot spray a feature across
+/// the sky if content grows a placement class before the game does.
+#[inline]
+fn place_of(code: u8) -> Place {
+    Place::from_code(code).unwrap_or(Place::Underground)
 }
 
 const AIR: CellId = 0;
@@ -209,7 +172,7 @@ fn build(def: &'static FeatureDef) -> Option<Feat> {
         return None; // tombstone (FORMAT.md §4)
     }
     let m = def.mat;
-    let place = Place::from_code(def.place);
+    let place = place_of(def.place);
     let clear0 = def.clearance[0] as i32;
     let clear1 = def.clearance[1] as i32;
 
@@ -998,7 +961,7 @@ fn offer(ctx: &mut DecorContext<'_>, f: &Feat, gx: i32, gy: i32) {
         Some(Kind::Dungeon) => grow_dungeon(ctx, f, ox, oy),
         Some(Kind::Geode) => grow_geode(ctx, f, ox, oy),
         Some(Kind::Grove) => grow_grove(ctx, f, ox, oy),
-        Some(Kind::OreBlob) => grow_ore_blob(ctx, f, ox, oy, depth),
+        Some(Kind::Oreblob) => grow_ore_blob(ctx, f, ox, oy, depth),
         // island/lake are column-placed; a new kind must add an arm
         _ => {}
     }

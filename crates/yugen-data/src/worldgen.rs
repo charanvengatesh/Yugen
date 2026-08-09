@@ -7,6 +7,62 @@
 
 #![allow(clippy::all)]
 
+/// Which generator in src/sim/gen/features.ts grows this. Adding one needs
+/// code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum FeatureKind {
+    Island,
+    Mineshaft,
+    Dungeon,
+    Lake,
+    Geode,
+    Grove,
+    Oreblob,
+}
+
+impl FeatureKind {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<FeatureKind> {
+        Some(match code {
+            0 => FeatureKind::Island,
+            1 => FeatureKind::Mineshaft,
+            2 => FeatureKind::Dungeon,
+            3 => FeatureKind::Lake,
+            4 => FeatureKind::Geode,
+            5 => FeatureKind::Grove,
+            6 => FeatureKind::Oreblob,
+            _ => return None,
+        })
+    }
+}
+
+/// Which lattice offers a site: a 1D column grid for sky/surface, 2D for
+/// underground.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum FeaturePlace {
+    Sky,
+    Surface,
+    Underground,
+}
+
+impl FeaturePlace {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<FeaturePlace> {
+        Some(match code {
+            0 => FeaturePlace::Sky,
+            1 => FeaturePlace::Surface,
+            2 => FeaturePlace::Underground,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FeatureMat {
     /// Outer skin: island rock, dungeon wall, geode crust, lake bed lining.

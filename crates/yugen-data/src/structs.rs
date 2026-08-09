@@ -23,6 +23,22 @@ pub enum StructBands {
     Underworld,
 }
 
+impl StructBands {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<StructBands> {
+        Some(match code {
+            0 => StructBands::Surface,
+            1 => StructBands::Shallow,
+            2 => StructBands::Cavern,
+            3 => StructBands::Deep,
+            4 => StructBands::Underworld,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StructGlyph {
     /// The single character used in `body`.
