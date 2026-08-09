@@ -34,6 +34,7 @@
 
 use super::bytes::Reader;
 use super::chunk::CELLS;
+use super::meta::{MetaStamps, WORLD_NAME_MAX};
 use super::run::{BodyState, RunState};
 use crate::config::CHUNK_CELLS;
 use crate::sim::chunk::ChunkSnapshot;
@@ -153,6 +154,46 @@ pub fn decode_run_v2(bytes: &[u8]) -> Option<RunState> {
         selected,
         worn,
     })
+}
+
+/// Read a version-1 identity file.
+///
+/// Magic, version, seed, name length, name. That is all version 1 recorded, so
+/// every stamp version 2 adds has to be invented here — and what each absence is
+/// taken to mean is a decision, not a default:
+///
+///   `created_at`   **0**, meaning unknown. Not "now": a world made last year
+///                  would start claiming it was made the moment its owner first
+///                  ran a build that could ask.
+///   `last_played`  **0**, and the caller substitutes `run.save`'s mtime. That
+///                  is exactly what version 1 did, so an unmigrated world keeps
+///                  the ordering it has always had rather than jumping to the
+///                  top or the bottom of the list.
+///   `play_seconds` **0**. The time was never counted and cannot be recovered.
+///   `permadeath`   **false**. It did not exist, so no world predating it was
+///                  created under it — and guessing the other way would turn a
+///                  player's existing world into one that deletes itself.
+pub fn decode_meta_v1(bytes: &[u8]) -> Option<(String, u32, MetaStamps)> {
+    let mut r = Reader { bytes, at: 0 };
+    if r.take(4)? != *b"GGWD" || r.u16()? != 1 {
+        return None;
+    }
+    let seed = r.u32()?;
+    let n = r.u16()? as usize;
+    if n > WORLD_NAME_MAX {
+        return None;
+    }
+    let name = std::str::from_utf8(r.take(n)?).ok()?.to_string();
+    (r.at == bytes.len()).then_some((
+        name,
+        seed,
+        MetaStamps {
+            created_at: 0,
+            last_played: 0,
+            play_seconds: 0,
+            permadeath: false,
+        },
+    ))
 }
 
 #[cfg(test)]

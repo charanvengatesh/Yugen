@@ -21,6 +21,7 @@ described an intention as a fact would be worse than no spec.
     <slug>/                   one world
       world.meta              GGWD  identity
       run.save                GGRN  the run
+      run.save.bak            GGRN  the previous good run
       chunks/<x>_<y>.chunk    GGCH  one diverged chunk each
 ```
 
@@ -47,6 +48,10 @@ costs one chunk of edits rather than the world.
   another program can also write to.
 - **Writes are atomic** — write `.tmp`, rename into place. A half-written run
   file would load as no run at all.
+- **The run file keeps one backup.** The rename guarantees a file is *whole* and
+  says nothing about it being *good*, and from the outside both failures are the
+  same `None`. `read_run` falls back to `run.save.bak` — a run one save behind
+  beats a body at spawn with an empty pack standing in terrain it clearly dug.
 
 ### `<x>_<y>.chunk` — `GGCH`, version 2, a plane table
 
@@ -150,17 +155,31 @@ silently reassigned code turns the player's gold into gravel.
 phase and pose are per-frame state, and a body that loads mid-flinch is carrying
 a moment that no longer exists.
 
-### `world.meta` — `GGWD`, version 1
+### `world.meta` — `GGWD`, version 2
 
-Magic (4), version (2), `seed` u32, name length u16, name UTF-8 (≤ 48 bytes).
-Trailing bytes are refused. The seed is recorded at **creation**, because a
-world that has never been saved has no run file and would otherwise have no seed
-until the first autosave.
+Magic (4), version (2), `seed` u32, `created_at` u64, `last_played` u64,
+`play_seconds` u64, flags u8 (bit 0 = permadeath), name length u16, name UTF-8
+(≤ 48 bytes). Trailing bytes are refused.
 
-`list_worlds` orders by the mtime of `run.save`, newest first, never-played
-last, ties broken by directory name. A directory with no readable `world.meta`
-is skipped rather than reported — the saves root is somewhere a player may have
-put something of their own.
+Flat rather than sectioned, unlike the run file: a run gains a field every time
+the game gains a mechanic, this gains one about as often as the concept of "a
+world" changes.
+
+The seed is recorded at **creation**, because a world that has never been saved
+has no run file and would otherwise have no seed until the first autosave.
+**Permadeath is likewise chosen at creation and lives here, not in
+`options.txt`** — it changes what the files mean, and a global toggle would let
+a player turn it off after dying.
+
+`list_worlds` orders by `last_played`, newest first, ties broken by directory
+name. A directory with no readable `world.meta` is skipped rather than reported.
+
+**Version 1 is migrated, not refused** — `save/legacy.rs::decode_meta_v1`. It
+had no stamps, so each absence is a stated decision: `created_at` 0 meaning
+unknown rather than "now"; `last_played` 0, with the caller substituting
+`run.save`'s mtime so a migrated world keeps the list position it has always
+had; `play_seconds` 0, never counted; `permadeath` false, because no world
+predating the flag was created under it.
 
 ---
 
@@ -168,8 +187,9 @@ put something of their own.
 
 ### 1. Versioning has three levels
 
-**`run.save` (v3) and `<x>_<y>.chunk` (v2) implement all three. `world.meta`
-does not yet — it is still a version equality and a refusal.**
+**All three formats now implement all three levels.** `run.save` is at v3,
+`<x>_<y>.chunk` at v2, `world.meta` at v2, and each has a retired reader for the
+version before it.
 
 1. **The envelope version.** Bumping it is a hard event and the only thing that
    may ever cost a player a world. Old envelopes are read by *retired readers*
@@ -247,8 +267,8 @@ Each of these is a decision nobody wrote down, now written down.
 |---|---|
 | Dropped items (`GroundItems`) | **Yes** — blocks `docs/DEATH.md` |
 | Respawn point, death cause, death count | **Yes** — `docs/DEATH.md` needs them |
-| Permadeath flag | **Yes**, and it is a world property, not a setting |
-| Created-at / last-played / play time | **Yes** — mtime is destroyed by a backup or a `cp -r` |
+| ~~Permadeath flag~~ | Recorded in `world.meta` v2; no UI chooses it yet |
+| ~~Created-at / last-played / play time~~ | Done — `world.meta` v2 |
 | Content stamp | As a **warning**, never a refusal |
 | Creatures, projectiles, automata cross-tick state | No — re-derived, correctly |
 | Brush radius, pause state, screen shake, coyote time | No — per-frame, correctly |

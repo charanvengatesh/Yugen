@@ -337,7 +337,7 @@ fn the_world_select_screen_is_reachable_and_paints() {
     let root = std::env::temp_dir().join("yugen-worldselect-capture");
     let _ = std::fs::remove_dir_all(&root);
     for (name, seed) in [("Home", 2334u32), ("The Deep Below", 777)] {
-        yugen_core::sim::save::create_world(&root, name, seed).expect("create");
+        yugen_core::sim::save::create_world(&root, name, seed, false).expect("create");
     }
 
     let mut app = common::headless_game("Yūgen world select");

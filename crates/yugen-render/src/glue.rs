@@ -702,7 +702,10 @@ fn do_menu_action(action: Action, m: &mut Menu) {
         Action::NewWorld => {
             let name = format!("{AUTO_NAME} {}", m.picker.worlds.len() + 1);
             let root = m.picker.root.clone();
-            match create_world(root, &name, fresh_seed()) {
+            // Permadeath is off until there is a UI to choose it at creation.
+            // It is a world property, so this is the ONLY place it can be set,
+            // and a menu row is a separate change.
+            match create_world(root, &name, fresh_seed(), false) {
                 Ok(made) => {
                     m.picker.refresh();
                     // Land on what was just made, wherever the recency sort put

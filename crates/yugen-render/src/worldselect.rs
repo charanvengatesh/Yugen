@@ -272,6 +272,10 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(i, n)| WorldMeta {
+                    created_at: 0,
+                    last_played: 0,
+                    play_seconds: 0,
+                    permadeath: false,
                     name: (*n).to_string(),
                     seed: 1000 + i as u32,
                     dir: format!("/tmp/nowhere/{n}").into(),

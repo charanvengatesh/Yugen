@@ -529,8 +529,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `META_VERSION` (private) | `1` | Identity-file version. | 22 |
-| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 29 |
+| `META_VERSION` (private) | `2` | Identity-file version. | 28 |
+| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 35 |
 
 ### `crates/yugen-core/src/sim/save/run.rs`
 

@@ -281,6 +281,15 @@ pub fn write_run(dir: impl AsRef<Path>, run: &RunState) -> io::Result<()> {
     let path = run_path(&dir);
     let tmp = path.with_extension("save.tmp");
     fs::write(&tmp, encode_run(run))?;
+    // Keep the last good file before replacing it. The temp+rename above already
+    // guarantees a run file is WHOLE; it guarantees nothing about it being GOOD,
+    // and the two failures look identical from the outside — a decode that
+    // returns `None` costs the player their position and their pack either way.
+    // A backup makes the one non-idempotent step in the module recoverable.
+    //
+    // Errors are ignored on purpose: there is no backup to make on the first
+    // save, and failing to keep one must never stop the save that matters.
+    let _ = fs::rename(&path, path.with_extension("save.bak"));
     fs::rename(&tmp, &path)
 }
 
@@ -291,8 +300,17 @@ pub fn write_run(dir: impl AsRef<Path>, run: &RunState) -> io::Result<()> {
 /// All four mean the same thing to the caller — start fresh — and distinguishing
 /// them would only tempt somebody to load three of the four anyway.
 pub fn read_run(dir: impl AsRef<Path>, seed: u32) -> Option<RunState> {
-    let bytes = fs::read(run_path(&dir)).ok()?;
-    decode_run(&bytes).filter(|r| r.seed == seed)
+    let good = |p: PathBuf| {
+        fs::read(p)
+            .ok()
+            .and_then(|b| decode_run(&b))
+            .filter(|r| r.seed == seed)
+    };
+    // The backup is tried only when the live file does not decode. A run one
+    // save behind is a far better answer than no run at all, and the alternative
+    // — starting the player at spawn with an empty pack beside terrain they
+    // clearly dug — is the failure that reads as the game having lost the world.
+    good(run_path(&dir)).or_else(|| good(run_path(&dir).with_extension("save.bak")))
 }
 
 #[cfg(test)]
@@ -376,6 +394,35 @@ mod tests {
             out.extend_from_slice(payload);
         }
         out
+    }
+
+    #[test]
+    fn a_run_that_will_not_decode_falls_back_to_the_one_before_it() {
+        // The temp+rename dance guarantees a run file is WHOLE and says nothing
+        // about it being GOOD. From the outside the two failures are the same
+        // `None`, and both cost the player their position and their pack — so
+        // the last known-good file is kept and tried.
+        let dir = scratch("bakfall");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let first = a_run();
+        write_run(&dir, &first).expect("first save");
+        let second = RunState {
+            clock_t: 999.0,
+            ..a_run()
+        };
+        write_run(&dir, &second).expect("second save");
+
+        assert_eq!(read_run(&dir, first.seed).as_ref(), Some(&second));
+
+        // Corrupt the live file. A run one save behind beats no run at all: the
+        // alternative is a body at spawn with an empty pack, standing in terrain
+        // it clearly dug, which reads as the game having lost the world.
+        std::fs::write(run_path(&dir), b"not a run at all").expect("clobber");
+        assert_eq!(
+            read_run(&dir, first.seed).as_ref(),
+            Some(&first),
+            "the backup was not consulted"
+        );
     }
 
     #[test]
