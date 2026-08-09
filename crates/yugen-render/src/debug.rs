@@ -135,6 +135,14 @@ pub struct DebugReadout {
     pub clock: Option<(f32, &'static str)>,
     /// Live particles.
     pub particles: usize,
+    /// Reads and writes the save backend could not complete.
+    ///
+    /// Shown ONLY when it is non-zero, and shown at all because the alternative
+    /// is the worst failure a save system has: a full disk, a read-only volume
+    /// or a directory the process no longer owns makes every write do nothing,
+    /// and until now nothing told the player. The count was already kept — see
+    /// `DiskChunkPersistence::errors` — and simply had no reader.
+    pub save_errors: usize,
     /// Prims in this frame's display list, and quads in the painter's pool.
     ///
     /// The overlay's own cost, which nothing else reports. The pool only ever
@@ -273,6 +281,18 @@ pub fn overlay(r: &DebugReadout, chrome: Chrome) -> Vec<UiPrim> {
             r.draw.0, r.draw.1, r.particles
         ),
     ));
+    // Absent when it is zero, which is the normal case and the only case worth
+    // keeping quiet about. A row that always read `save  0 errors` is a row
+    // people stop seeing, and this one has to be noticed the once.
+    if r.save_errors > 0 {
+        rows.push((
+            "SAVE",
+            format!(
+                "{} failed read/write — disk full or read-only?",
+                r.save_errors
+            ),
+        ));
+    }
 
     let region = chrome.instrument;
     let w = PANEL_W.min(region.w);
@@ -413,6 +433,10 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
         out.view = (target.view.w, target.view.h, target.view.zoom);
     }
     out.particles = src.particles.as_ref().map_or(0, |p| p.live_count());
+    out.save_errors = src
+        .world
+        .as_ref()
+        .map_or(0, |w| w.window.store().persistence_errors());
     out.draw = (
         src.frame.as_ref().map_or(0, |f| f.prims.len()),
         src.quads.as_ref().map_or(0, |q| q.pool_len()),

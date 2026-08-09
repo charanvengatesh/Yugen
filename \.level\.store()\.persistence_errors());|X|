@@ -1,0 +1,6 @@
+    out.particles = src.particles.as_ref()w|p| p.live_count());
+        w|w| w.level.store().persistence_errors());
+        src.frame.as_ref()w|f| f.prims.len()),
+        src.quads.as_ref()w|q| q.pool_len()),
+    out.mobs = src.creatures.as_ref()w|c| c.0.count());
+    out.xp = src.creatures.as_ref()w|c| c.0.xp_banked());

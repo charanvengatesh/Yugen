@@ -276,8 +276,11 @@ Each of these is a decision nobody wrote down, now written down.
 
 Two more worth naming:
 
-- `DiskChunkPersistence::errors()` counts read and write failures and **nothing
-  displays it**, so a read-only disk fails silently.
+- ~~`DiskChunkPersistence::errors()` counted failures that nothing displayed~~ —
+  fixed. `ChunkPersistence::errors` is on the trait (defaulting to zero, which
+  the in-memory backend answers honestly by not overriding), and the F3 panel
+  shows a `SAVE` row when it is non-zero. Absent at zero, so the row has to be
+  noticed the once.
 - ~~`settings::path_beside` derived the settings path from the saves
   directory's parent~~ — fixed. `settings::path_in_root` takes the data root,
   which is the real concept, and `main.rs` derives the root once.

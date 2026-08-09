@@ -90,6 +90,26 @@ pub trait ChunkPersistence: Send + Sync {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Reads and writes this backend could not complete.
+    ///
+    /// **A save system's worst failure is the silent one.** A full disk, a
+    /// read-only volume, a directory the process no longer owns — every one of
+    /// them makes `write` do nothing, and nothing above this trait can tell the
+    /// difference between "saved" and "quietly did not". So the trait carries
+    /// the count, and the host is expected to put it somewhere a player can see
+    /// it.
+    ///
+    /// A count and not a log or an error, because `yugen-core` has no logger and
+    /// should not grow one, and because a backend that returned `Result` from
+    /// `write` would push a decision onto the sim that the sim cannot make: it
+    /// cannot stop, cannot retry usefully, and must not panic.
+    ///
+    /// Defaults to zero. A backend with nowhere to fail — the in-memory one —
+    /// answers honestly by not overriding this.
+    fn errors(&self) -> usize {
+        0
+    }
 }
 
 /// One retained snapshot plus its place in the recency order.
@@ -435,6 +455,13 @@ impl ChunkStore {
     #[inline]
     pub fn persisted_len(&self) -> usize {
         self.persistence.len()
+    }
+
+    /// Reads and writes the backend could not complete. See
+    /// [`ChunkPersistence::errors`].
+    #[inline]
+    pub fn persistence_errors(&self) -> usize {
+        self.persistence.errors()
     }
 }
 

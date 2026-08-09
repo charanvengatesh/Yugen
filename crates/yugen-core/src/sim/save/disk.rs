@@ -76,6 +76,10 @@ impl DiskChunkPersistence {
 }
 
 impl ChunkPersistence for DiskChunkPersistence {
+    fn errors(&self) -> usize {
+        self.errors
+    }
+
     fn read(&mut self, chunk_x: i32, chunk_y: i32) -> Option<ChunkSnapshot> {
         let path = self.path_of(chunk_x, chunk_y);
         let bytes = match fs::read(&path) {
@@ -233,6 +237,34 @@ mod tests {
             after,
             "the edit did not survive: nothing reached the disk, or nothing read it back"
         );
+    }
+
+    #[test]
+    fn the_error_count_reaches_the_host_through_the_trait() {
+        // The count existed and had no reader, which made a full or read-only
+        // disk a save that quietly did not happen. It is on the trait now, so
+        // the host can put it somewhere a player sees.
+        let dir = scratch("errs-trait");
+        let mut p = DiskChunkPersistence::open(&dir).expect("open");
+        assert_eq!(ChunkPersistence::errors(&p), 0);
+
+        std::fs::write(dir.join("0_0.chunk"), b"not a chunk").expect("clobber");
+        assert!(p.read(0, 0).is_none());
+        assert_eq!(
+            ChunkPersistence::errors(&p),
+            1,
+            "the trait reports what the backend counted"
+        );
+    }
+
+    #[test]
+    fn a_backend_with_nowhere_to_fail_reports_no_errors() {
+        // The in-memory backend answers honestly by not overriding the default:
+        // it has no disk to be full and no volume to be read-only, so zero is
+        // the truth rather than a stub.
+        use crate::sim::chunk_store::MemoryChunkPersistence;
+        let m = MemoryChunkPersistence::new(8);
+        assert_eq!(ChunkPersistence::errors(&m), 0);
     }
 
     #[test]

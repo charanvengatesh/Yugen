@@ -804,10 +804,10 @@ only the exported surface is held to the rule.
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 63 |
-| `PANEL_W` (private) | `340` | Widest the panel gets, in buffer px. | 160 |
-| `PAD` (private) | `6` | Inset from the plate's edge to its text. | 163 |
-| `LINE` (private) | `13` | Line pitch. | 166 |
-| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 169 |
+| `PANEL_W` (private) | `340` | Widest the panel gets, in buffer px. | 168 |
+| `PAD` (private) | `6` | Inset from the plate's edge to its text. | 171 |
+| `LINE` (private) | `13` | Line pitch. | 174 |
+| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 177 |
 
 ### `crates/yugen-render/src/dump.rs`
 
