@@ -6228,6 +6228,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "yugen-editor"
+version = "0.1.0"
+dependencies = [
+ "toml",
+]
+
+[[package]]
 name = "yugen-render"
 version = "0.1.0"
 dependencies = [

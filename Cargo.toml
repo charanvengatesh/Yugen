@@ -6,6 +6,7 @@ members = [
     "crates/yugen-core",
     "crates/yugen-render",
     "crates/yugen",
+    "crates/yugen-editor",
     "xtask",
 ]
 
