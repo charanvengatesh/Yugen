@@ -3,10 +3,18 @@
 //! # Every one of these does something
 //!
 //! That is the whole rule, and it is worth stating because a settings screen is
-//! the easiest place in a game to ship furniture. There is no audio anywhere in
-//! this tree, so there are no volume sliders; there is no mod loader, no
-//! language table and no chat, so none of those appear either. Each field below
+//! the easiest place in a game to ship furniture. There is no mod loader, no
+//! language table and no chat, so none of those appear here. Each field below
 //! names a system that reads it, and `settings::apply` is where they are read.
+//!
+//! This paragraph used to say there were no volume sliders because there was no
+//! audio. There is now — see [`crate::sound`] — and there is still no slider,
+//! which makes this the one place the rule is currently owed something rather
+//! than being satisfied. [`crate::sound::SoundVolume`] holds the number and
+//! defaults sensibly; persisting it is a field here and a row in
+//! [`crate::ui::menu`], and until that lands a player cannot turn the sound
+//! down. Recorded rather than quietly left out, because a missing setting is
+//! exactly the kind of thing this header exists to make visible.
 //!
 //! # Why a line file and not TOML
 //!

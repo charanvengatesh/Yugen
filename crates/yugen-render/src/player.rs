@@ -79,8 +79,10 @@ use crate::lowres::WORLD_LAYERS;
 use crate::particles::{EmitOpts, ParticleSystem};
 use crate::player_art::{ArtGrid, PlayerFigure, PlayerMotion, seq_state};
 use crate::shear::{QuadBuf, ShearedRect, TileUv, dynamic_quad_mesh, origin_translation};
+use crate::sound::SoundQueue;
 use crate::sprite::{Pose, SpriteAtlas, SpriteAtlases, SpriteClock};
 use crate::world::{SimWorld, WorldFocus};
+use yugen_data::sounds::sound as snd;
 
 /// The player's sprite code in the compiled table.
 use yugen_data::sprites::sprite::PLAYER as SPRITE_PLAYER;
@@ -384,6 +386,10 @@ pub(crate) fn spend_step_events(
 pub(crate) struct Juice<'w> {
     particles: ResMut<'w, ParticleSystem>,
     feedback: Feedback<'w>,
+    /// Codes for `crate::sound` to play. A queue rather than a call, so this
+    /// bundle does not have to hold `Commands` and an asset store to make a
+    /// noise — see `sound::play`.
+    sound: ResMut<'w, SoundQueue>,
 }
 
 /// The two things the juice remembers between steps.
@@ -431,6 +437,7 @@ fn spawn_player_juice(
     let Juice {
         particles,
         feedback,
+        sound,
     } = juice;
     let JuiceState {
         prev_in_liquid,
@@ -443,6 +450,8 @@ fn spawn_player_juice(
     for &e in events {
         match e {
             PlayerEvent::Land => {
+                sound.play(snd::LAND);
+
                 // The event carries no magnitude; `land_impact` holds the
                 // touchdown speed and the body only records it past a threshold,
                 // so a zero means a SOFT landing rather than a missing reading.
@@ -461,23 +470,33 @@ fn spawn_player_juice(
                 body.land_impact = 0.0;
             }
             PlayerEvent::Step => {
+                sound.play(snd::STEP);
+
                 let c = ground_color(grid, feet_x, feet_y, 1);
                 particles.puff(feet_x, feet_y, c, PUFF_STEP);
             }
             PlayerEvent::Jump => {
+                sound.play(snd::JUMP);
+
                 let c = ground_color(grid, feet_x, feet_y, 1);
                 particles.puff(feet_x, feet_y, c, PUFF_JUMP);
             }
             PlayerEvent::DoubleJump => {
+                sound.play(snd::DOUBLE_JUMP);
+
                 // An air jump has no ground to kick off, so it is a flat ring of
                 // displaced air rather than a tinted puff.
                 particles.emit(feet_x, feet_y - AIR_JUMP_RISE, AIR_JUMP_COUNT, &AIR_JUMP);
             }
             PlayerEvent::Dash => {
+                sound.play(snd::DASH);
+
                 particles.smear(feet_x, body.y + PLAYER_H / 2.0, body.facing, DASH_SPARK);
                 feedback.dash();
             }
             PlayerEvent::WallJump => {
+                sound.play(snd::WALL_JUMP);
+
                 // Sampled on the side the body pushed OFF, which is behind it.
                 let wall_x = feet_x - body.facing * PLAYER_W * 0.5;
                 let mid_y = body.y + PLAYER_H * 0.5;
@@ -485,10 +504,14 @@ fn spawn_player_juice(
                 particles.scrape(wall_x, mid_y, -body.facing.signum(), c);
             }
             PlayerEvent::Splash => {
+                sound.play(snd::SPLASH);
+
                 particles.splash(feet_x, feet_y, liquid_color(grid, feet_x, feet_y));
                 splashed = true;
             }
             PlayerEvent::Hurt => {
+                sound.play(snd::HURT);
+
                 // Continuous damage — standing in lava — arrives as a
                 // rate-limited `Hurt` rather than one per step, so the screen
                 // pulses instead of pinning solid red.

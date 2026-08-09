@@ -23,6 +23,7 @@
 //! | [`particles::ParticlesPlugin`] | the pooled debris, dust and sparks every impact throws |
 //! | [`effects::EffectsPlugin`] | screen shake and the hit flash |
 //! | [`light::LightPlugin`] | the skylight flood, the emissive splat, and the composite over all of it |
+//! | [`sound::SoundPlugin`] | the synthesised sound bank, and the queue events push onto |
 //! | [`sprite::SpritePlugin`] | the baked sprite atlases, from the compiled content tables |
 //! | [`scenes::ScenesPlugin`] | menu, playing, game over |
 //! | [`ui::UiPlugin`] | the bitmap font, the HUD, the hotbar and the screens |
@@ -104,6 +105,7 @@ impl PluginGroup for YugenRenderPlugin {
             .add(effects::EffectsPlugin)
             // Bakes in `PreStartup`, so anything in `Startup` can read the
             // atlases without an ordering edge.
+            .add(sound::SoundPlugin)
             .add(sprite::SpritePlugin)
             .add(settings::SettingsPlugin)
             .add(scenes::ScenesPlugin)

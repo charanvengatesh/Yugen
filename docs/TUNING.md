@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 291 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 652 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 653 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -999,15 +999,15 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CAMERA_EASE` (private) | `0.12` | How far the view closes on the player each FRAME, 0..1. | 96 |
-| `PLAYER_Z` (private) | `0.5` | Where the body sits in z, between the cell quad (0) and the brush preview (1) — under the cursor, over the world. | 100 |
-| `LAND_IMPACT_DIV` (private) | `1400.0` | Touchdown speed that counts as a full-strength landing. | 129 |
-| `LAND_IMPACT_SOFT` (private) | `0.12` | Strength of a landing the body did not consider hard enough to record. | 135 |
-| `PUFF_STEP` (private) | `0.16` | Puff strength for a footfall — the quietest of the three. | 138 |
-| `PUFF_JUMP` (private) | `0.3` | Puff strength for a jump: more than a step, less than a hard landing. | 141 |
-| `AIR_JUMP_RISE` (private) | `4.0` | How far above the feet the air-jump ring is centred, in px. | 144 |
-| `AIR_JUMP_COUNT` (private) | `8` | Motes in the air-jump ring. | 147 |
-| `SCRAPE_INTERVAL` (private) | `0.05` | Seconds between scrape puffs while sliding down a wall. | 177 |
+| `CAMERA_EASE` (private) | `0.12` | How far the view closes on the player each FRAME, 0..1. | 98 |
+| `PLAYER_Z` (private) | `0.5` | Where the body sits in z, between the cell quad (0) and the brush preview (1) — under the cursor, over the world. | 102 |
+| `LAND_IMPACT_DIV` (private) | `1400.0` | Touchdown speed that counts as a full-strength landing. | 131 |
+| `LAND_IMPACT_SOFT` (private) | `0.12` | Strength of a landing the body did not consider hard enough to record. | 137 |
+| `PUFF_STEP` (private) | `0.16` | Puff strength for a footfall — the quietest of the three. | 140 |
+| `PUFF_JUMP` (private) | `0.3` | Puff strength for a jump: more than a step, less than a hard landing. | 143 |
+| `AIR_JUMP_RISE` (private) | `4.0` | How far above the feet the air-jump ring is centred, in px. | 146 |
+| `AIR_JUMP_COUNT` (private) | `8` | Motes in the air-jump ring. | 149 |
+| `SCRAPE_INTERVAL` (private) | `0.05` | Seconds between scrape puffs while sliding down a wall. | 179 |
 
 ### `crates/yugen-render/src/player_art.rs`
 
@@ -1080,6 +1080,12 @@ only the exported surface is held to the rule.
 | `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 243 |
 | `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 246 |
 | `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 258 |
+
+### `crates/yugen-render/src/sound/play.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MAX_PER_FRAME` (private) | `16` | Most sounds started in one frame. | 38 |
 
 ### `crates/yugen-render/src/sound/synth.rs`
 

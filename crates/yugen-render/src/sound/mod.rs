@@ -26,6 +26,10 @@
 //! and `crate::effects` already read, and the split stays: the plugin decides
 //! WHEN, this decides WHAT.
 
+pub mod bank;
+pub mod play;
 pub mod synth;
 
+pub use bank::SoundBank;
+pub use play::{SoundPlugin, SoundQueue, SoundVolume};
 pub use synth::{Pcm, SAMPLE_RATE, render, render_all};

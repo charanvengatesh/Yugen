@@ -20,7 +20,11 @@ yugen-data = { path = "crates/yugen-data" }
 yugen-core = { path = "crates/yugen-core" }
 yugen-render = { path = "crates/yugen-render" }
 
-bevy = "0.19"
+# `wav` is not in Bevy's default feature set and the synthesised sound bank
+# needs it: `AudioSource` holds bytes that rodio decodes, so raw PCM has to be
+# wrapped in a container, and WAV is the only one this tree can write by hand.
+# See `yugen-render/src/sound/bank.rs`.
+bevy = { version = "0.19", features = ["wav"] }
 bitflags = "2"
 rayon = "1"
 thiserror = "2"
