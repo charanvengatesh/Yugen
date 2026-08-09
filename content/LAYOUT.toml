@@ -74,5 +74,10 @@ sky = { about = "Landmarks that hang in the air." }
 player = { about = "The player figure: every pose and sequence, one record. Large enough to own a file because the poses are argued for in comments as much as they are drawn." }
 icons = { about = "One icon per item, named `icon_<item id>`." }
 
+[sounds]
+player = { about = "What the body does. One per `PlayerEvent` arm: steps, jumps, the dash, the splash, the wound." }
+mobs = { about = "What creatures do — being hurt, dying, and landing a hit on the player." }
+world = { about = "The world being changed: digging, placing, picking up. The highest-frequency sounds in the game." }
+
 [worldgen]
 landmarks = { about = "Parametric features worldgen grows rather than stamps: islands, lakes, shafts, dungeons, geodes, groves, ore clusters." }

@@ -1,0 +1,39 @@
+# The world being changed. These fire far more often than anything else in the
+# set — a dig is every few frames while a button is held — so they are the
+# quietest and the shortest, and they are the ones to suspect first if the game
+# ever sounds busy.
+
+[dig]
+name = "Dig"
+# Short, quiet, noisy. Repetition is the design constraint: this plays dozens of
+# times in a few seconds and must not accumulate into a rattle.
+wave = "noise"
+hz = 300.0
+hzTo = 200.0
+seconds = 0.04
+release = 0.85
+gain = 0.2
+
+[place]
+name = "Place"
+# A tone rather than noise, so building does not sound like digging in reverse.
+# Placing is additive and reads better as a small definite click.
+wave = "triangle"
+hz = 340.0
+hzTo = 300.0
+seconds = 0.05
+release = 0.7
+noise = 0.15
+gain = 0.22
+
+[pickup]
+name = "Pick up"
+# Rising, brief, clean. The one sound in the set that is a small reward, and the
+# only one with no noise in it at all.
+wave = "sine"
+hz = 520.0
+hzTo = 780.0
+seconds = 0.07
+attack = 0.05
+release = 0.6
+gain = 0.3

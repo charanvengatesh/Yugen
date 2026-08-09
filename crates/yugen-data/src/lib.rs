@@ -15,6 +15,7 @@
 pub mod blocks;
 pub mod items;
 pub mod mobs;
+pub mod sounds;
 pub mod sprites;
 pub mod structs;
 pub mod worldgen;
@@ -88,6 +89,9 @@ pub fn all_tables() -> Vec<(&'static str, &'static str, Table)> {
     for (n, t) in worldgen::FEATURE_TABLES {
         out.push(("worldgen", *n, *t));
     }
+    for (n, t) in sounds::SOUND_TABLES {
+        out.push(("sounds", *n, *t));
+    }
     out
 }
 
@@ -111,6 +115,9 @@ pub fn all_codes() -> Vec<(&'static str, &'static str, u16)> {
     }
     for (id, c) in worldgen::FEATURE_CODES {
         out.push(("worldgen", *id, *c));
+    }
+    for (id, c) in sounds::SOUND_CODES {
+        out.push(("sounds", *id, *c));
     }
     out
 }

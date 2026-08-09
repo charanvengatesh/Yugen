@@ -1,0 +1,102 @@
+# What the body does. Every one of these is triggered by a `PlayerEvent`, which
+# is why the set matches that enum arm for arm rather than being a wishlist.
+#
+# The pitches are low and the lengths are short on purpose. This is feedback:
+# the player should register that a thing happened without ever attending to the
+# sound itself, and anything longer than a fifth of a second starts being a
+# noise you notice twice.
+
+[step]
+name = "Footstep"
+# Noise rather than a tone, because a footstep is a surface being disturbed and
+# not something ringing. The tiny sweep down is the weight landing.
+wave = "noise"
+hz = 220.0
+hzTo = 160.0
+seconds = 0.05
+release = 0.8
+gain = 0.25
+
+[land]
+name = "Land"
+# The same event as a footstep with more of everything — the body arriving
+# rather than passing through.
+wave = "noise"
+hz = 180.0
+hzTo = 90.0
+seconds = 0.12
+release = 0.7
+gain = 0.45
+
+[jump]
+name = "Jump"
+# Rising, because the body is going up and a falling pitch under a rising body
+# reads as wrong even to somebody not listening for it.
+wave = "square"
+hz = 320.0
+hzTo = 520.0
+seconds = 0.09
+attack = 0.05
+release = 0.6
+noise = 0.1
+gain = 0.3
+
+[double_jump]
+name = "Double jump"
+# Higher and thinner than the first jump, so the second one is audibly the
+# second one and not a repeat.
+wave = "square"
+hz = 480.0
+hzTo = 760.0
+seconds = 0.08
+attack = 0.05
+release = 0.6
+gain = 0.28
+
+[dash]
+name = "Dash"
+# A sweep down through a lot of noise: air moving past, not a note.
+wave = "noise"
+hz = 900.0
+hzTo = 260.0
+seconds = 0.14
+attack = 0.02
+release = 0.75
+gain = 0.35
+
+[wall_jump]
+name = "Wall jump"
+# Between a jump and a scrape, which is what the move is.
+wave = "square"
+hz = 300.0
+hzTo = 430.0
+seconds = 0.08
+release = 0.65
+noise = 0.35
+gain = 0.3
+
+[splash]
+name = "Splash"
+# Almost entirely noise with a downward sweep — water is broadband and the
+# sweep is the cavity closing.
+wave = "noise"
+hz = 700.0
+hzTo = 240.0
+seconds = 0.18
+attack = 0.03
+release = 0.8
+gain = 0.4
+
+[hurt]
+name = "Hurt"
+# The one sound here allowed to be unpleasant. A saw falling fast: it has to
+# cut through whatever else is playing, because it is the only one the player
+# must not miss.
+wave = "saw"
+hz = 420.0
+hzTo = 120.0
+seconds = 0.22
+attack = 0.0
+release = 0.55
+noise = 0.2
+gain = 0.6

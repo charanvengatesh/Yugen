@@ -15,13 +15,14 @@ pub mod block;
 pub mod feature;
 pub mod item;
 pub mod mob;
+pub mod sound;
 pub mod sprite;
 pub mod structure;
 
 /// One registered kind: its schema, where its records live, and what it emits.
 ///
-/// This table is the whole registration surface — six rows. A seventh kind is a
-/// seventh row plus a module.
+/// This table is the whole registration surface — seven rows. An eighth kind is
+/// an eighth row plus a module.
 pub struct Kind {
     pub schema: Schema,
     /// Directory under `content/`.
@@ -63,6 +64,11 @@ pub fn kinds() -> Vec<Kind> {
             schema: feature::schema(),
             dir: "worldgen",
             out: "worldgen",
+        },
+        Kind {
+            schema: sound::schema(),
+            dir: "sounds",
+            out: "sounds",
         },
     ]
 }

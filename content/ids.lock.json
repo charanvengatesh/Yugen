@@ -182,6 +182,22 @@
     "slagworm": 18,
     "mycelith": 19
   },
+  "sound": {
+    "dash": 0,
+    "dig": 1,
+    "double_jump": 2,
+    "hurt": 3,
+    "jump": 4,
+    "land": 5,
+    "mob_die": 6,
+    "mob_hurt": 7,
+    "pickup": 8,
+    "place": 9,
+    "player_hit": 10,
+    "splash": 11,
+    "step": 12,
+    "wall_jump": 13
+  },
   "sprite": {
     "player": 0,
     "icon_block_cube": 1,

@@ -9,7 +9,7 @@ what the sweep can and cannot see.
 
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
-| 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
+| 1 — content | `content/` | 291 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
 | 3 — module | `crates/*/src/**` | 650 constants | ONE ALGORITHM, beside the code it explains |
 
@@ -20,6 +20,7 @@ what the sweep can and cannot see.
 | `content/blocks/` | 8 | 61 | 41 |
 | `content/items/` | 8 | 87 | 32 |
 | `content/mobs/` | 3 | 20 | 52 |
+| `content/sounds/` | 3 | 14 | 9 |
 | `content/sprites/` | 2 | 88 | 13 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
