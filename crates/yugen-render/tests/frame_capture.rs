@@ -359,23 +359,27 @@ fn the_world_select_screen_is_reachable_and_paints() {
         common::artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "playing.png");
     let playing = common::Frame::from_image(&common::capture_low_res(&mut app, &lit_png), lit_png);
 
+    // Back to the title card, then open the world list — which is a MENU page
+    // now rather than a scene of its own, so this is the path a player takes.
     app.world_mut()
         .resource_mut::<NextState<Scene>>()
-        .set(Scene::WorldSelect);
+        .set(Scene::Menu);
+    for _ in 0..4 {
+        app.update();
+    }
+    app.world_mut()
+        .resource_mut::<yugen_render::ui::menu::Nav>()
+        .push(yugen_render::ui::menu::Page::Worlds);
+    // `drive_menu` refreshes the directory when the page is pushed; a couple of
+    // frames for that and for the mirror the layout reads.
     for _ in 0..8 {
         app.update();
     }
 
-    // The picker read the saves root on the way in. Without this the frame below
-    // could be a correctly-drawn EMPTY list and still pass everything else.
-    let picker = app
-        .world()
-        .resource::<yugen_render::worldselect::WorldPicker>();
-    assert_eq!(
-        picker.worlds.len(),
-        2,
-        "the screen did not read the saves root"
-    );
+    // The list read the saves root. Without this the frame below could be a
+    // correctly-drawn EMPTY list and still pass everything else.
+    let rows = app.world().resource::<yugen_render::ui::menu::WorldRows>();
+    assert_eq!(rows.0.len(), 2, "the screen did not read the saves root");
 
     let png = common::artefact_path(env!("CARGO_TARGET_TMPDIR"), "frame-capture", "worlds.png");
     let frame = common::Frame::from_image(&common::capture_low_res(&mut app, &png), png);

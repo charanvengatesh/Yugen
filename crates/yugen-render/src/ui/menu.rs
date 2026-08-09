@@ -66,6 +66,16 @@ pub enum Page {
     World,
     /// The binding table, read-only. See the module header.
     Controls,
+    /// The world list: pick one, make one, delete one.
+    ///
+    /// This was `worldselect`'s own screen with its own keys and its own
+    /// layout, and it was the last thing in the game that did not look or
+    /// behave like the rest of the menus — from the title card's
+    /// "Singleplayer" it read as a dead end, because Enter on an empty list
+    /// does nothing and the only way forward was a letter printed in the
+    /// footer. `worldselect` still owns the DIRECTORY: listing, creating and
+    /// deleting are real file operations and they stay where they were.
+    Worlds,
 }
 
 impl Page {
@@ -79,6 +89,7 @@ impl Page {
             Page::Interface => "Interface",
             Page::World => "World",
             Page::Controls => "Controls",
+            Page::Worlds => "Worlds",
         }
     }
 }
@@ -215,8 +226,13 @@ pub enum Action {
     Open(Page),
     /// Pop one.
     Back,
-    /// Leave the menus and play.
-    Play,
+    /// Make a world and land the cursor on it.
+    NewWorld,
+    /// Enter the world at this index of the list.
+    PlayWorld(usize),
+    /// Delete the world at this index. Only ever reached from a row that has
+    /// already asked once — see [`Page::Worlds`].
+    DeleteWorld(usize),
     /// Resume a paused world.
     Resume,
     /// Save and go back to the title card.
@@ -327,13 +343,36 @@ pub struct Row {
     pub label: String,
     /// What it does.
     pub control: Control,
+    /// A dim value drawn on the right of a row that is also a button — a
+    /// world's seed. `Control` is one thing or the other, and a world row
+    /// needs both.
+    pub aside: Option<String>,
 }
 
 impl Row {
+    /// This row's text, kept, but pressable.
+    ///
+    /// A world row wants both: a value on the right (its seed) and an action
+    /// when pressed. `Control` is one or the other, so the seed rides along in
+    /// [`Row::note`] and this swaps the control for a press — which is why
+    /// [`Row::aside`] exists rather than a sixth `Control` variant.
+    fn into_press(self, action: Action) -> Row {
+        let aside = match self.control {
+            Control::Note(text) => Some(text),
+            _ => None,
+        };
+        Row {
+            label: self.label,
+            control: Control::Press(action),
+            aside,
+        }
+    }
+
     fn press(label: &str, action: Action) -> Row {
         Row {
             label: label.into(),
             control: Control::Press(action),
+            aside: None,
         }
     }
 
@@ -341,6 +380,7 @@ impl Row {
         Row {
             label: label.into(),
             control: Control::Note(text.into()),
+            aside: None,
         }
     }
 
@@ -348,6 +388,7 @@ impl Row {
         Row {
             label: label.into(),
             control: Control::Toggle(on),
+            aside: None,
         }
     }
 
@@ -358,6 +399,7 @@ impl Row {
                 value: value.into(),
                 of,
             },
+            aside: None,
         }
     }
 
@@ -369,8 +411,42 @@ impl Row {
                 value: of.value(s),
                 of,
             },
+            aside: None,
         }
     }
+}
+
+/// One world, as the list needs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorldRow {
+    /// What it is called.
+    pub name: String,
+    /// Its seed, shown beside the name — the one fact that tells two worlds
+    /// with the same auto-generated name apart.
+    pub seed: u32,
+}
+
+/// The world list in the shape [`page_rows`] wants it.
+///
+/// Mirrored from `worldselect::WorldPicker` by a system rather than built in
+/// `compose`, which runs every frame for every screen and must not allocate a
+/// `String` per world for a page that is usually not open.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct WorldRows(pub Vec<WorldRow>);
+
+/// Everything [`page_rows`] reads.
+///
+/// A struct rather than three arguments, so that a page needing a fourth thing
+/// does not change the signature of the six that do not.
+pub struct MenuCx<'a> {
+    /// What the options pages show and edit.
+    pub settings: &'a Settings,
+    /// Whether a world exists behind the menu.
+    pub in_game: bool,
+    /// The saved worlds, newest first.
+    pub worlds: &'a [WorldRow],
+    /// Which world is one more press from being deleted, if any.
+    pub confirming: Option<usize>,
 }
 
 /// The rows of `page`, given the current settings.
@@ -380,10 +456,12 @@ impl Row {
 /// the SHAPE of a page rather than a value on it: the title card offers
 /// "Singleplayer" and the pause card offers "Back to Game", and Options is the
 /// same page from either.
-pub fn page_rows(page: Page, s: &Settings, in_game: bool) -> Vec<Row> {
+pub fn page_rows(page: Page, cx: &MenuCx) -> Vec<Row> {
+    let s = cx.settings;
+    let in_game = cx.in_game;
     match page {
         Page::Title => vec![
-            Row::press("Singleplayer", Action::Play),
+            Row::press("Singleplayer", Action::Open(Page::Worlds)),
             Row::press("Options...", Action::Open(Page::Options)),
             Row::press("Quit Game", Action::Exit),
         ],
@@ -421,6 +499,39 @@ pub fn page_rows(page: Page, s: &Settings, in_game: bool) -> Vec<Row> {
             if in_game {
                 rows.push(Row::note("Seed", "shown on the F3 panel"));
             }
+            rows.push(Row::press("Done", Action::Back));
+            rows
+        }
+        Page::Worlds => {
+            let mut rows: Vec<Row> = cx
+                .worlds
+                .iter()
+                .enumerate()
+                .map(|(i, w)| {
+                    if cx.confirming == Some(i) {
+                        // The two-step delete, as a row rather than as a footer
+                        // prompt. `worldselect`'s header is right that this is
+                        // the only irreversible thing a player can do from a
+                        // menu, so it keeps both steps and says which world.
+                        Row {
+                            label: format!("Delete {}?", w.name),
+                            control: Control::Press(Action::DeleteWorld(i)),
+                            aside: Some("X again".into()),
+                        }
+                    } else {
+                        Row {
+                            label: w.name.clone(),
+                            control: Control::Note(format!("seed {}", w.seed)),
+                            aside: None,
+                        }
+                        .into_press(Action::PlayWorld(i))
+                    }
+                })
+                .collect();
+            if rows.is_empty() {
+                rows.push(Row::note("No worlds yet", "make one below"));
+            }
+            rows.push(Row::press("Create New World", Action::NewWorld));
             rows.push(Row::press("Done", Action::Back));
             rows
         }
@@ -773,6 +884,17 @@ fn row_prims(row: &Row, r: Region, picked: bool) -> Vec<UiPrim> {
         ink,
     ));
 
+    if let Some(aside) = &row.aside {
+        out.push(UiPrim::text(
+            aside.clone(),
+            r.right() - theme::PAD,
+            theme::CAPTION.baseline_from_middle(r.cy()),
+            Align::Right,
+            theme::CAPTION,
+            theme::INK_MUTED,
+        ));
+    }
+
     match &row.control {
         Control::Press(_) => {}
         Control::Note(text) => {
@@ -842,9 +964,49 @@ mod tests {
         View::for_screen(1280, 720)
     }
 
-    fn rows(page: Page) -> Vec<Row> {
-        page_rows(page, &Settings::default(), false)
+    fn worlds() -> &'static [WorldRow] {
+        static WORLDS: std::sync::OnceLock<Vec<WorldRow>> = std::sync::OnceLock::new();
+        WORLDS.get_or_init(|| {
+            vec![
+                WorldRow {
+                    name: "World 1".into(),
+                    seed: 7,
+                },
+                WorldRow {
+                    name: "World 2".into(),
+                    seed: 8,
+                },
+            ]
+        })
     }
+
+    fn rows_with(page: Page, s: &Settings, in_game: bool) -> Vec<Row> {
+        page_rows(
+            page,
+            &MenuCx {
+                settings: s,
+                in_game,
+                worlds: worlds(),
+                confirming: None,
+            },
+        )
+    }
+
+    fn rows(page: Page) -> Vec<Row> {
+        rows_with(page, &Settings::default(), false)
+    }
+
+    /// Every page, so a new one cannot be added without the sweeps seeing it.
+    const PAGES: [Page; 8] = [
+        Page::Title,
+        Page::Pause,
+        Page::Options,
+        Page::Video,
+        Page::Interface,
+        Page::World,
+        Page::Controls,
+        Page::Worlds,
+    ];
 
     // --- The stack ----------------------------------------------------------
 
@@ -911,16 +1073,8 @@ mod tests {
     fn every_selectable_row_on_every_page_does_something() {
         // The failure this catches is a row that draws, highlights, accepts a
         // press and has no effect — the exact shape of menu furniture.
-        for page in [
-            Page::Title,
-            Page::Pause,
-            Page::Options,
-            Page::Video,
-            Page::Interface,
-            Page::World,
-            Page::Controls,
-        ] {
-            for row in page_rows(page, &Settings::default(), true) {
+        for page in PAGES {
+            for row in rows_with(page, &Settings::default(), true) {
                 if !row.control.selectable() {
                     continue;
                 }
@@ -938,21 +1092,80 @@ mod tests {
 
     #[test]
     fn every_page_has_a_way_out() {
-        // A page with no Done and no Back is a page a pad-only player is stuck
-        // on. Escape also pops, but a visible way out is the discoverable one.
-        for page in [
-            Page::Options,
-            Page::Video,
-            Page::Interface,
-            Page::World,
-            Page::Controls,
-        ] {
-            let r = page_rows(page, &Settings::default(), true);
+        // Every page reached FROM another one. The two ROOTS — Title and Pause
+        // — are excluded on purpose: there is nowhere above them to go, which
+        // `Nav::pop` says by returning false. Escape also pops, but a visible
+        // way out is the discoverable one.
+        for page in PAGES {
+            if matches!(page, Page::Title | Page::Pause) {
+                continue;
+            }
+            let r = rows_with(page, &Settings::default(), true);
             assert!(
                 r.iter().any(|row| activate(row) == Some(Action::Back)),
                 "{page:?} has no way back"
             );
         }
+    }
+
+    #[test]
+    fn the_world_list_offers_a_way_to_make_one_even_when_it_is_empty() {
+        // The dead end this page exists to remove: "Singleplayer" used to lead
+        // to a list where Enter did nothing and the only way forward was a
+        // letter printed in the footer.
+        let s = Settings::default();
+        let empty = page_rows(
+            Page::Worlds,
+            &MenuCx {
+                settings: &s,
+                in_game: false,
+                worlds: &[],
+                confirming: None,
+            },
+        );
+        assert!(
+            empty.iter().any(|r| activate(r) == Some(Action::NewWorld)),
+            "an empty world list cannot make a world: {empty:?}"
+        );
+        assert!(
+            empty.iter().any(|r| r.control.selectable()),
+            "an empty world list has nothing the cursor can land on"
+        );
+    }
+
+    #[test]
+    fn each_world_row_plays_its_own_world() {
+        // An off-by-one here would open somebody else's save.
+        let r = rows(Page::Worlds);
+        for (i, _) in worlds().iter().enumerate() {
+            assert_eq!(activate(&r[i]), Some(Action::PlayWorld(i)), "row {i}");
+            assert_eq!(r[i].label, worlds()[i].name);
+        }
+    }
+
+    #[test]
+    fn a_world_asks_before_it_is_deleted() {
+        let s = Settings::default();
+        // Unconfirmed, the row plays. Confirmed, and only that row deletes.
+        let plain = rows(Page::Worlds);
+        assert_eq!(activate(&plain[1]), Some(Action::PlayWorld(1)));
+
+        let asked = page_rows(
+            Page::Worlds,
+            &MenuCx {
+                settings: &s,
+                in_game: false,
+                worlds: worlds(),
+                confirming: Some(1),
+            },
+        );
+        assert_eq!(activate(&asked[1]), Some(Action::DeleteWorld(1)));
+        assert!(asked[1].label.contains(&worlds()[1].name), "{:?}", asked[1]);
+        assert_eq!(
+            activate(&asked[0]),
+            Some(Action::PlayWorld(0)),
+            "asking about one world armed another"
+        );
     }
 
     #[test]
@@ -987,7 +1200,7 @@ mod tests {
             } else {
                 Page::Video
             };
-            let rows = page_rows(page, &s, false);
+            let rows = rows_with(page, &s, false);
             let row = rows.iter().find(|r| r.label == label).expect(label);
             let before = read(&s);
             let action = activate(row).expect(label);
@@ -1148,16 +1361,8 @@ mod tests {
         // in the Controls list are the obvious hazard.
         let v = view();
         let s = Settings::default();
-        for page in [
-            Page::Title,
-            Page::Pause,
-            Page::Options,
-            Page::Video,
-            Page::Interface,
-            Page::World,
-            Page::Controls,
-        ] {
-            let r = page_rows(page, &s, true);
+        for page in PAGES {
+            let r = rows_with(page, &s, true);
             for prim in screen(page, &r, 0, true, v) {
                 let UiPrim::Text { text, style, .. } = prim else {
                     continue;

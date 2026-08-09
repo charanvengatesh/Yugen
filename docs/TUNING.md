@@ -933,20 +933,20 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 146 |
-| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 154 |
-| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 175 |
-| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 210 |
-| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 217 |
-| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 223 |
-| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 232 |
-| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 239 |
-| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 369 |
-| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 373 |
-| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 376 |
-| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 389 |
-| `FADE_IN` | `2` | Ease alpha in as well as out. | 391 |
-| `COLLIDE` | `4` | Test against the cell grid on every step. | 393 |
+| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 150 |
+| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 158 |
+| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 179 |
+| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 214 |
+| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 221 |
+| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 227 |
+| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 236 |
+| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 243 |
+| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 373 |
+| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 377 |
+| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 380 |
+| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 393 |
+| `FADE_IN` | `2` | Ease alpha in as well as out. | 395 |
+| `COLLIDE` | `4` | Test against the cell grid on every step. | 397 |
 
 ### `crates/yugen-render/src/player.rs`
 
@@ -1064,12 +1064,12 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `ROW_W` (private) | `240` | Width of a menu row, in buffer px. | 538 |
-| `ROW_H` (private) | `18` | Height of a menu row. | 541 |
-| `ROW_GAP` (private) | `4` | Blank px between one row and the next. | 544 |
-| `HEAD_GAP` (private) | `12` | Blank px between the heading's descender and the first row. | 547 |
-| `SLIDER_W` (private) | `84` | Width of the bar in a slider row, in buffer px. | 573 |
-| `SLIDER_H` (private) | `5` | Height of that bar. | 576 |
+| `ROW_W` (private) | `240` | Width of a menu row, in buffer px. | 649 |
+| `ROW_H` (private) | `18` | Height of a menu row. | 652 |
+| `ROW_GAP` (private) | `4` | Blank px between one row and the next. | 655 |
+| `HEAD_GAP` (private) | `12` | Blank px between the heading's descender and the first row. | 658 |
+| `SLIDER_W` (private) | `84` | Width of the bar in a slider row, in buffer px. | 684 |
+| `SLIDER_H` (private) | `5` | Height of that bar. | 687 |
 
 ### `crates/yugen-render/src/ui/mod.rs`
 
@@ -1133,8 +1133,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VISIBLE_ROWS` (private) | `8` | Rows of the list drawn at once. | 47 |
-| `ROW_H` (private) | `22` | Height of one list row. | 95 |
+| `VISIBLE_ROWS` (private) | `8` | Rows of the list drawn at once. | 44 |
+| `ROW_H` (private) | `22` | Height of one list row. | 92 |
 
 ### `crates/yugen/src/main.rs`
 

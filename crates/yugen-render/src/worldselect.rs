@@ -28,16 +28,13 @@
 
 use bevy::prelude::*;
 use yugen_core::config::{SEED, View};
-use yugen_core::input::{KEYS, KeyState};
-use yugen_core::sim::save::{WorldMeta, create_world, delete_world, list_worlds};
+use yugen_core::sim::save::{WorldMeta, list_worlds};
 
-use crate::input::BevyKeys;
 use crate::scenes::Scene;
 use crate::ui::{Align, TextStyle, UiPrim, rgb, rgba};
-use crate::world::WorldSave;
 
 /// What a new world is called, before the number.
-const AUTO_NAME: &str = "World";
+pub const AUTO_NAME: &str = "World";
 
 /// Rows of the list drawn at once.
 ///
@@ -211,101 +208,6 @@ pub fn screen(picker: &WorldPicker, view: View) -> Vec<UiPrim> {
 
 // --- Systems -----------------------------------------------------------------
 
-/// Read the directory on the way in, so a world made last session is there.
-fn refresh_on_enter(mut picker: ResMut<WorldPicker>) {
-    picker.error = None;
-    picker.refresh();
-}
-
-/// Drive the screen.
-///
-/// One system rather than one per key. They all mutate the same two fields and
-/// the order between them matters — confirming a delete and pressing play are
-/// the same physical key in two states — so splitting them would be splitting a
-/// state machine across systems that Bevy is free to order either way.
-fn keys(
-    input: Res<ButtonInput<KeyCode>>,
-    mut picker: ResMut<WorldPicker>,
-    mut save: ResMut<WorldSave>,
-    mut next: ResMut<NextState<Scene>>,
-) {
-    let bevy_keys = BevyKeys(&input);
-    let confirm = bevy_keys.any_pressed(KEYS.confirm);
-
-    if picker.confirming {
-        // Only these two keys mean anything while a delete is pending. Anything
-        // else is ignored rather than cancelling, so a stray keypress does not
-        // quietly leave the player thinking they deleted something.
-        if input.just_pressed(KeyCode::KeyY) || confirm {
-            let Some(world) = picker.selected().cloned() else {
-                picker.confirming = false;
-                return;
-            };
-            match delete_world(picker.root.clone(), &world) {
-                Ok(()) => picker.refresh(),
-                Err(e) => {
-                    picker.error = Some(format!("could not delete: {e}"));
-                    picker.confirming = false;
-                }
-            }
-        } else if input.just_pressed(KeyCode::Escape) {
-            picker.confirming = false;
-        }
-        return;
-    }
-
-    if input.just_pressed(KeyCode::Escape) {
-        next.set(Scene::Menu);
-        return;
-    }
-
-    let n = picker.worlds.len();
-    if n > 0 {
-        // `KEYS.jump` is the UP binding — the game has no separate one, and
-        // `Intent::from_keys` reads it the same way for climbing a ladder. A
-        // menu that wanted its own up key would be teaching a second one.
-        if bevy_keys.any_pressed(KEYS.jump) {
-            picker.cursor = (picker.cursor + n - 1) % n;
-            picker.error = None;
-        }
-        if bevy_keys.any_pressed(KEYS.down) {
-            picker.cursor = (picker.cursor + 1) % n;
-            picker.error = None;
-        }
-        if input.just_pressed(KeyCode::KeyX) {
-            picker.confirming = true;
-            picker.error = None;
-            return;
-        }
-    }
-
-    if input.just_pressed(KeyCode::KeyN) {
-        let name = format!("{AUTO_NAME} {}", picker.worlds.len() + 1);
-        match create_world(picker.root.clone(), &name, fresh_seed()) {
-            Ok(made) => {
-                picker.refresh();
-                // Land on what was just made, wherever the recency sort put it.
-                picker.cursor = picker
-                    .worlds
-                    .iter()
-                    .position(|w| w.dir == made.dir)
-                    .unwrap_or(0);
-                picker.error = None;
-            }
-            Err(e) => picker.error = Some(format!("could not create: {e}")),
-        }
-        return;
-    }
-
-    if confirm && let Some(world) = picker.selected() {
-        *save = WorldSave {
-            dir: Some(world.dir.clone()),
-            seed: world.seed,
-        };
-        next.set(Scene::Playing);
-    }
-}
-
 /// A seed for a new world.
 ///
 /// The wall clock, mixed. `yugen_core` has a deterministic RNG and this
@@ -314,7 +216,7 @@ fn keys(
 /// sequence of worlds a player gets a function of the first. The clock is the
 /// only entropy available without a dependency, and one world per nanosecond is
 /// not a collision anybody will meet.
-fn fresh_seed() -> u32 {
+pub fn fresh_seed() -> u32 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos() ^ d.as_secs() as u32);
@@ -328,14 +230,30 @@ fn fresh_seed() -> u32 {
     h
 }
 
-/// The screen, its state and its keys.
+// --- Systems -----------------------------------------------------------------
+
+/// Read the directory on the way in, so a world made last session is there.
+///
+/// On entering the MENU rather than a world-select scene, because the list is
+/// `ui::menu`'s `Page::Worlds` now and the title card is the last place the
+/// game is guaranteed to pass through before it can be opened. `drive_menu`
+/// refreshes again when the page is actually pushed.
+fn refresh_on_enter(mut picker: ResMut<WorldPicker>) {
+    picker.error = None;
+    picker.refresh();
+}
+
+/// The saved worlds: listing them, and the state the menu reads.
 pub struct WorldSelectPlugin;
 
 impl Plugin for WorldSelectPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldPicker>()
-            .add_systems(OnEnter(Scene::WorldSelect), refresh_on_enter)
-            .add_systems(Update, keys.run_if(in_state(Scene::WorldSelect)));
+            // No `keys` system any more: the world list is `ui::menu`'s
+            // `Page::Worlds` and is driven by `glue::drive_menu` like every
+            // other page. What stays here is the directory — listing, creating
+            // and deleting are real file operations and this module owns them.
+            .add_systems(OnEnter(Scene::Menu), refresh_on_enter);
     }
 }
 
