@@ -927,23 +927,28 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `INTEGER_SNAP_EPS` (private) | `1.0e-3` | How close to a whole number a zoom has to be to be treated as one. | 64 |
 
-### `crates/yugen-render/src/mobs.rs`
+### `crates/yugen-render/src/mobs/art.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 135 |
-| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 138 |
-| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 147 |
-| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 150 |
-| `TELL_Z` (private) | `0.44` | Where a burrower's breach tell sits: just UNDER the creatures. | 159 |
-| `TELL_ALPHA_BASE` (private) | `0.35` | The tell's alpha at the moment it appears, before the countdown has run. | 167 |
-| `TELL_ALPHA_SWELL` (private) | `0.5` | How much alpha the tell gains over its countdown. | 169 |
-| `TELL_CHURN_RATE` (private) | `26.0` | Radians per second of the churn that lifts alternate cells of the tell. | 177 |
-| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 186 |
-| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 188 |
-| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 190 |
-| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 197 |
-| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 324 |
+| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 128 |
+
+### `crates/yugen-render/src/mobs/mod.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 129 |
+| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 132 |
+| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 141 |
+| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 144 |
+| `TELL_Z` (private) | `0.44` | Where a burrower's breach tell sits: just UNDER the creatures. | 153 |
+| `TELL_ALPHA_BASE` (private) | `0.35` | The tell's alpha at the moment it appears, before the countdown has run. | 161 |
+| `TELL_ALPHA_SWELL` (private) | `0.5` | How much alpha the tell gains over its countdown. | 163 |
+| `TELL_CHURN_RATE` (private) | `26.0` | Radians per second of the churn that lifts alternate cells of the tell. | 171 |
+| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 180 |
+| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 182 |
+| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 184 |
+| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 191 |
 
 ### `crates/yugen-render/src/particles/mod.rs`
 
