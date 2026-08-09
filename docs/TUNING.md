@@ -10,8 +10,8 @@ what the sweep can and cannot see.
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
 | 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
-| 2 — config | `crates/yugen-core/src/config/` | 100 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 645 constants | ONE ALGORITHM, beside the code it explains |
+| 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
+| 3 — module | `crates/*/src/**` | 646 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -53,6 +53,8 @@ only the exported surface is held to the rule.
 | `SHOT_LIFE` | `2.2` | Seconds a player projectile lives. | 85 |
 | `SHOT_SPEED_DEFAULT` | `scaled(620.0)` | Fallback muzzle speed for a ranged weapon whose content omits the field, px/s. | 88 |
 | `SHOT_KNOCKBACK` | `scaled(190.0)` | Impulse a projectile hit puts into what it hits, before any armour resistance. | 91 |
+| `SUFFOCATION_DPS` | `12.0` | Health per second drained while the player's head is inside solid matter. | 108 |
+| `SUFFOCATION_GRACE` | `0.4` | Seconds the head may sit inside a solid before [`SUFFOCATION_DPS`] starts. | 120 |
 
 ### `interact`
 
@@ -261,10 +263,11 @@ only the exported surface is held to the rule.
 | `PUNCH_TIME` (private) | `0.24` | Punch pose duration for a bare fist (3 frames at 14fps = 0.214s, rounded up). | 300 |
 | `HURT_TIME` (private) | `0.3` | Hurt pose duration … | 302 |
 | `HURT_REPEAT` (private) | `0.45` | … and the minimum gap between repeat hurt events. | 304 |
-| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 309 |
-| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 311 |
-| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 313 |
-| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 316 |
+| `HEAD_BAND` (private) | `PLAYER_H / 3.0` | Height of the band tested for burial, measured DOWN from the top of the box. | 317 |
+| `LAND_EVENT_MIN_VY` (private) | `scaled(60.0)` | The speed of descent that counts as a real landing rather than a stride over a bump. | 322 |
+| `SQUASH_MIN_VY` (private) | `scaled(200.0)` | Impact speed above which the landing squashes the sprite … | 324 |
+| `SQUASH_FULL_VY` (private) | `scaled(900.0)` | … and the speed that squashes it fully. | 326 |
+| `ACCEL_SMOOTH` (private) | `0.3` | Low-pass on measured horizontal acceleration, for the drawn lean. | 329 |
 
 ### `crates/yugen-core/src/entities/projectiles.rs`
 
