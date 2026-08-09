@@ -291,9 +291,17 @@ impl Settings {
     }
 }
 
-/// Where the settings file lives, given where saves do.
-pub fn path_beside(saves: &Path) -> PathBuf {
-    saves.parent().unwrap_or(saves).join(FILE)
+/// Where the settings file lives, given the data root.
+///
+/// The root is the real concept and `saves/` is a directory inside it, so this
+/// takes the root and joins the filename. It used to take the SAVES directory
+/// and walk up with `parent()`, which is the same answer for the default layout
+/// and the wrong one the moment `--saves` points somewhere else: `--saves
+/// /tmp/foo` wrote `/tmp/options.txt`, and `--saves ./saves` wrote
+/// `./options.txt`. Deriving a parent from a child is how a flag meant to
+/// redirect one thing quietly redirects another.
+pub fn path_in_root(root: &Path) -> PathBuf {
+    root.join(FILE)
 }
 
 /// Where this app reads and writes its settings. Empty until the host sets it.
@@ -540,9 +548,12 @@ mod tests {
     }
 
     #[test]
-    fn the_file_sits_beside_the_saves_directory_and_not_inside_it() {
-        // Deleting a world must not reset the controls.
-        let p = path_beside(Path::new("/home/someone/.local/share/yugen/saves"));
-        assert_eq!(p, Path::new("/home/someone/.local/share/yugen").join(FILE));
+    fn the_file_sits_in_the_data_root_and_not_inside_the_saves_directory() {
+        // Deleting a world must not reset the controls, so it is not in
+        // `saves/` — and it is derived from the ROOT rather than from the saves
+        // directory's parent, so pointing `--saves` at a scratch folder cannot
+        // drop an `options.txt` next to it.
+        let root = Path::new("/home/someone/.local/share/yugen");
+        assert_eq!(path_in_root(root), root.join(FILE));
     }
 }

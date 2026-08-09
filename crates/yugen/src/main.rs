@@ -176,15 +176,21 @@ fn main() -> AppExit {
     .add_plugins(YugenRenderPlugin);
 
     // The world-select screen needs somewhere to look before it is entered.
+    //
+    // `--saves` names the SAVES directory, so the data root is its parent when
+    // one is given and `saves_root()`'s own parent otherwise. The settings file
+    // belongs to the root, not to the saves directory — see
+    // `settings::path_in_root`.
     let saves = args.saves.clone().unwrap_or_else(saves_root);
+    let data_root = saves.parent().unwrap_or(&saves).to_path_buf();
     app.insert_resource(WorldPicker {
         root: saves.clone(),
         ..default()
     });
 
-    // And the settings file sits beside it, so `--saves` moves both together
-    // and a test run never writes over the developer's own options.
-    app.insert_resource(SettingsFile(Some(settings::path_beside(&saves))));
+    // And the settings file sits in the data root, so `--saves` moves both
+    // together and a test run never writes over the developer's own options.
+    app.insert_resource(SettingsFile(Some(settings::path_in_root(&data_root))));
 
     // Before `Startup`, which is where the world is built from it.
     if args.world.is_some() || args.seed.is_some() {

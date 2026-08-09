@@ -1036,7 +1036,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTO_ZOOM` (private) | `2.0` | The zoom floor `RenderScale::Auto` means. | 437 |
+| `AUTO_ZOOM` (private) | `2.0` | The zoom floor `RenderScale::Auto` means. | 445 |
 
 ### `crates/yugen-render/src/shear.rs`
 

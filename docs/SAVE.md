@@ -277,6 +277,6 @@ Two more worth naming:
 
 - `DiskChunkPersistence::errors()` counts read and write failures and **nothing
   displays it**, so a read-only disk fails silently.
-- `settings::path_beside(saves)` puts `options.txt` at `saves.parent()`, so
-  `--saves /tmp/foo` writes `/tmp/options.txt`. The data root is the real
-  concept and `saves/` is a subdirectory of it; the abstraction is inside-out.
+- ~~`settings::path_beside` derived the settings path from the saves
+  directory's parent~~ — fixed. `settings::path_in_root` takes the data root,
+  which is the real concept, and `main.rs` derives the root once.
