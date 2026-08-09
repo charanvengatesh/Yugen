@@ -512,17 +512,27 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `INV_2_POW_32` (private) | `2.3283064365386963e-10` | 2^-32, the scale that turns a raw `u32` into a float in `[0, 1)`. | 30 |
 
-### `crates/yugen-core/src/sim/save.rs`
+### `crates/yugen-core/src/sim/save/chunk.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VERSION` (private) | `1` | Format version. | 66 |
-| `HEADER` (private) | `4 + 2 + 2 + 4 + 4` | Header bytes before the planes: magic, version, cell count, coordinates. | 69 |
-| `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 72 |
-| `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 76 |
-| `RUN_VERSION` (private) | `2` | Run-file version, independent of [`VERSION`]. | 191 |
-| `META_VERSION` (private) | `1` | Identity-file version. | 390 |
-| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 397 |
+| `VERSION` (private) | `1` | Format version. | 28 |
+| `HEADER` (private) | `4 + 2 + 2 + 4 + 4` | Header bytes before the planes: magic, version, cell count, coordinates. | 31 |
+| `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 34 |
+| `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 38 |
+
+### `crates/yugen-core/src/sim/save/meta.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `META_VERSION` (private) | `1` | Identity-file version. | 22 |
+| `WORLD_NAME_MAX` | `48` | Longest display name a world may have. | 29 |
+
+### `crates/yugen-core/src/sim/save/run.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `RUN_VERSION` (private) | `2` | Run-file version, independent of [`VERSION`]. | 31 |
 
 ### `crates/yugen-core/src/sim/worldgen/caves.rs`
 
