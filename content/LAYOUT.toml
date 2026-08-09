@@ -1,0 +1,78 @@
+# Which file each record belongs in.
+#
+# `contentc` reads every `*.toml` in a kind's directory and concatenates them,
+# so FILENAMES ARE INVISIBLE TO THE COMPILER: nothing in the build cares whether
+# a new ore lands in `ores.toml` or `terrain.toml`. That is fine while one person
+# holds the whole tree in their head and stops being fine the moment a tool
+# writes content, because "ask a human" is not a rule a program can follow.
+#
+# This file is that rule. One row per content file, and `cargo xtask check
+# layout` enforces that the rows and the files agree.
+#
+# Two kinds of row:
+#
+#   about only     the filing is a convention. The gate checks that the file
+#                  exists and is claimed; a human reading `about` decides what
+#                  belongs in it.
+#   about + rule   the filing is checkable. The gate additionally proves the
+#                  rule PARTITIONS: every record in the file matches it, and no
+#                  record in a sibling file does.
+#
+# Most rows are convention, and that is honest rather than lazy. The fields that
+# look like discriminators mostly cannot be one: a mob's `bands` and a
+# structure's `biomes` are LISTS and overlap across files, an item's `category`
+# spans three files by design, and a structure's `place` is `surface` in three
+# of six. Only a block's `state` genuinely partitions, and only for the two
+# files named below. Writing a rule that does not hold would make the gate lie,
+# which is worse than the gate being narrow.
+#
+# WHEN NO ROW CLAIMS A RECORD, ADD A FILE AND A ROW. Do not grow an unrelated
+# file because it is nearby. The gate refuses an unclaimed file, so this is the
+# one filing mistake that cannot be made quietly.
+#
+# See `content/FORMAT.md` §0 for the rule this file enforces and §9 for what a
+# tool writing content is allowed to do.
+
+# Directories under `content/` that are not content kinds. Raw assets, read by
+# something other than `contentc`.
+not_a_kind = ["fonts"]
+
+[blocks]
+terrain = { about = "The ground itself: what worldgen lays down before anything decorates it. Stone, dirt, sand and their worked forms. `empty` lives here because the absence of ground is still ground's business." }
+ecotone = { about = "Blend materials where two biomes meet, and the loose ground those boundaries leave behind." }
+ores = { about = "Solids that carry a resource out of the ground. Worldgen places these in veins and they drop something that smelts or crafts." }
+flora = { about = "Anything a decorator grows: foliage, trunks, vines, fungi." }
+fixtures = { about = "Blocks the player places and then interacts with: light sources, climbables, containers, crafting stations. Paired one-for-one with `items/fixtures.toml`." }
+gadgets = { about = "Blocks whose whole point is what they do to a body touching them. Every record here carries a `surface` or a `damage`." }
+gases = { about = "Everything in the gas state.", rule = { field = "state", equals = "gas" } }
+liquids = { about = "Everything in the liquid state.", rule = { field = "state", equals = "liquid" } }
+
+[items]
+resources = { about = "What the world yields when it is dug, cut or chopped, plus the refined forms those feed into." }
+blocks = { about = "Items that place a block. One per placeable material that is not a fixture — the inventory half of `blocks/terrain.toml` and its neighbours." }
+fixtures = { about = "Items that place a fixture. The inventory half of `blocks/fixtures.toml`." }
+creatures = { about = "What creatures drop: hides, chitin, gel, cores. Filed by where it comes from rather than what it is for, because one drop often feeds several categories." }
+tools = { about = "Items held to dig, cut or build. Every record carries a `tool` group." }
+weapons = { about = "Items held to fight, and the ammunition they spend." }
+consumables = { about = "Items spent on use for an effect." }
+relics = { about = "Singular items: quest pieces, curios, the things a run is measured by." }
+
+[mobs]
+surface = { about = "Creatures whose FIRST band is the surface: daylight, weather, open ground. `bands` is a list and creatures overlap, so a file records where a creature belongs, not everywhere it can appear." }
+cavern = { about = "Creatures whose first band is shallow or cavern." }
+deep = { about = "Creatures whose first band is deep or underworld." }
+
+[structures]
+surface = { about = "Landmarks that read as belonging to ordinary open ground and its shoreline." }
+desert = { about = "Landmarks of the arid biomes: desert, savanna, volcanic." }
+frozen = { about = "Landmarks of the cold biomes: tundra, glacier." }
+cavern = { about = "Landmarks underground, above the deep." }
+deep = { about = "Landmarks of the underworld." }
+sky = { about = "Landmarks that hang in the air." }
+
+[sprites]
+player = { about = "The player figure: every pose and sequence, one record. Large enough to own a file because the poses are argued for in comments as much as they are drawn." }
+icons = { about = "One icon per item, named `icon_<item id>`." }
+
+[worldgen]
+landmarks = { about = "Parametric features worldgen grows rather than stamps: islands, lakes, shafts, dungeons, geodes, groves, ore clusters." }

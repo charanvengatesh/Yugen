@@ -11,6 +11,10 @@ Authored content is TOML. One file per group of records, one directory per kind:
 | `structures/` | template-driven landmarks |
 | `worldgen/` | parametric worldgen features |
 
+Two files here are not content. `fonts/` holds raw assets, read by `cargo xtask
+font` and baked into the UI's glyph table rather than compiled by `contentc`.
+`LAYOUT.toml` says which file each record belongs in — see §0.
+
 The kind comes from the directory, not from anything in the file. Numeric ids
 are pinned in `ids.lock.json` so a saved world does not change meaning when a
 new record is added; ids are assigned once and never reused, and a deleted
@@ -27,6 +31,35 @@ block or sprite that compiles cleanly can still be wrong, and that is the file
 that says how.
 
 ---
+
+## 0. Which file a record goes in
+
+A kind directory is **flat**, and the compiler reads every `*.toml` in it and
+concatenates them. Filenames are invisible to the build: nothing breaks if a new
+ore is authored in `terrain.toml`. So the filing is a convention, and a
+convention nobody wrote down is one a tool cannot follow.
+
+`LAYOUT.toml` writes it down. One row per file, saying what belongs in it, and
+`cargo xtask check layout` proves the rows and the files agree.
+
+The rule a row states is always **what a record IS in the world**, never when it
+was added or who added it. A file that becomes "the recent one" has stopped
+being a category.
+
+**When no row claims a record, add a file and a row.** Do not grow an unrelated
+file because it happens to be nearby. The gate refuses an unclaimed file, which
+makes this the one filing mistake that cannot be made quietly.
+
+A row may also carry a `rule`, and then the gate proves the rule *partitions* —
+every record in the file matches it and no record in a sibling does. Few rows
+can: `bands` and `biomes` are lists that overlap across files, `category` spans
+three files by design. A rule that does not hold would make the gate lie, so
+most rows are prose and are enforced by being read.
+
+Directories are flat rather than nested because content discovery is implemented
+twice — once in `contentc`, once in `xtask`, which shares no code with the
+workspace by design. One flat `read_dir` in each is a rule that stays in step;
+two recursive walks are not.
 
 ## 1. A record is a top-level table
 
@@ -197,3 +230,29 @@ What did NOT change is everything the compiler does after parsing: the schema
 descriptors, compile-time reference checking, the defaults and constraints, the
 id lock and its tombstones, and the flat-array codegen. Those were always the
 valuable part; the syntax never was.
+
+---
+
+## 9. Writing content from a tool
+
+An authoring tool — a sprite editor, a sound designer — writes these files
+directly. Four rules, and the first one is the one that will be broken first.
+
+**Never round-trip a file through a TOML serialiser.** Read the file as text,
+splice the one record, write it back. A serialiser is correct about TOML and
+wrong about this format: §5 makes `#` and trailing whitespace *data* inside
+`'''`, and §6 makes the comments the most valuable thing in the file. A
+round-trip silently normalises the first two and deletes the third. The compiler
+itself has never round-tripped a file, for exactly this reason.
+
+**Append a record, or replace one in place.** Those are the two safe edits.
+Reordering records within a file is not — file order feeds code assignment.
+
+**Never write `ids.lock.json`.** Run `cargo run -p contentc` and let it assign.
+The lock is what guarantees new content takes codes above the baseline boundary
+instead of renumbering what is below, and renumbering is how a save file turns
+the player's gold into gravel.
+
+**Put the record in the file `LAYOUT.toml` names for it** (§0). If no row claims
+it, the tool has found a genuinely new category and should say so rather than
+guess — adding a file and a row is a human decision.
