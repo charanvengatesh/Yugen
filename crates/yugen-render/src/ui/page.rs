@@ -76,6 +76,8 @@ pub struct PageCx<'a> {
     pub xp: i32,
     /// Which title-card row is under the cursor.
     pub menu: super::MenuCursor,
+    /// How brightly the health bar is flashing, `0.0..=1.0`.
+    pub flash: f32,
     /// Seconds since this run began, for chrome that fades out.
     pub run_age_s: f32,
     /// What the F3 panel would say. Gathered in `PreUpdate`, so it is this

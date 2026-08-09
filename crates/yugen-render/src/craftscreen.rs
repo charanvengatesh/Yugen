@@ -50,6 +50,7 @@ use crate::interact_reach::stations_in_reach;
 use crate::items::Pack;
 use crate::player::PlayerBody;
 use crate::scenes::Scene;
+use crate::ui::layout::Chrome;
 use crate::ui::{Align, TextStyle, Toast, UiPrim, rgb, rgba};
 use crate::world::SimWorld;
 
@@ -66,10 +67,17 @@ const VISIBLE_ROWS: usize = 10;
 
 /// Clearance kept between the panel and the edge of the buffer.
 ///
-/// 40, which puts the panel clear of `ui::hud` at both ends: the health plate
-/// and the control hints occupy the top, the hotbar and the held item's two
-/// lines the bottom. The first version was a full-screen wash and the capture
-/// showed station badges written across the control hints.
+/// This used to be a hardcoded 40 with a comment explaining which parts of
+/// `ui::hud` it was dodging — the health plate and the hints at the top, the
+/// hotbar and the held item's lines at the bottom. Every one of those numbers
+/// has since moved, and a constant that dodges a layout by having read its
+/// source is a constant that goes stale silently. The card is laid out against
+/// `layout::Chrome`'s instrument band now, which is derived from the plates
+/// rather than measured against them.
+///
+/// The value survives as the FLOOR: on a buffer too short for the chrome to
+/// leave a usable band, the card takes the middle anyway rather than collapsing
+/// to nothing.
 const CARD_MARGIN: i32 = 40;
 
 // --- State -------------------------------------------------------------------
@@ -205,12 +213,16 @@ pub fn screen(view_state: &CraftingView, view: View) -> Vec<UiPrim> {
     // The whole frame, dimmed. Everything below sits on the panel instead.
     out.push(UiPrim::rect(0, 0, w, h, rgba(0, 0, 0, 0.55)));
 
+    // The band the standing chrome has left free, rather than a margin tuned
+    // against where that chrome used to be.
+    let free = Chrome::of(view).instrument;
     let card_w = (w - 80).min(420);
-    let card_h = (VISIBLE_ROWS as i32 * ROW_H + 52).min(h - 2 * CARD_MARGIN);
+    let card_h = (VISIBLE_ROWS as i32 * ROW_H + 52)
+        .min(free.h.max(h - 2 * CARD_MARGIN))
+        .max(0);
     let x = (w - card_w) / 2;
-    // Clear of the HUD at both ends: `ui::hud`'s health plate and hint block
-    // occupy the top, the hotbar and its item lines the bottom.
-    let y = ((h - card_h) / 2).max(CARD_MARGIN);
+    // Centred in the free band, and never above it.
+    let y = (free.y + (free.h - card_h) / 2).max(free.y.min(CARD_MARGIN));
 
     out.push(UiPrim::rect(
         x,

@@ -176,16 +176,34 @@ pub struct Chrome {
     pub instrument: Region,
 }
 
-/// Height of the health plate, including its bleed. `BAR_H` plus 4 px either
-/// side, which is the plate the port drew.
-const VITALS_H: i32 = 28;
+/// Height of the vitals plate.
+///
+/// Two rows inside a 6px pad: the health line and the dash line. The port's
+/// plate was 28 px for ONE 20px-tall bar, which is a bar you could read from
+/// the next room and a plate that took the corner of the screen to say one
+/// number. See `ui::vitals_at`.
+pub const VITALS_H: i32 = 26;
 
-/// Width of the health plate, including its bleed. `BAR_W` plus 4 px either
-/// side.
-const VITALS_W: i32 = 228;
+/// Width of the vitals plate.
+///
+/// 164, down from 228, and 26 tall against 28 — so the plate is smaller than the
+/// port's on both axes while carrying two bars instead of one. The bar inside it
+/// is 104 px where the port's was 220: a health bar does not need to be a fifth
+/// of the screen to be legible, and the number beside it is the precise reading
+/// anyway.
+pub const VITALS_W: i32 = 164;
 
-/// Height of the stat row under the vitals.
-const STATS_H: i32 = 12;
+/// Height of the stat row under the vitals, plate included.
+const STATS_H: i32 = 13;
+
+/// Blank rows between the vitals plate and the stat plate.
+///
+/// Three. They are two plates and have to read as two: butted together they
+/// make one ragged shape whose outline is the longer of the two lines of text
+/// inside it, which changes as the player walks into a new biome. Found by
+/// looking at a capture, and kept here rather than as an offset at draw time so
+/// the regions genuinely do not touch.
+const ROW_GAP: i32 = 3;
 
 /// Height of the bottom-left hotbar plate.
 ///
@@ -220,6 +238,7 @@ impl Chrome {
         let (top, rest) = safe.split_top(VITALS_H);
         let vitals = top.corner(Corner::TopLeft, VITALS_W.min(top.w), top.h);
 
+        let (_, rest) = rest.split_top(ROW_GAP);
         let (stats, rest) = rest.split_top(STATS_H);
 
         // The hints hang in the top-right across both of those bands. They are

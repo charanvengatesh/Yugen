@@ -823,9 +823,6 @@ const MARGIN: i32 = 16;
 /// the strip, so nothing has to grow to accommodate it.
 const SELECT_LIFT: i32 = 2;
 
-/// Radius of the dash-readiness pip, in buffer px.
-const PIP_R: i32 = 8;
-
 /// Baseline of the toast line, as px UP from the bottom of the buffer.
 ///
 /// 96 clears the 78px the plate occupies (`PANEL_H` plus its 4px bleed and the
@@ -1035,7 +1032,7 @@ fn shadowed(
 /// module header on why that does not survive a nearest-neighbour upscale. The
 /// centre is a pixel CORNER, not a pixel centre, which is why the sample point
 /// for row `py` is `py + 0.5` — that is where the pixel actually is.
-fn disc(out: &mut Vec<UiPrim>, cx: i32, cy: i32, r: i32, color: Color) {
+pub fn disc(out: &mut Vec<UiPrim>, cx: i32, cy: i32, r: i32, color: Color) {
     for py in (cy - r)..(cy + r) {
         let dy = py as f32 + 0.5 - cy as f32;
         let inside = (r * r) as f32 - dy * dy;
@@ -1092,34 +1089,49 @@ pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
 /// [`hud`], plus the two numbers that had nowhere to be shown.
 pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View) -> Vec<UiPrim> {
     let chrome = layout::Chrome::of(view);
-    let mut out = vitals_at(health, dash_ready, armour, xp, chrome);
+    let dash = if dash_ready { 1.0 } else { 0.0 };
+    let mut out = vitals_at(health, dash, 0.0, armour, xp, None, chrome);
     out.extend(hints_at(1.0, chrome));
     out
 }
 
-/// Health, dash readiness, and the stat row under them.
+/// Health, dash charge, and the stat row under them.
 ///
-/// `armour` is what a hit is reduced by and `xp` is what `MobSystem` has banked.
-/// Both were real and invisible: the XP counter has been incremented on every
-/// kill since M6 and read by nothing, which is the `HANDOFF.md` §7.1 shape —
-/// a value that is written, plausible, and never looked at.
+/// # What changed, and why it is smaller
 ///
-/// Zero of either draws nothing. A player with no armour should not carry a
-/// "0" telling them so, and the HUD's whole design is that a row appears when
-/// it has something to say.
+/// The port's bar was 220 x 20 px on a 228 x 28 plate: a fifth of the buffer's
+/// width, carrying one number that was also printed on it in words. It was the
+/// loudest thing on a screen whose subject is the world — see [`theme`] on the
+/// overlay receding. This is 118 x 7 on a 196 x 32 plate, and it says strictly
+/// more:
+///
+/// - **The dash is a bar, not a pip.** `dash_charge` is a fraction and always
+///   was; the HUD was being handed one bit of it. A player who has just dashed
+///   could see THAT they could not dash and never how long they had to wait.
+/// - **Damage flashes.** `flash` is 1.0 on the frame health drops and decays;
+///   the bar washes toward white over its own colour. A number that changes is
+///   a number nobody sees change while they are looking at what hit them.
+/// - **Depth and biome are the player's now.** Both were computed every frame
+///   and shown only to F3. "How deep am I" is a question about the game, not
+///   about the build.
+///
+/// `armour`, `xp` and `place` all draw nothing when they have nothing to say.
+/// A player with no armour should not carry a "0" telling them so.
 pub fn vitals_at(
     health: f32,
-    dash_ready: bool,
+    dash: f32,
+    flash: f32,
     armour: f32,
     xp: i32,
+    place: Option<(&str, f32)>,
     chrome: layout::Chrome,
 ) -> Vec<UiPrim> {
     let mut out = Vec::new();
     let plate = chrome.vitals;
-    // The bar sits inside its plate's 4px bleed, which is what `Chrome` sized
-    // the region to hold.
-    let (x, y) = (plate.x + 4, plate.y + 4);
-    let (bar_w, bar_h) = (plate.w - 8, plate.h - 8);
+    let c = plate.inset(PLATE_PAD);
+    if c.w <= 0 || c.h <= 0 {
+        return out;
+    }
     let frac = (health / MAX_HEALTH).clamp(0.0, 1.0);
 
     out.push(UiPrim::rect(
@@ -1129,84 +1141,161 @@ pub fn vitals_at(
         plate.h,
         theme::PLATE,
     ));
-    out.push(UiPrim::rect(x, y, bar_w, bar_h, theme::WELL));
-    // The one place the original let a fractional rect through and leant on
-    // canvas antialiasing. Rounded, because the blit does not smooth.
-    out.push(UiPrim::rect(
-        x,
-        y,
-        js_round(bar_w as f32 * frac),
-        bar_h,
-        theme::vitality(frac),
-    ));
+
+    // Row one: the reading, then the bar. The number leads because it is the
+    // precise answer and the bar is the glanceable one.
+    let hp = format!("HP {}", js_round(health));
     out.push(UiPrim::text(
-        format!("HP {}", js_round(health)),
-        x + theme::PAD,
-        theme::BODY.baseline_from_middle(y + bar_h / 2 + 1),
+        hp,
+        c.x,
+        theme::BODY.baseline_from_top(c.y),
         Align::Left,
         theme::BODY,
         theme::INK,
     ));
+    let bar_x = c.x + GUTTER;
+    let bar_w = c.right() - bar_x;
+    let bar_y = c.y + (theme::BODY.cap_h() - BAR_H) / 2;
+    out.push(UiPrim::rect(bar_x, bar_y, bar_w, BAR_H, theme::WELL));
+    // The one place the original let a fractional rect through and leant on
+    // canvas antialiasing. Rounded, because the blit does not smooth.
+    out.push(UiPrim::rect(
+        bar_x,
+        bar_y,
+        js_round(bar_w as f32 * frac),
+        BAR_H,
+        flashed(theme::vitality(frac), flash),
+    ));
 
-    // Armour and XP, on the row under the bar. Left-aligned with it rather than
-    // beside the dash pip, because they are STATS and the pip is a state — a
-    // player scanning for "how tough am I" reads down from the health bar.
-    //
-    // Both are `INK_DIM` now rather than the blue and the gold the port gave
-    // them. See `theme`: a colour means something or it is absent, and neither
-    // of these had a meaning either of them could have named.
-    let mut stat_x = chrome.stats.x;
-    let stat_y = chrome.stats.y + theme::CAPTION.cap_h();
-    if armour > 0.0 {
-        let text = format!("ARM {}", js_round(armour));
-        out.push(UiPrim::text(
-            text.clone(),
-            stat_x,
-            stat_y,
-            Align::Left,
-            theme::CAPTION,
-            theme::INK_DIM,
-        ));
-        stat_x += theme::CAPTION.measure(&text) + theme::GAP;
-    }
-    if xp > 0 {
-        out.push(UiPrim::text(
-            format!("XP {xp}"),
-            stat_x,
-            stat_y,
-            Align::Left,
-            theme::CAPTION,
-            theme::INK_DIM,
-        ));
-    }
-
-    // Dash readiness pip, just past the plate.
-    let pip_x = plate.right() + theme::GAP;
-    let pip_y = plate.cy();
-    disc(
-        &mut out,
-        pip_x,
-        pip_y,
-        PIP_R,
-        if dash_ready {
-            theme::ACCENT
-        } else {
-            theme::ACCENT_SPENT
-        },
-    );
+    // Row two: the dash, on the same left edge and the same gutter, so the two
+    // bars stack rather than merely both being present.
+    let row2 = c.y + ROW_PITCH;
     out.push(UiPrim::text(
         "DASH",
-        pip_x + PIP_R + theme::UNIT,
-        theme::MINOR.baseline_from_middle(pip_y + 1),
+        c.x,
+        theme::CAPTION.baseline_from_top(row2),
         Align::Left,
-        theme::MINOR,
-        if dash_ready {
+        theme::CAPTION,
+        if dash >= 1.0 {
             theme::INK_FAINT
         } else {
             theme::INK_MUTED
         },
     ));
+    let dash_y = row2 + (theme::CAPTION.cap_h() - DASH_H) / 2;
+    out.push(UiPrim::rect(bar_x, dash_y, DASH_W, DASH_H, theme::WELL));
+    out.push(UiPrim::rect(
+        bar_x,
+        dash_y,
+        js_round(DASH_W as f32 * dash.clamp(0.0, 1.0)),
+        DASH_H,
+        if dash >= 1.0 {
+            theme::ACCENT
+        } else {
+            theme::ACCENT_SPENT
+        },
+    ));
+
+    // The stat row, under the plate: things that are true rather than things
+    // that are changing.
+    //
+    // On a plate of its own, sized to what it actually says. The first version
+    // let it sit on the world and the capture settled it — `Tundra 30%` in
+    // INK_DIM over a snowfield is not a readout, it is a rumour. A plate that
+    // hugs its text costs three pixels either side and works over anything.
+    //
+    // All one colour. The port gave armour a blue and XP a gold, which `theme`
+    // retires: a colour means something or it is absent, and neither of those
+    // had a meaning either of them could have named.
+    let mut stats: Vec<String> = Vec::new();
+    if armour > 0.0 {
+        stats.push(format!("ARM {}", js_round(armour)));
+    }
+    if xp > 0 {
+        stats.push(format!("XP {xp}"));
+    }
+    if let Some((biome, depth)) = place {
+        // Depth as a percentage of the range rather than a raw 0..1: "62%" is a
+        // reading and "0.618" is a debug value that wandered onto the HUD.
+        stats.push(format!("{biome} {}%", js_round(depth * 100.0)));
+    }
+    if !stats.is_empty() {
+        let line = stats.join("   ");
+        let w = theme::CAPTION.measure(&line);
+        let row = chrome.stats;
+        out.push(UiPrim::rect(
+            row.x,
+            row.y,
+            w + 2 * STAT_PAD,
+            theme::CAPTION.cap_h() + 2 * STAT_PAD,
+            theme::PLATE,
+        ));
+        out.push(UiPrim::text(
+            line,
+            row.x + STAT_PAD,
+            theme::CAPTION.baseline_from_top(row.y + STAT_PAD),
+            Align::Left,
+            theme::CAPTION,
+            theme::INK_DIM,
+        ));
+    }
     out
+}
+
+/// Inset from the stat plate's edge to its text.
+///
+/// Tighter than [`PLATE_PAD`]: this plate exists only to put a background
+/// behind one short line, and any more air would make it read as a panel.
+const STAT_PAD: i32 = 3;
+
+/// Inset from the vitals plate's edge to its content.
+const PLATE_PAD: i32 = 5;
+
+/// Left edge of both bars, measured from the content's left edge.
+///
+/// Wide enough for `HP 100` at [`theme::BODY`] — six glyphs at a 7px advance —
+/// plus a gap. The dash bar shares it so the two stack on one column.
+const GUTTER: i32 = 50;
+
+/// Baseline-to-baseline of the vitals plate's two rows.
+const ROW_PITCH: i32 = 11;
+
+/// Height of the health bar, in buffer px.
+const BAR_H: i32 = 7;
+
+/// Width of the dash bar.
+///
+/// Shorter than the health bar on purpose: it is a timer measured in half a
+/// second, and giving it the same length as a resource the player spends the
+/// whole game managing would say they were the same kind of thing.
+const DASH_W: i32 = 56;
+
+/// Height of the dash bar. Thinner than the health bar, for the same reason.
+const DASH_H: i32 = 3;
+
+/// Seconds the damage flash takes to decay.
+///
+/// Short. It has to survive a frame the player was not looking at the bar
+/// during, and outstay its welcome in none of them.
+pub const FLASH_S: f32 = 0.35;
+
+/// `color` washed toward white by `flash`, `0.0..=1.0`.
+///
+/// Toward white and not toward red: the bar is already red when it matters, and
+/// a red flash on a red bar is a flash nobody sees. Alpha is left alone so the
+/// wash cannot make a translucent thing opaque.
+fn flashed(color: Color, flash: f32) -> Color {
+    let k = flash.clamp(0.0, 1.0);
+    if k <= 0.0 {
+        return color;
+    }
+    let s = color.to_srgba();
+    Color::srgba(
+        s.red + (1.0 - s.red) * k,
+        s.green + (1.0 - s.green) * k,
+        s.blue + (1.0 - s.blue) * k,
+        s.alpha,
+    )
 }
 
 /// Seconds the control hints stay at full strength at the start of a run.
@@ -1508,9 +1597,17 @@ pub(crate) fn vitals(cx: &page::PageCx) -> Vec<UiPrim> {
     match cx.body {
         Some(body) => vitals_at(
             body.0.health,
-            body.0.dash_ready(),
+            body.0.dash_charge(),
+            cx.flash,
             body.0.armour,
             cx.xp,
+            // Biome and depth come off the debug readout, which is not a layer
+            // violation: `DebugReadout` is a per-frame summary of the world,
+            // gathered in `PreUpdate` from the mood `ambience` published and the
+            // depth `light` solved. Re-deriving either here would be a second
+            // opinion about the same frame, which `debug`'s own header is
+            // explicit about not wanting.
+            cx.debug.live.then_some((cx.debug.biome.0, cx.debug.depth)),
             cx.chrome,
         ),
         // No body yet. The bar would be a lie and an empty plate is worse than
@@ -2112,6 +2209,48 @@ impl Icons {
     }
 }
 
+/// How recently the player was hurt, and what they were on when it happened.
+///
+/// A resource because the HUD is a pure function of the frame and "health went
+/// down since last frame" is not a property of one frame. Kept here rather than
+/// on the body: the body's health is the model, and how loudly to say it
+/// changed is the overlay's business.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct DamageFlash {
+    /// Health as of the previous frame, for the comparison.
+    last: f32,
+    /// Seconds of flash remaining.
+    t: f32,
+}
+
+impl DamageFlash {
+    /// How bright the wash is right now, `0.0..=1.0`.
+    pub fn alpha(&self) -> f32 {
+        (self.t / FLASH_S).clamp(0.0, 1.0)
+    }
+}
+
+/// Watch the body's health and fire [`DamageFlash`] when it drops.
+///
+/// Only on a DROP. A heal is good news and the number going up says so on its
+/// own; flashing for both would make the signal mean "health changed", which
+/// the player can already see.
+fn watch_health(
+    time: Res<Time<Real>>,
+    body: Option<Res<PlayerBody>>,
+    mut flash: ResMut<DamageFlash>,
+) {
+    flash.t = (flash.t - time.delta_secs()).max(0.0);
+    let Some(body) = body else {
+        return;
+    };
+    let now = body.0.health;
+    if now < flash.last {
+        flash.t = FLASH_S;
+    }
+    flash.last = now;
+}
+
 /// Seconds since the current run began.
 ///
 /// Reset by `glue::start_a_run`, ticked here. It exists for one caller — the
@@ -2257,6 +2396,8 @@ struct HudSources<'w> {
     run_age: Res<'w, RunAge>,
     /// Which title-card row is under the cursor.
     menu: Res<'w, MenuCursor>,
+    /// How recently the player was hurt.
+    flash: Res<'w, DamageFlash>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
     debug: Res<'w, crate::debug::DebugReadout>,
 }
@@ -2296,6 +2437,7 @@ impl Plugin for UiPlugin {
             .init_resource::<Toast>()
             .init_resource::<RunAge>()
             .init_resource::<MenuCursor>()
+            .init_resource::<DamageFlash>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
             .init_resource::<UiQuads>()
@@ -2304,6 +2446,7 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     tick_toast,
+                    watch_health,
                     compose.run_if(resource_exists::<Tool>.and_then(resource_exists::<Pack>)),
                     paint.run_if(resource_exists::<FontAtlas>),
                 )
@@ -2392,6 +2535,7 @@ fn compose(
         picker: &sources.picker,
         xp: sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
         menu: *sources.menu,
+        flash: sources.flash.alpha(),
         run_age_s: sources.run_age.0,
         debug: &sources.debug,
     };
@@ -2754,6 +2898,105 @@ mod tests {
                     ch as u32,
                     style.face
                 );
+            }
+        }
+    }
+
+    // --- Vitals -------------------------------------------------------------
+
+    /// The bar under the `HP` reading, whichever prim index it lands at.
+    fn health_fill(prims: &[UiPrim]) -> (i32, Color) {
+        // Plate, HP text, track, fill: the fill is the second `Rect` after the
+        // track, found by position rather than by index so this survives a
+        // prim being added in front of it.
+        let rects: Vec<_> = prims
+            .iter()
+            .filter_map(|p| match p {
+                UiPrim::Rect { w, color, .. } => Some((*w, *color)),
+                _ => None,
+            })
+            .collect();
+        rects[2]
+    }
+
+    #[test]
+    fn the_dash_bar_reads_the_whole_cooldown_and_not_just_its_end() {
+        // The pip this replaces was one bit. A bar that only moved at 0 and 1
+        // would be that pip with extra steps.
+        let chrome = layout::Chrome::of(view());
+        let widths: Vec<i32> = [0.0, 0.25, 0.5, 0.75, 1.0]
+            .iter()
+            .map(|d| {
+                let prims = vitals_at(100.0, *d, 0.0, 0.0, 0, None, chrome);
+                let rects: Vec<i32> = prims
+                    .iter()
+                    .filter_map(|p| match p {
+                        UiPrim::Rect { w, .. } => Some(*w),
+                        _ => None,
+                    })
+                    .collect();
+                // Plate, health track, health fill, dash track, dash fill.
+                rects[4]
+            })
+            .collect();
+        for pair in widths.windows(2) {
+            assert!(pair[1] > pair[0], "the dash bar does not fill: {widths:?}");
+        }
+        assert_eq!(widths[0], 0, "a spent dash still shows a bar");
+        assert_eq!(widths[4], DASH_W, "a ready dash is not full");
+    }
+
+    #[test]
+    fn the_damage_flash_washes_the_bar_towards_white_and_decays_to_nothing() {
+        let chrome = layout::Chrome::of(view());
+        let (_, calm) = health_fill(&vitals_at(60.0, 1.0, 0.0, 0.0, 0, None, chrome));
+        let (_, hit) = health_fill(&vitals_at(60.0, 1.0, 1.0, 0.0, 0, None, chrome));
+        assert!(
+            hit.to_srgba().red > calm.to_srgba().red,
+            "the flash did not brighten the bar"
+        );
+        // Toward white, not toward red: a red flash on a red bar is invisible
+        // exactly when the bar is red, which is when it matters.
+        assert!(hit.to_srgba().blue > calm.to_srgba().blue);
+        // And it must not change how transparent the bar is.
+        assert_eq!(hit.to_srgba().alpha, calm.to_srgba().alpha);
+    }
+
+    #[test]
+    fn the_flash_is_a_no_op_at_zero() {
+        assert_eq!(flashed(theme::VITAL_FULL, 0.0), theme::VITAL_FULL);
+        assert_eq!(flashed(theme::VITAL_FULL, -1.0), theme::VITAL_FULL);
+    }
+
+    #[test]
+    fn a_stat_says_nothing_when_it_has_nothing_to_say() {
+        let chrome = layout::Chrome::of(view());
+        let bare = texts(&vitals_at(100.0, 1.0, 0.0, 0.0, 0, None, chrome)).len();
+        let prims = vitals_at(100.0, 1.0, 0.0, 12.0, 340, Some(("Tundra", 0.62)), chrome);
+        let full = texts(&prims);
+        assert_eq!(full.len(), bare + 1, "{full:?}");
+        let joined = full
+            .iter()
+            .map(|(t, ..)| t.to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(joined.contains("ARM 12"), "{joined}");
+        assert!(joined.contains("XP 340"), "{joined}");
+        // Depth as a reading, not as the raw 0..1 that F3 prints.
+        assert!(joined.contains("Tundra 62%"), "{joined}");
+    }
+
+    #[test]
+    fn the_vitals_plate_is_smaller_than_the_one_it_replaces() {
+        // The port's plate was 228 x 28 for a 220 x 20 bar. This is the record
+        // that it did not creep back.
+        const { assert!(layout::VITALS_W <= 200, "the plate grew again") };
+        const { assert!(layout::VITALS_H <= 32, "the plate grew again") };
+        let chrome = layout::Chrome::of(view());
+        for prim in vitals_at(50.0, 0.5, 0.0, 1.0, 1, Some(("Caverns", 0.5)), chrome) {
+            if let UiPrim::Rect { x, y, w, h, .. } = prim {
+                assert!(x >= 0 && y >= 0, "vitals drew off the left/top");
+                assert!(x + w <= view().w && y + h <= view().h, "vitals overran");
             }
         }
     }
@@ -3454,15 +3697,16 @@ mod tests {
     #[test]
     fn the_dash_pip_is_a_symmetric_disc_of_whole_pixel_spans() {
         let mut out = Vec::new();
-        disc(&mut out, 100, 50, PIP_R, Color::WHITE);
-        assert_eq!(out.len(), (PIP_R * 2) as usize, "one span per scanline");
+        const R: i32 = 8;
+        disc(&mut out, 100, 50, R, Color::WHITE);
+        assert_eq!(out.len(), (R * 2) as usize, "one span per scanline");
         let mut widths = Vec::new();
         for prim in &out {
             match prim {
                 UiPrim::Rect { y, w, h, .. } => {
                     assert_eq!(*h, 1);
-                    assert!(*w > 0 && *w <= PIP_R * 2, "span {w}px wide");
-                    assert!((50 - PIP_R..50 + PIP_R).contains(y));
+                    assert!(*w > 0 && *w <= R * 2, "span {w}px wide");
+                    assert!((50 - R..50 + R).contains(y));
                     widths.push(*w);
                 }
                 other => panic!("{other:?}"),

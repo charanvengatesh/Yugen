@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 100 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 630 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 638 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -766,10 +766,10 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VISIBLE_ROWS` (private) | `10` | Rows the panel is SIZED for. | 65 |
-| `CARD_MARGIN` (private) | `40` | Clearance kept between the panel and the edge of the buffer. | 73 |
-| `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 191 |
-| `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 497 |
+| `VISIBLE_ROWS` (private) | `10` | Rows the panel is SIZED for. | 66 |
+| `CARD_MARGIN` (private) | `40` | Clearance kept between the panel and the edge of the buffer. | 81 |
+| `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 199 |
+| `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 509 |
 
 ### `crates/yugen-render/src/daynight.rs`
 
@@ -1046,12 +1046,13 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VITALS_H` (private) | `28` | Height of the health plate, including its bleed. | 181 |
-| `VITALS_W` (private) | `228` | Width of the health plate, including its bleed. | 185 |
-| `STATS_H` (private) | `12` | Height of the stat row under the vitals. | 188 |
-| `PANEL_H` | `62` | Height of the bottom-left hotbar plate. | 194 |
-| `HINT_LINES` (private) | `3` | Lines of control hint in the top-right stack. | 197 |
-| `HINT_PITCH` (private) | `14` | Pitch of the hint stack, in buffer px. | 200 |
+| `VITALS_H` | `26` | Height of the vitals plate. | 185 |
+| `VITALS_W` | `164` | Width of the vitals plate. | 194 |
+| `STATS_H` (private) | `13` | Height of the stat row under the vitals, plate included. | 197 |
+| `ROW_GAP` (private) | `3` | Blank rows between the vitals plate and the stat plate. | 206 |
+| `PANEL_H` | `62` | Height of the bottom-left hotbar plate. | 212 |
+| `HINT_LINES` (private) | `3` | Lines of control hint in the top-right stack. | 215 |
+| `HINT_PITCH` (private) | `14` | Pitch of the hint stack, in buffer px. | 218 |
 
 ### `crates/yugen-render/src/ui/mod.rs`
 
@@ -1066,15 +1067,22 @@ only the exported surface is held to the rule.
 | `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 810 |
 | `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 816 |
 | `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 824 |
-| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 827 |
-| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 833 |
-| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 839 |
-| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 845 |
-| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1217 |
-| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1224 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 2012 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 2024 |
-| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2168 |
+| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 830 |
+| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 836 |
+| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 842 |
+| `STAT_PAD` (private) | `3` | Inset from the stat plate's edge to its text. | 1249 |
+| `PLATE_PAD` (private) | `5` | Inset from the vitals plate's edge to its content. | 1252 |
+| `GUTTER` (private) | `50` | Left edge of both bars, measured from the content's left edge. | 1258 |
+| `ROW_PITCH` (private) | `11` | Baseline-to-baseline of the vitals plate's two rows. | 1261 |
+| `BAR_H` (private) | `7` | Height of the health bar, in buffer px. | 1264 |
+| `DASH_W` (private) | `56` | Width of the dash bar. | 1271 |
+| `DASH_H` (private) | `3` | Height of the dash bar. | 1274 |
+| `FLASH_S` | `0.35` | Seconds the damage flash takes to decay. | 1280 |
+| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1306 |
+| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1313 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 2109 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 2121 |
+| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2307 |
 
 ### `crates/yugen-render/src/ui/theme.rs`
 

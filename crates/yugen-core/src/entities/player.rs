@@ -675,6 +675,20 @@ impl Player {
         self.dash_cooldown <= 0.0
     }
 
+    /// How far the dash has recharged, 0 just spent to 1 ready.
+    ///
+    /// The HUD used to get [`Self::dash_ready`] and nothing else, which is one
+    /// bit for a value that spends [`DASH_COOLDOWN`] seconds in between — so a
+    /// player who had just dashed could see THAT they could not dash again and
+    /// never how long they had to wait. A pip cannot say that; a bar can.
+    #[inline]
+    pub fn dash_charge(&self) -> f32 {
+        if DASH_COOLDOWN <= 0.0 {
+            return 1.0;
+        }
+        (1.0 - self.dash_cooldown / DASH_COOLDOWN).clamp(0.0, 1.0)
+    }
+
     /// A dash is in progress.
     #[inline]
     pub fn dashing(&self) -> bool {
