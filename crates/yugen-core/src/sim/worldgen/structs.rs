@@ -734,10 +734,12 @@ fn origin_x(t: &Template, ox: i32, k: i32) -> i32 {
 }
 
 fn origin_y(t: &Template, oy: i32, height: i32, k: i32) -> i32 {
+    // Exhaustive: a new anchor must say where its origin sits, and the wildcard
+    // that used to be here would have silently given it the top edge.
     let base = match t.anchor {
         Anchor::BottomCenter | Anchor::BottomLeft => oy - (height - 1),
         Anchor::Center => oy - (height >> 1),
-        _ => oy,
+        Anchor::TopCenter | Anchor::TopLeft => oy,
     };
     // `sink` is an authored cell offset, so it scales with the raster it offsets.
     base + t.sink * k

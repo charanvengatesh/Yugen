@@ -918,19 +918,35 @@ fn offer(ctx: &mut DecorContext<'_>, f: &Feat, gx: i32, gy: i32) {
             return;
         }
 
-        if f.kind == Some(Kind::Island) {
-            let clear = ri(gh(ctx, f, gx, gy, 2), f.clear0, f.clear1);
-            grow_island(ctx, f, ox, surf - clear);
-        } else if f.kind == Some(Kind::Lake) {
-            // A lake needs a basin above sea level (below it the heightmap already
-            // flooded the column) and ground flat enough to cut one datum across.
-            if surf >= SEA_LEVEL_Y - 3 {
-                return;
+        // Exhaustive on purpose, and the reason is the whole point of the enum
+        // being generated: adding a variant to `content/`'s schema now fails to
+        // compile HERE, with the list of arms in front of whoever added it,
+        // rather than growing nothing and looking like a worldgen bug.
+        match f.kind {
+            Some(Kind::Island) => {
+                let clear = ri(gh(ctx, f, gx, gy, 2), f.clear0, f.clear1);
+                grow_island(ctx, f, ox, surf - clear);
             }
-            if spread_at(ctx, ox, f.size1 >> 1, surf) > 4 {
-                return;
+            Some(Kind::Lake) => {
+                // A lake needs a basin above sea level (below it the heightmap
+                // already flooded the column) and ground flat enough to cut one
+                // datum across.
+                if surf >= SEA_LEVEL_Y - 3 {
+                    return;
+                }
+                if spread_at(ctx, ox, f.size1 >> 1, surf) > 4 {
+                    return;
+                }
+                grow_lake(ctx, f, ox, surf);
             }
-            grow_lake(ctx, f, ox, surf);
+            // Grown on the 2D lattice below, not from a column.
+            Some(Kind::Mineshaft)
+            | Some(Kind::Dungeon)
+            | Some(Kind::Geode)
+            | Some(Kind::Grove)
+            | Some(Kind::Oreblob) => {}
+            // A code this build has no generator for. See `Kind::from_code`.
+            None => {}
         }
         return;
     }
@@ -956,14 +972,20 @@ fn offer(ctx: &mut DecorContext<'_>, f: &Feat, gx: i32, gy: i32) {
         }
     }
 
+    // Exhaustive, for the reason the column match above is. The comment this
+    // replaces said "a new kind must add an arm", which is a comment doing a
+    // compiler's job — and doing it worse, because a wildcard meant the new
+    // kind placed nothing and said nothing.
     match f.kind {
         Some(Kind::Mineshaft) => grow_mineshaft(ctx, f, ox, oy),
         Some(Kind::Dungeon) => grow_dungeon(ctx, f, ox, oy),
         Some(Kind::Geode) => grow_geode(ctx, f, ox, oy),
         Some(Kind::Grove) => grow_grove(ctx, f, ox, oy),
         Some(Kind::Oreblob) => grow_ore_blob(ctx, f, ox, oy, depth),
-        // island/lake are column-placed; a new kind must add an arm
-        _ => {}
+        // Column-placed; grown above, before this point is reached.
+        Some(Kind::Island) | Some(Kind::Lake) => {}
+        // A code this build has no generator for. See `Kind::from_code`.
+        None => {}
     }
 }
 
