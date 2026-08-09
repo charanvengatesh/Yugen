@@ -72,6 +72,7 @@ pub mod scenes;
 pub mod settings;
 pub mod shear;
 pub mod sky;
+pub mod sound;
 pub mod sprite;
 pub mod ui;
 pub mod weather;

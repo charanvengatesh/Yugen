@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 291 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 650 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 652 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -1080,6 +1080,13 @@ only the exported surface is held to the rule.
 | `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 243 |
 | `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 246 |
 | `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 258 |
+
+### `crates/yugen-render/src/sound/synth.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SAMPLE_RATE` | `44_100` | Samples per second everything here is rendered at. | 38 |
+| `DECLICK` (private) | `SAMPLE_RATE as usize / 1000` | Samples of fade forced onto both ends, whatever the envelope says. | 72 |
 
 ### `crates/yugen-render/src/sprite/vocab.rs`
 
