@@ -39,6 +39,30 @@ impl StructBands {
     }
 }
 
+/// Tags the cell for a later pass: `loot` = a cache goes here, `spawn` = a
+/// mob does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum StructMark {
+    None,
+    Loot,
+    Spawn,
+}
+
+impl StructMark {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<StructMark> {
+        Some(match code {
+            0 => StructMark::None,
+            1 => StructMark::Loot,
+            2 => StructMark::Spawn,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StructGlyph {
     /// The single character used in `body`.

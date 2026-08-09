@@ -428,6 +428,7 @@ pub fn schema() -> Schema {
                                 .doc(
                                     "Tags the cell for a later pass: `loot` = a cache goes here, `spawn` = a mob does.",
                                 )
+                                .alias("StructMark")
                                 .map(MARK)
                                 // MARK.none
                                 .default_int(0),

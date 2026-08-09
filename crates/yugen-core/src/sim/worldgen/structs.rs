@@ -133,26 +133,21 @@ impl Anchor {
     }
 }
 
-/// What a later pass should do with this cell. `None` is just masonry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Mark {
-    None = 0,
-    Loot = 1,
-    Spawn = 2,
-}
+// `StructMark` is GENERATED, and used to be written out here by hand. See
+// `features.rs` for the argument and `contentc`'s `collect_enums` for the
+// opt-in: naming a mapped enum is how a schema says the game meets this one as
+// a number.
+pub use yugen_data::structs::StructMark as Mark;
 
-impl Mark {
-    /// The code a compiled `StructGlyph` holds. Total, defaulting to "just
-    /// masonry" — an unrecognised mark leaves the authored cell as authored.
-    #[inline]
-    fn from_code(c: u8) -> Mark {
-        match c {
-            1 => Mark::Loot,
-            2 => Mark::Spawn,
-            _ => Mark::None,
-        }
-    }
+/// What a later pass should do with this cell, defaulting to just masonry.
+///
+/// The generated `from_code` returns `None` for a code this build does not
+/// have. Leaving the cell as authored is the right answer to that: an
+/// unrecognised mark means content tags cells for a pass this build does not
+/// run, and the masonry around it is still masonry.
+#[inline]
+fn mark_of(code: u8) -> Mark {
+    Mark::from_code(code).unwrap_or(Mark::None)
 }
 
 // --- Glyph slots -------------------------------------------------------------
@@ -335,7 +330,7 @@ fn build(def: &'static StructDef) -> Option<Template> {
         );
         slot_of[g.c.as_bytes()[0] as usize] = Slot(slot_code.len() as u8);
         slot_code.push(legend_code(def.id, g.c, g.block));
-        slot_mark.push(Mark::from_code(g.mark));
+        slot_mark.push(mark_of(g.mark));
         slot_soft.push(g.soft);
     }
 
