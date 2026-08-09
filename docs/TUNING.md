@@ -931,24 +931,34 @@ only the exported surface is held to the rule.
 | `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 197 |
 | `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 324 |
 
-### `crates/yugen-render/src/particles.rs`
+### `crates/yugen-render/src/particles/mod.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 150 |
-| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 158 |
-| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 179 |
-| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 214 |
-| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 221 |
-| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 227 |
-| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 236 |
-| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 243 |
-| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 373 |
-| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 377 |
-| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 380 |
-| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 393 |
-| `FADE_IN` | `2` | Ease alpha in as well as out. | 395 |
-| `COLLIDE` | `4` | Test against the cell grid on every step. | 397 |
+| `PARTICLE_Z` (private) | `0.6` | Where ordinary particles sit in z: over the shots (0.55), under the brush preview (1.0). | 133 |
+| `PARTICLE_GLOW_Z` (private) | `0.79` | Where the self-luminous pass sits: ABOVE the whole light composite. | 154 |
+
+### `crates/yugen-render/src/particles/presets.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `WANDER_RATE` (private) | `2.3` | How fast a wandering particle's drift phase advances, radians/s. | 34 |
+| `WANDER_Y_RATE` (private) | `1.7` | Frequency multiplier on the vertical half of the wander. | 41 |
+| `WANDER_Y_SCALE` (private) | `0.6` | How much weaker the vertical wander is than the horizontal. | 47 |
+| `FADE_IN_RECIP` (private) | `5.0` | Reciprocal of the fraction of life a [`EmitOpts::fade_in`] particle spends easing in — `5.0` is one fifth. | 56 |
+| `BOUNCE` (private) | `0.35` | How much speed a colliding particle keeps when it bounces off a cell. | 63 |
+| `PUFF_MOB_HURT` (private) | `0.4` | Strength of the puff a creature's non-fatal hit throws up. | 193 |
+| `PUFF_PLAYER_HIT` (private) | `0.5` | Strength of the puff the player's own wound throws up. | 197 |
+| `PUFF_MOB_DIE` (private) | `0.85` | Strength of the puff under a creature's death, on top of its splash. | 200 |
+| `GLOW` | `1` | Draw over the lit frame instead of in the world layer. | 213 |
+| `FADE_IN` | `2` | Ease alpha in as well as out. | 215 |
+| `COLLIDE` | `4` | Test against the cell grid on every step. | 217 |
+
+### `crates/yugen-render/src/particles/system.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 48 |
 
 ### `crates/yugen-render/src/player.rs`
 
