@@ -958,7 +958,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_PARTICLES` | `2048` | The TypeScript's default capacity, unchanged. | 48 |
+| `MAX_PARTICLES` | `2048` | Slots in the pool, and therefore sprite entities the plugin spawns. | 48 |
 
 ### `crates/yugen-render/src/player.rs`
 

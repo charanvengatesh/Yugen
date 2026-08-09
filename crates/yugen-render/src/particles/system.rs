@@ -23,8 +23,6 @@ use yugen_core::sim::grid::CellGrid;
 use super::presets::*;
 use super::rng::JuiceRng;
 
-/// Slots in the pool, and therefore sprite entities the plugin spawns.
-///
 /// Scale `count` by a `0.0..=1.0` budget, keeping at least one whenever there
 /// was something to scale and the budget is not zero.
 ///
@@ -42,6 +40,8 @@ fn js_budget(count: usize, budget: f32) -> usize {
     ((count as f32 * budget.clamp(0.0, 1.0)).round() as usize).max(1)
 }
 
+/// Slots in the pool, and therefore sprite entities the plugin spawns.
+///
 /// The TypeScript's default capacity, unchanged. It is about eight simultaneous
 /// full-strength bursts, which is more than a screen ever shows at once; the
 /// headroom is for the frame a player lands in lava next to three dying slimes.
