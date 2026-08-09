@@ -532,7 +532,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `RUN_VERSION` (private) | `2` | Run-file version, independent of [`VERSION`]. | 31 |
+| `RUN_VERSION` (private) | `3` | Run-file envelope version, independent of the chunk's. | 38 |
 
 ### `crates/yugen-core/src/sim/worldgen/caves.rs`
 

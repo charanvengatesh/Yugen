@@ -42,6 +42,7 @@
 mod bytes;
 mod chunk;
 mod disk;
+mod legacy;
 mod meta;
 mod run;
 

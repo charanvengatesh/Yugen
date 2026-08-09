@@ -70,15 +70,52 @@ cross-checked against the one in the filename. `flags` uses
 `CellFlags::from_bits_truncate`, so an unknown bit from a newer build is dropped
 and the cell keeps its material.
 
-### `run.save` — `GGRN`, version 2, variable length
+### `run.save` — `GGRN`, version 3, sectioned
 
-In order: magic (4), version (2), `seed` u32, `clock_t` f32, body-present u8 —
-and if 1, `x`, `y`, `vx`, `vy`, `facing`, `health` as f32 and `untouchable` as
-u8 — then `selected` u16, worn-present u8 (and if 1, an item code u16), slot
-count u16, and that many `(slot u16, code u16, count u16)` triples.
+Magic (4), version (2), `seed` u32, section count u32, then that many sections:
 
-Trailing bytes after the last slot mean this is not the file it claims to be,
-and it is refused.
+```
+4  tag, four ASCII bytes
+4  payload length, u32
+n  payload
+```
+
+| Tag | Payload | Absent means |
+|---|---|---|
+| `BODY` | `x`, `y`, `vx`, `vy`, `facing`, `health` as f32; `untouchable` u8 | no body (`--free-camera`) |
+| `CLOK` | `clock_t` f32 | 0.0 |
+| `PACK` | `selected` u16, count u16, then `(slot, code, count)` u16 triples | empty pack, slot 0 |
+| `WORN` | item code u16 | wearing nothing |
+
+Three rules, all enforced on read:
+
+- **Sections ascend strictly by tag.** Equal is a duplicate, less is out of
+  order, and both are refused. Ordering on the *tag* rather than on a registry
+  position is what lets a section from a newer build sort into place without
+  this build knowing what it is.
+- **An unknown tag is stepped over by its declared length**, never fatal. This
+  is the clause that makes the format additive.
+- **A payload that is not the length it claims is refused** — a writer and this
+  reader disagreeing about what a tag means is rule 3 below, and reading the
+  first four bytes of a longer `CLOK` would be exactly that.
+
+`BODY` and `WORN` are written only when present, so presence carries the
+optionality and no present-flag byte lives inside a payload. `CLOK` and `PACK`
+are always written.
+
+A file this build writes is **canonical** — sections are sorted on the way out,
+so one state has exactly one encoding and a save diff is readable. Canonicality
+is not claimed for foreign files: one that omits `CLOK` reads back as zero and
+re-encodes with the section present, which is a widening rather than a
+disagreement.
+
+Trailing bytes after the last section are refused.
+
+**Version 2 is migrated, not refused** — `save/legacy.rs::decode_run_v2`. Its
+layout was: magic, version, `seed`, `clock_t`, body-present u8 and its six
+floats plus `untouchable`, `selected` u16, worn-present u8 and its code, slot
+count u16, and the triples. Every field has a section in v3, so the migration
+invents nothing.
 
 `seed` is here so a run can be refused when it does not belong to the world it
 was found beside. Slots hold **item codes, not ids** — safe only because
@@ -108,8 +145,8 @@ put something of their own.
 
 ### 1. Versioning has three levels
 
-**This is policy. The code today implements only the first, and implements it as
-a refusal rather than a migration.**
+**`run.save` implements all three as of version 3. `<x>_<y>.chunk` and
+`world.meta` do not yet — both are still a version equality and a refusal.**
 
 1. **The envelope version.** Bumping it is a hard event and the only thing that
    may ever cost a player a world. Old envelopes are read by *retired readers*
@@ -128,11 +165,16 @@ a refusal rather than a migration.**
 
 Why this matters more than it looks: `docs/DEATH.md` alone adds a respawn point,
 a death cause, a death count, a corpse bag and a permadeath flag. Under version
-equality that is five bumps, each discarding the player's position and pack. And
-the chunk version's current instruction — "bump on ANY layout change, including
-adding a plane" — means adding one plane silently discards **every edit in every
-world**, because a pristine chunk is exactly what worldgen produces and nothing
-distinguishes it from a chunk whose file was refused.
+equality that was five bumps, each discarding the player's position and pack.
+Under v3 it is five sections and no bump at all — which is the whole return on
+having done this before writing them rather than after.
+
+The chunk format has not had its turn yet, and it is the more dangerous of the
+two. Its version comment says to bump on any layout change *including adding a
+plane*, and a refused chunk regenerates — so adding one plane would silently
+discard **every edit in every world**, because a pristine chunk is exactly what
+worldgen produces and nothing distinguishes it from a chunk whose file was
+thrown away.
 
 ### 2. What a save owns
 
