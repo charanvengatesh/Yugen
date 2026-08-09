@@ -3,9 +3,10 @@
 # Canopy blocks. Trees previously built their canopy out of WOOD, so a forest
 # read as a field of brown lollipops. All are flammable with a high colorVar so a
 # canopy dithers into a mass rather than a flat slab, and all burn to smoke — a
-# lightning strike or a lava flow should take a wood out. They collide: a canopy
-# you can stand on is worth more than one you fall through, and it gives the
-# platforming something to use.
+# lightning strike or a lava flow should take a wood out. They do not collide at
+# all: a body walks and falls straight through foliage, which is what foliage
+# does. See the note below the moss block for the two earlier answers and why
+# neither survived.
 
 [moss]
 name = "Moss"
@@ -58,22 +59,33 @@ growth.onto = ["empty"]
 growth.downward = true
 growth.maxGen = 12
 
-# ---- WHY EVERY CANOPY IS ONE-WAY -------------------------------------------
-# `collides = false` + `oneWay = true` on all four leaf blocks, and it is a
-# movement fix, not a flora opinion. Pine branches alternate sides at
-# alternating heights, which makes every tree a spiral staircase of 1-cell
-# steps -- and step-up (the thing that lets a body walk over rubble) treats a
-# staircase as a ramp it can take at one cell per stride. Measured before this
-# change: a body walking into a pine CLIMBED it, 10 cells in 42 frames, with no
-# jump pressed; walkers did the same on patrol, because `turn_on_wall` only
-# fires when the mover reports BLOCKED and step-up prevents "blocked". Dense
-# canopy also formed sheer 10-cell walls, which is why a quarter of seeds spawned
-# the player into a pocket it could not walk out of.
+# ---- WHY NO CANOPY COLLIDES, IN TWO STEPS ----------------------------------
+# This is the record of two changes, because the second only makes sense against
+# the first.
 #
-# One-way keeps what solid foliage was buying: you can still LAND on a canopy
-# and stand there, still climb a tree by jumping. What it removes is the
-# sideways wall and the staircase -- a walking body passes through leaves, which
-# is what leaves are.
+# Leaves were once SOLID, and it was a disaster for movement. Pine branches
+# alternate sides at alternating heights, which makes every tree a spiral
+# staircase of 1-cell steps -- and step-up (the thing that lets a body walk over
+# rubble) treats a staircase as a ramp it can take at one cell per stride.
+# Measured: a body walking into a pine CLIMBED it, 10 cells in 42 frames, with no
+# jump pressed; walkers did the same on patrol, because `turn_on_wall` only fires
+# when the mover reports BLOCKED and step-up prevents "blocked". Dense canopy also
+# formed sheer 10-cell walls, which is why a quarter of seeds spawned the player
+# into a pocket it could not walk out of.
+#
+# `collides = false` + `oneWay = true` fixed all of that and kept one thing: you
+# could still LAND on a canopy and stand on it. That is the part that has now
+# gone too. Standing on foliage was the last way the canopy behaved like
+# architecture, and against trees four times their old size it read as the player
+# perching on a leaf. `oneWay` is gone from all four leaf blocks.
+#
+# Note the direction of travel: full passability goes FURTHER along the axis that
+# fixed the original bugs, so none of them can come back through this door. What
+# is given up is the platforming affordance, and the trees are large enough now
+# that their limbs and trunks supply it instead.
+#
+# The four blocks keep `collides = false` explicitly rather than dropping to the
+# `state = "solid"` default, which would make them collide again.
 [leaves]
 name = "Leaves"
 state = "solid"
@@ -83,7 +95,6 @@ texture = "fibrous"
 edge = 60
 density = 0.5
 collides = false
-oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -103,7 +114,6 @@ texture = "fibrous"
 edge = 60
 density = 0.5
 collides = false
-oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -123,7 +133,6 @@ texture = "fibrous"
 edge = 60
 density = 0.5
 collides = false
-oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -142,7 +151,6 @@ texture = "fibrous"
 edge = 60
 density = 0.5
 collides = false
-oneWay = true
 hardness = 0.2
 blastResist = 0.2
 tags = ["flora", "foliage", "diggable"]
@@ -213,3 +221,32 @@ flammable.burnTime = 44
 flammable.burnsInto = "smoke"
 heat.conduct = 20
 heat.igniteAt = 84
+
+# Snow that sits ON a bough, as distinct from snow lying on the ground.
+#
+# The ground kind (`snow`, in terrain.toml) is a POWDER: it collides and it
+# falls. Both are wrong up a tree. A spruce drawn with real snow gave the player
+# solid blocks to stand on in mid-air — the same complaint that took `oneWay` off
+# the leaves, arriving by a different door — and, once the chunk was simulated,
+# the powder rule would avalanche the whole canopy's worth of it onto the ground.
+#
+# So this is foliage that happens to be white: non-colliding like the leaves it
+# sits on, inert like them, and tagged `flora` so everything that special-cases
+# a canopy — the wall-plane palette, the light solver's occlusion exemption —
+# picks it up without being told about it separately.
+[snowCap]
+name = "Snow-laden Bough"
+state = "solid"
+color = [188, 198, 210]
+colorVar = 12
+texture = "grain"
+edge = 96
+density = 0.5
+collides = false
+hardness = 0.15
+blastResist = 0.15
+tags = ["flora", "foliage", "diggable"]
+heat.conduct = 28
+heat.cool = 7
+heat.meltAt = 14
+heat.meltInto = "water"

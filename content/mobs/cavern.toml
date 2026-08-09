@@ -42,8 +42,8 @@ name = "Slime"
 brain = "hopper"
 maxHealth = 20.0
 contactDamage = 10.0
-bodyCellsW = 3
-bodyCellsH = 2
+bodyCellsW = 6
+bodyCellsH = 4
 speed = 190.0
 jumpSpeed = 640.0
 aggroPx = 145.0
@@ -65,9 +65,9 @@ weight = 20.0
 # flank (2), the body (3) and the surface sheen (4) were already a four-step
 # vertical ramp with nowhere to put it, and the finer grid is that place: 4 on
 # the crown, 3 through the belly, 1 under the contact edge, every frame.
-art.cellsW = 3
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#1e4a34", "#2c6f4a", "#49b077", "#a8f0c4"]
 art.fps = 6.0
 [[slime.art.seq]]
@@ -138,8 +138,8 @@ brain = "flyer"
 maxHealth = 10.0
 contactDamage = 6.0
 attackCooldown = 0.7
-bodyCellsW = 3
-bodyCellsH = 2
+bodyCellsW = 6
+bodyCellsH = 4
 speed = 200.0
 chaseSpeed = 360.0
 gravityScale = 0.0
@@ -163,9 +163,9 @@ weight = 12.0
 # the tucked feet, so the sprite is lit at the head and dark at the bottom edge.
 # `air` is the dive: wings folded flush to the body, nothing above and nothing
 # below, which is unmistakable against a pose whose whole identity is wings.
-art.cellsW = 3
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#1a1424", "#2a2233", "#4a3d5c", "#ff9a6b"]
 art.fps = 14.0
 [[bat.art.seq]]
@@ -238,8 +238,8 @@ contactDamage = 14.0
 attackCooldown = 1.2
 armor = 8.0
 immune = ["impact"]
-bodyCellsW = 4
-bodyCellsH = 3
+bodyCellsW = 8
+bodyCellsH = 6
 speed = 80.0
 chaseSpeed = 130.0
 aggroPx = 110.0
@@ -266,9 +266,9 @@ weight = 9.0
 # frozen shell in every `move` frame. The shell is what the finer grid actually
 # improved — a lit crown (4) over a body course (3) over a shaded lower flank
 # (2), which is a carapace curving away from the light rather than a grey bar.
-art.cellsW = 4
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 8
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#262626", "#3a3a3a", "#6e6e6e", "#8f8f8f", "#b8b8b8"]
 art.fps = 4.0
 [[stoneback.art.seq]]
@@ -354,8 +354,8 @@ brain = "flyer"
 maxHealth = 12.0
 contactDamage = 5.0
 attackCooldown = 0.8
-bodyCellsW = 3
-bodyCellsH = 2
+bodyCellsW = 6
+bodyCellsH = 4
 speed = 180.0
 chaseSpeed = 300.0
 gravityScale = 0.0
@@ -392,9 +392,9 @@ weight = 11.0
 # and edge-on across the middle, fully spread at the thorax line. No palette
 # change, deliberately — 5 sits at the top of a five-step ramp and any tone
 # appended above or beside it would blunt the one frame that matters.
-art.cellsW = 3
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#3a1408", "#4a1e10", "#ff7a2c", "#ffd68a", "#fff2c8"]
 art.fps = 13.0
 [[cinder_moth.art.seq]]
@@ -475,8 +475,8 @@ contactDamage = 11.0
 attackCooldown = 0.9
 armor = 1.0
 immune = ["poison"]
-bodyCellsW = 2
-bodyCellsH = 3
+bodyCellsW = 4
+bodyCellsH = 6
 speed = 120.0
 chaseSpeed = 210.0
 jumpSpeed = 500.0
@@ -511,9 +511,9 @@ weight = 15.0
 # old darkest tone (1) is the leg/shadow bone and reads as grey against the
 # skull, so a socket drawn in it was a smudge; 5 makes the skull a skull, and it
 # is what the red interrupt below now swaps out of. It is used for nothing else.
-art.cellsW = 2
-art.cellsH = 3
-art.grain = 2
+art.cellsW = 4
+art.cellsH = 6
+art.grain = 1
 art.pal = [".", "#6e6a5c", "#b8b098", "#e4dcc4", "#ff5a4a", "#3a382f"]
 art.fps = 8.0
 # The eye kindling red is the interrupt, and it is the same event as the
@@ -620,8 +620,8 @@ contactDamage = 12.0
 attackCooldown = 1.1
 armor = 6.0
 immune = ["ice", "impact"]
-bodyCellsW = 3
-bodyCellsH = 2
+bodyCellsW = 6
+bodyCellsH = 4
 speed = 90.0
 chaseSpeed = 140.0
 aggroPx = 120.0
@@ -649,9 +649,9 @@ weight = 8.0
 # widening the flare rather than brightening one pixel is the cheap way to make
 # it carry. The walk also gets a real gait out of the extra columns: the loaded
 # foot goes to deep violet (1) and TRAVELS, instead of one body cell darkening.
-art.cellsW = 3
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 6
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#2e2450", "#5a4a92", "#a888e8", "#e8d8ff", "#ffffff"]
 art.fps = 5.0
 [[glimmerback.art.seq]]
@@ -727,8 +727,8 @@ brain = "flyer"
 maxHealth = 22.0
 contactDamage = 13.0
 attackCooldown = 0.8
-bodyCellsW = 4
-bodyCellsH = 2
+bodyCellsW = 8
+bodyCellsH = 4
 speed = 130.0
 chaseSpeed = 250.0
 gravityScale = 0.0
@@ -758,9 +758,9 @@ weight = 10.0
 # The maw (5) appears on the idle interrupt and on the lunge, nowhere else. The
 # two are no longer the same picture: the tell is the jaw PARTING, two texels at
 # the mouth line, and the lunge opens it up through the whole head.
-art.cellsW = 4
-art.cellsH = 2
-art.grain = 2
+art.cellsW = 8
+art.cellsH = 4
+art.grain = 1
 art.pal = [".", "#1e4450", "#3f7f8c", "#6fb0c0", "#bfeaf2", "#ff8a6b"]
 art.fps = 9.0
 [[gulper.art.seq]]

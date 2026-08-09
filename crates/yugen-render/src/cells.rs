@@ -1284,7 +1284,22 @@ pub const TEX_A_PERIOD: i32 = PA;
 /// fixtures pin. This constant is what `paint_cells_fine` and `cells.wgsl`'s
 /// `GRAIN` are both held to; the const-parity test fails a mismatch BY NAME
 /// before any pixel diff has to say it obliquely.
-pub const TEX_GRAIN: i32 = 2;
+///
+/// # Why this went back to 1
+///
+/// Grain 2 was the render-only preview of halving the cell (see `docs/GRAIN2.md`
+/// §8, which kept the hatch open for exactly this). The sim has now caught up:
+/// `WorldScale::LIVE` makes a cell half a world-feature unit, so terrain at one
+/// texel per cell already carries the detail-per-landform that grain 2 was
+/// faking. Running both would be the same trick twice.
+///
+/// `cells_golden` is the live pixel net again at this value, which is what makes
+/// the change safe rather than merely cheap. `paint_grained` and
+/// `paint_cells_fine` stay: `shader_matches_cpu` exercises the harness at BOTH
+/// grains, so the escape hatch stays proven in both directions and
+/// `every_cells_texels_agree_in_alpha` — which is vacuous at grain 1, one
+/// sub-texel trivially agreeing with itself — keeps a rate at which it can fail.
+pub const TEX_GRAIN: i32 = 1;
 
 /// Period of [`TEX_B`], in cells — 67. See [`TEX_A_PERIOD`].
 pub const TEX_B_PERIOD: i32 = PB;

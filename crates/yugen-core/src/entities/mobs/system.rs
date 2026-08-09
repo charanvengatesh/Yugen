@@ -94,7 +94,8 @@
 //! through all five of them.
 
 use crate::config::{
-    CELL_SIZE, CHUNK_CELLS, PLAYER_H, PLAYER_W, SEED, View, WINDOW_COLS, WINDOW_ROWS, cell_at,
+    CELL_SIZE, CHUNK_CELLS, PLAYER_H, PLAYER_W, SEED, View, WINDOW_COLS, WINDOW_ROWS, WorldScale,
+    cell_at,
 };
 use crate::entities::player::Player;
 use crate::physics::collision::{Aabb, box_overlaps_solid, is_solid_cell};
@@ -557,6 +558,10 @@ pub struct MobSystem {
     /// than borrowed: it is a cache, and sharing one would make the mob system
     /// a writer of somebody else's scratch.
     heightmap: Heightmap,
+    /// The world scale the terrain under this population was generated at — the
+    /// depth bands below are authored in legacy cells and have to be compared
+    /// against a legacy depth.
+    scale: WorldScale,
     lava: CellId,
 
     /// Live creature count, maintained incrementally.
@@ -602,6 +607,7 @@ impl MobSystem {
             shots: vec![Shot::default(); MAX_SHOTS],
             noise: world_noise(SEED),
             heightmap: Heightmap::new(),
+            scale: WorldScale::LIVE,
             lava: code_of("lava"),
             live: 0,
             slot_cursor: 0,
@@ -1248,10 +1254,13 @@ impl MobSystem {
         wcy: i32,
         day: f32,
     ) -> Option<&'static MobDef> {
-        let depth = wcy - self.heightmap.surface_row_at(&self.noise, wcx, None);
-        let band_mask = band_bit(band_at_depth(depth));
+        let surf = self
+            .heightmap
+            .surface_row_at(&self.noise, wcx, None, self.scale);
+        let depth = wcy - surf;
+        let band_mask = band_bit(band_at_depth(self.scale.depth(f64::from(depth)) as i32));
         let biome = BIOMES
-            .get(biome_index_at(&self.noise, wcx))
+            .get(biome_index_at(&self.noise, wcx, self.scale))
             .map_or("plains", |b| b.id);
         let clamped = depth.clamp(0, 0xffff);
 

@@ -216,3 +216,14 @@ Flip `TEX_GRAIN` to 1 in `cells.rs` and `GRAIN` to 1 in `cells.wgsl` (the
 const-parity test holds them in agreement). Everything else — wrapper,
 harness, goldens — is already correct at G=1, because G=1 never stopped
 being the pinned case.
+
+**This hatch has been used, and not as a rollback.** `docs/WORLDSCALE.md` records
+the change that made a cell half a world-feature unit, at which point a grain-2
+texel at the old scale and a grain-1 texel at the new one are the same size, and
+drawing two texels per cell became the same trick applied twice. Grain 2 was, in
+hindsight, the render-only preview of halving the cell.
+
+`paint_grained` and `paint_cells_fine` survive that retirement deliberately: the
+parity harness still runs at a grain above 1, because
+`every_cells_texels_agree_in_alpha` is vacuous when a cell has one sub-texel, and
+§7 of this file is quite clear about what a guard that cannot fail is worth.

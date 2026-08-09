@@ -65,7 +65,7 @@
 
 use std::sync::LazyLock;
 
-use crate::config::{CAVERN_DEPTH, CELL_SIZE, DEEP_DEPTH, PHYS_SCALE, PLAYER_H};
+use crate::config::{CAVERN_DEPTH, CELL_SIZE, DEEP_DEPTH, PHYS_SCALE, PLAYER_H, STEP_UP_CELLS};
 
 pub use yugen_data::mobs::{
     Band, Dmg, MOB_BANDS, MOB_CODES, MOB_COUNT, MOB_FLAGS, MOB_IDS, MOB_IMMUNE, MOB_MAXDEPTH,
@@ -387,8 +387,13 @@ fn build(s: &'static MobSpec) -> MobDef {
         jump_speed: scale(s.jump_speed, k),
         gravity: g as f32,
         max_fall: scale(RAW_MAX_FALL, k),
-        // One cell, same ratio-to-body reasoning as the player's STEP_UP_CELLS.
-        step_up_max: CELL_SIZE as f32,
+        // One authored cell, same ratio-to-body reasoning as the player's
+        // STEP_UP_CELLS — and scaled by BODY_SCALE for the same reason it is: the
+        // reach belongs to the creature, so it grows with the creature. A bare
+        // CELL_SIZE here under a doubled body would leave every walker able to
+        // step a sixth of its own height instead of a third, and they would stop
+        // dead on bumps they used to stride over.
+        step_up_max: (STEP_UP_CELLS * CELL_SIZE) as f32,
         knockback: scale(260.0, k),
         aggro_px: s.aggro_px,
         aggro_y_px: s.aggro_y_px,

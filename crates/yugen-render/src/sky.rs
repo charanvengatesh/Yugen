@@ -132,6 +132,7 @@ use yugen_core::sim::worldgen::world_noise;
 use crate::daynight::{DayPhase, WorldClock};
 use crate::lowres::{LowResTarget, WORLD_LAYERS, WorldCamera};
 use crate::world::WorldFocus;
+use yugen_core::config::WorldScale;
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -1170,7 +1171,7 @@ impl Plugin for SkyPlugin {
         }
 
         let noise = world_noise(SEED);
-        let resolved = resolve_atmosphere(&noise, 0);
+        let resolved = resolve_atmosphere(&noise, 0, WorldScale::LIVE);
 
         app.insert_resource(SkyNoise(noise))
             .insert_resource(Atmosphere {
@@ -1292,7 +1293,7 @@ fn gradient_image(cols: u32, rows: u32) -> Image {
 /// Resolve the biome atmosphere and the camera's depth for this frame.
 fn sample_atmosphere(focus: Res<WorldFocus>, noise: Res<SkyNoise>, mut atmo: ResMut<Atmosphere>) {
     let column = (focus.x / CELL_SIZE as f32).floor() as i32;
-    atmo.resolved = resolve_atmosphere(&noise.0, column);
+    atmo.resolved = resolve_atmosphere(&noise.0, column, WorldScale::LIVE);
     atmo.depth = depth_at(focus.y);
 }
 

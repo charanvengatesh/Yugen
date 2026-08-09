@@ -21,7 +21,7 @@
 //! identical ground line by computing it twice. The memo below is a pure memo —
 //! it changes cost, never a value.
 
-use crate::config::{SEA_LEVEL_Y, SHORE_BAND, SURFACE_AMPLITUDE, SURFACE_ANCHOR_Y};
+use crate::config::{SEA_LEVEL_Y, SHORE_BAND, SURFACE_AMPLITUDE, SURFACE_ANCHOR_Y, WorldScale};
 use crate::sim::biomes::{ColumnProfile, height_params_at};
 use crate::sim::noise::Noise;
 
@@ -197,15 +197,21 @@ pub struct SurfaceDetail {
 /// everything below it), easing to 0 over the band above. Drives the sand/gravel
 /// beach cap. Continuous in the height, so the beach fades out along the coast
 /// rather than ending on a column boundary.
+///
+/// `surf` is a WORLD row and the band is authored in legacy cells, so the row
+/// crosses back inward here rather than the two constants being scaled — a beach
+/// stays [`SHORE_BAND`] authored cells wide and becomes twice that in the world,
+/// which is what keeps it reading as a beach at any world scale.
 #[inline]
-pub fn shore_weight_at(surf: i32) -> f64 {
-    if surf >= SEA_LEVEL_Y {
+pub fn shore_weight_at(surf: i32, scale: WorldScale) -> f64 {
+    let row = scale.coord(surf);
+    if row >= f64::from(SEA_LEVEL_Y) {
         return 1.0;
     }
     smooth_ramp(
-        (SEA_LEVEL_Y - SHORE_BAND) as f64,
-        (SEA_LEVEL_Y - 1) as f64,
-        surf as f64,
+        f64::from(SEA_LEVEL_Y - SHORE_BAND),
+        f64::from(SEA_LEVEL_Y - 1),
+        row,
     )
 }
 
@@ -222,11 +228,24 @@ fn terrace_snap(h: f64, phase: f64) -> f64 {
 /// Swamp still flattens (amp_scale 0.45) and a Glacier still juts (1.45), but
 /// they now modulate an authored landform instead of being the only shaping
 /// there is.
-fn compute_params(noise: &Noise, wcx: i32, amp_scale: f64, height_offset: f64) -> TerrainParams {
-    let wx = warped_column(noise, wcx);
+///
+/// The whole body works in LEGACY cells — `SURFACE_ANCHOR_Y`, the splines,
+/// `SURFACE_AMPLITUDE` and the terrace shelf all mean what they say — and the
+/// height crosses back out to world cells in exactly one place, at the rounding.
+/// Terracing in particular MUST happen on the legacy side: a shelf is authored as
+/// [`TERRACE_STEP`] cells and has to become twice that in the world, not stay a
+/// six-cell step under terrain that grew around it.
+fn compute_params(
+    noise: &Noise,
+    wcx: i32,
+    amp_scale: f64,
+    height_offset: f64,
+    scale: WorldScale,
+) -> TerrainParams {
+    let wx = warped_column(noise, wcx, scale);
     let c = continentalness(noise, wx);
     let e = erosion(noise, wx);
-    let pv = peaks_valleys(noise, wcx);
+    let pv = peaks_valleys(noise, wcx, scale);
 
     let base = spline(CONTINENTAL, c);
     let relief_amp = spline(EROSION_RELIEF, e);
@@ -245,7 +264,7 @@ fn compute_params(noise: &Noise, wcx: i32, amp_scale: f64, height_offset: f64) -
     let terrace_w = spline(TERRACE, e) * land_w;
     if terrace_w > TERRACE_MIN_W {
         let phase = TERRACE_STEP
-            * (0.5 + 0.5 * noise.g2(wcx as f64 * TERRACE_PHASE_FREQ, TERRACE_PHASE_ANCHOR));
+            * (0.5 + 0.5 * noise.g2(scale.coord(wcx) * TERRACE_PHASE_FREQ, TERRACE_PHASE_ANCHOR));
         let q = terrace_snap(h, phase);
         h = lerp(h, q, terrace_w);
     }
@@ -253,16 +272,21 @@ fn compute_params(noise: &Noise, wcx: i32, amp_scale: f64, height_offset: f64) -
     // Round the SUM, not just the heightmap: `height_offset` is a weighted blend
     // of two biomes' offsets and is therefore fractional, and every caller
     // (trees, lighting, spawn) needs an integer cell row.
-    let surf = js_round(h) as i32;
+    // The outward crossing, and the only one in this file: `h` is a legacy row,
+    // `wh` is a world row. Rounding AFTER the multiply rather than before is what
+    // makes a doubled world twice as tall in cells rather than a legacy world with
+    // every second row duplicated.
+    let wh = scale.len(h);
+    let surf = js_round(wh) as i32;
     TerrainParams {
         wx,
         continental: c,
         erosion: e,
         peaks_valleys: pv,
-        height: h,
+        height: wh,
         surf,
-        shore: shore_weight_at(surf),
-        submerged: surf > SEA_LEVEL_Y,
+        shore: shore_weight_at(surf, scale),
+        submerged: scale.coord(surf) > f64::from(SEA_LEVEL_Y),
     }
 }
 
@@ -270,9 +294,9 @@ fn compute_params(noise: &Noise, wcx: i32, amp_scale: f64, height_offset: f64) -
 /// feature/structure pass should read — it gets the ground line, whether the
 /// column is coastal or submerged, and the raw landform fields, without
 /// re-deriving any of the splines.
-pub fn terrain_params_at(noise: &Noise, wcx: i32) -> TerrainParams {
-    let p = height_params_at(noise, wcx);
-    compute_params(noise, wcx, p.amp_scale, p.height_offset)
+pub fn terrain_params_at(noise: &Noise, wcx: i32, scale: WorldScale) -> TerrainParams {
+    let p = height_params_at(noise, wcx, scale);
+    compute_params(noise, wcx, p.amp_scale, p.height_offset, scale)
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +391,13 @@ impl Heightmap {
     /// `height_params_at().amp_scale` are the same weighted sum computed by the
     /// same code path (see `biomes`' `height_from_weights`), so the two entry
     /// points cannot disagree in the last bit and round to different rows.
-    pub fn surface_row_at(&mut self, noise: &Noise, wcx: i32, col: Option<&ColumnProfile>) -> i32 {
+    pub fn surface_row_at(
+        &mut self,
+        noise: &Noise,
+        wcx: i32,
+        col: Option<&ColumnProfile>,
+        scale: WorldScale,
+    ) -> i32 {
         self.retire_if_new_seed(noise);
         let slot = (wcx & MEMO_MASK) as usize;
         if self.memo_stamp[slot] == self.stamp && self.memo_col[slot] == wcx {
@@ -375,10 +405,10 @@ impl Heightmap {
         }
 
         let p = match col {
-            Some(col) => compute_params(noise, wcx, col.amp_scale, col.height_offset),
+            Some(col) => compute_params(noise, wcx, col.amp_scale, col.height_offset, scale),
             None => {
-                let hp = height_params_at(noise, wcx);
-                compute_params(noise, wcx, hp.amp_scale, hp.height_offset)
+                let hp = height_params_at(noise, wcx, scale);
+                compute_params(noise, wcx, hp.amp_scale, hp.height_offset, scale)
             }
         };
 
@@ -397,8 +427,9 @@ impl Heightmap {
         noise: &Noise,
         wcx: i32,
         col: &ColumnProfile,
+        scale: WorldScale,
     ) -> SurfaceDetail {
-        let p = compute_params(noise, wcx, col.amp_scale, col.height_offset);
+        let p = compute_params(noise, wcx, col.amp_scale, col.height_offset, scale);
 
         self.retire_if_new_seed(noise);
         let slot = (wcx & MEMO_MASK) as usize;
@@ -416,6 +447,7 @@ impl Heightmap {
 mod tests {
     use super::*;
     use crate::config::SEED;
+    use crate::config::WorldScale;
     // Nothing in the shipping path needs the slope — the terracing pass reads it
     // through `TERRACE` — so it is imported here rather than at module scope.
     use super::super::spline::spline_slope;
@@ -493,14 +525,17 @@ mod tests {
 
     #[test]
     fn shore_weight_saturates_below_sea_level_and_fades_above_it() {
-        assert_eq!(shore_weight_at(SEA_LEVEL_Y), 1.0);
-        assert_eq!(shore_weight_at(SEA_LEVEL_Y + 40), 1.0);
-        assert_eq!(shore_weight_at(SEA_LEVEL_Y - SHORE_BAND), 0.0);
-        assert_eq!(shore_weight_at(SEA_LEVEL_Y - 100), 0.0);
+        assert_eq!(shore_weight_at(SEA_LEVEL_Y, WorldScale::LEGACY), 1.0);
+        assert_eq!(shore_weight_at(SEA_LEVEL_Y + 40, WorldScale::LEGACY), 1.0);
+        assert_eq!(
+            shore_weight_at(SEA_LEVEL_Y - SHORE_BAND, WorldScale::LEGACY),
+            0.0
+        );
+        assert_eq!(shore_weight_at(SEA_LEVEL_Y - 100, WorldScale::LEGACY), 0.0);
         // Monotone across the band, so the beach fades rather than switching.
         let mut prev = 0.0;
         for s in (SEA_LEVEL_Y - SHORE_BAND)..=SEA_LEVEL_Y {
-            let w = shore_weight_at(s);
+            let w = shore_weight_at(s, WorldScale::LEGACY);
             assert!(w >= prev - 1e-12, "shore weight dipped at row {s}");
             prev = w;
         }
@@ -512,8 +547,8 @@ mod tests {
         // computing it twice.
         let n = Noise::new(SEED);
         for wcx in -600..600 {
-            let a = compute_params(&n, wcx, 1.0, 0.0);
-            let b = compute_params(&n, wcx, 1.0, 0.0);
+            let a = compute_params(&n, wcx, 1.0, 0.0, WorldScale::LEGACY);
+            let b = compute_params(&n, wcx, 1.0, 0.0, WorldScale::LEGACY);
             assert_eq!(a, b, "compute_params disagreed with itself at {wcx}");
             assert_eq!(a.submerged, a.surf > SEA_LEVEL_Y);
             assert_eq!(a.surf, js_round(a.height) as i32);
@@ -527,7 +562,7 @@ mod tests {
         // jumps so hard between adjacent columns that it reads as noise.
         let n = Noise::new(SEED);
         let rows: Vec<i32> = (-4000..4000)
-            .map(|x| compute_params(&n, x, 1.0, 0.0).surf)
+            .map(|x| compute_params(&n, x, 1.0, 0.0, WorldScale::LEGACY).surf)
             .collect();
         let lo = *rows.iter().min().unwrap();
         let hi = *rows.iter().max().unwrap();
@@ -551,20 +586,23 @@ mod tests {
         let mut hm = Heightmap::new();
         let mut truth = Vec::new();
         for wcx in -500..500 {
-            truth.push(terrain_params_at(&n, wcx).surf);
+            truth.push(terrain_params_at(&n, wcx, WorldScale::LEGACY).surf);
         }
         // Cold pass, then two warm passes, then interleaved.
         for pass in 0..3 {
             for (i, wcx) in (-500..500).enumerate() {
                 assert_eq!(
-                    hm.surface_row_at(&n, wcx, None),
+                    hm.surface_row_at(&n, wcx, None, WorldScale::LEGACY),
                     truth[i],
                     "pass {pass} col {wcx}"
                 );
             }
         }
         for (i, wcx) in (-500..500).enumerate().rev() {
-            assert_eq!(hm.surface_row_at(&n, wcx, None), truth[i]);
+            assert_eq!(
+                hm.surface_row_at(&n, wcx, None, WorldScale::LEGACY),
+                truth[i]
+            );
         }
     }
 
@@ -575,12 +613,15 @@ mod tests {
         let n = Noise::new(SEED);
         let mut hm = Heightmap::new();
         for wcx in 0..40 {
-            let a = hm.surface_row_at(&n, wcx, None);
-            let b = hm.surface_row_at(&n, wcx + MEMO_SIZE as i32, None);
-            assert_eq!(a, terrain_params_at(&n, wcx).surf);
-            assert_eq!(b, terrain_params_at(&n, wcx + MEMO_SIZE as i32).surf);
+            let a = hm.surface_row_at(&n, wcx, None, WorldScale::LEGACY);
+            let b = hm.surface_row_at(&n, wcx + MEMO_SIZE as i32, None, WorldScale::LEGACY);
+            assert_eq!(a, terrain_params_at(&n, wcx, WorldScale::LEGACY).surf);
+            assert_eq!(
+                b,
+                terrain_params_at(&n, wcx + MEMO_SIZE as i32, WorldScale::LEGACY).surf
+            );
             // ...and the evicted entry recomputes correctly.
-            assert_eq!(hm.surface_row_at(&n, wcx, None), a);
+            assert_eq!(hm.surface_row_at(&n, wcx, None, WorldScale::LEGACY), a);
         }
     }
 
@@ -591,10 +632,14 @@ mod tests {
         let mut hm = Heightmap::new();
         let mut differs = 0;
         for wcx in -200..200 {
-            let ra = hm.surface_row_at(&a, wcx, None);
-            let rb = hm.surface_row_at(&b, wcx, None);
-            assert_eq!(rb, terrain_params_at(&b, wcx).surf, "stale entry at {wcx}");
-            assert_eq!(hm.surface_row_at(&a, wcx, None), ra);
+            let ra = hm.surface_row_at(&a, wcx, None, WorldScale::LEGACY);
+            let rb = hm.surface_row_at(&b, wcx, None, WorldScale::LEGACY);
+            assert_eq!(
+                rb,
+                terrain_params_at(&b, wcx, WorldScale::LEGACY).surf,
+                "stale entry at {wcx}"
+            );
+            assert_eq!(hm.surface_row_at(&a, wcx, None, WorldScale::LEGACY), ra);
             if ra != rb {
                 differs += 1;
             }

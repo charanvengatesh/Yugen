@@ -170,7 +170,8 @@ use std::sync::LazyLock;
 use yugen_core::config::{CELL_SIZE, LIGHT_DOWNSCALE, SEED, SURFACE_ANCHOR_Y, View};
 use yugen_core::sim::grid::CellGrid;
 use yugen_core::sim::materials::{
-    CellId, EMPTY, MAT_B, MAT_COLLIDE, MAT_COUNT, MAT_EMISSIVE, MAT_G, MAT_LIGHT, MAT_R,
+    CellId, EMPTY, MAT_B, MAT_COLLIDE, MAT_COUNT, MAT_EMISSIVE, MAT_G, MAT_LIGHT, MAT_R, Tag,
+    has_tags,
 };
 use yugen_core::sim::noise::Noise;
 use yugen_core::sim::worldgen::heightmap::Heightmap;
@@ -180,6 +181,7 @@ use crate::cellmap::{CellMap, MATERIAL_SLOTS};
 use crate::daynight::WorldClock;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
 use crate::world::{SimWorld, WorldFocus};
+use yugen_core::config::WorldScale;
 
 // --- Emitter tables ----------------------------------------------------------
 
@@ -1141,7 +1143,10 @@ impl LightGrid {
 
         for lx in 0..lw {
             let cx = (frame.ox + lx) * step + half; // sample cell centre
-            let below_surface = top_cy - self.heights.surface_row_at(&self.noise, cx, None);
+            let below_surface = top_cy
+                - self
+                    .heights
+                    .surface_row_at(&self.noise, cx, None, WorldScale::LIVE);
             let mut carry = sky
                 * if below_surface <= 0 {
                     1.0
@@ -1159,7 +1164,15 @@ impl LightGrid {
                 let solid = loaded && MAT_COLLIDE[grid.material[at] as usize] == 1;
                 // Open air with a wall behind it. Only asked where the front is
                 // not solid, because rock in front of a wall is just rock.
-                let walled = loaded && !solid && grid.back[at] != EMPTY;
+                //
+                // FLORA behind you is not a wall. A share of trees are drawn into
+                // the background plane so the player can walk through them, and
+                // counting their canopies as rock put three quarters of the sky
+                // cells in a wood under `WALL_DECAY` — a forest lit like a cave,
+                // in broad daylight. A trunk you can see daylight past does not
+                // occlude, which is the same reason leaves do not collide.
+                let behind = if loaded { grid.back[at] } else { EMPTY };
+                let walled = loaded && !solid && behind != EMPTY && !has_tags(behind, Tag::FLORA);
 
                 // STORE, THEN DECAY. A cell is lit by the light that REACHES it;
                 // the occlusion it causes applies to what is behind it, not to
@@ -3085,13 +3098,17 @@ mod tests {
     #[test]
     fn the_light_grid_follows_the_world_seed_it_is_given() {
         let mut grid = LightGrid::new(View::default(), SEED);
-        let before = grid.heights.surface_row_at(&grid.noise, 0, None);
+        let before = grid
+            .heights
+            .surface_row_at(&grid.noise, 0, None, WorldScale::LIVE);
 
         // A seed it was not built with. `world_noise` is a pure function of it,
         // so a different seed is a different world with a different surface.
         grid.follow_seed(SEED + 1);
         assert_eq!(grid.seed(), SEED + 1, "the grid did not adopt the new seed");
-        let after = grid.heights.surface_row_at(&grid.noise, 0, None);
+        let after = grid
+            .heights
+            .surface_row_at(&grid.noise, 0, None, WorldScale::LIVE);
         assert_ne!(
             before, after,
             "the surface line did not move, so either the noise or the heightmap \
@@ -3102,11 +3119,19 @@ mod tests {
         // Idempotent, because it runs every frame: a re-seed to the value it
         // already holds must not throw the memo away and pay for it again.
         grid.follow_seed(SEED + 1);
-        assert_eq!(grid.heights.surface_row_at(&grid.noise, 0, None), after);
+        assert_eq!(
+            grid.heights
+                .surface_row_at(&grid.noise, 0, None, WorldScale::LIVE),
+            after
+        );
 
         // And it goes back, so this is a mirror of the world and not a latch.
         grid.follow_seed(SEED);
-        assert_eq!(grid.heights.surface_row_at(&grid.noise, 0, None), before);
+        assert_eq!(
+            grid.heights
+                .surface_row_at(&grid.noise, 0, None, WorldScale::LIVE),
+            before
+        );
     }
 
     /// The absolute cell a light cell samples, on either axis.

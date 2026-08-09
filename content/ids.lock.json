@@ -59,7 +59,8 @@
     "mist": 56,
     "tar": 57,
     "peat": 58,
-    "scoria": 59
+    "scoria": 59,
+    "snowCap": 60
   },
   "feature": {
     "floating_island": 0,

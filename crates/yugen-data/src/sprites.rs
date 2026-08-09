@@ -204,9 +204,9 @@ pub static SPRITES: [SpriteDef; 88] = [
         id: "player",
         code: 0,
         name: "Player",
-        cells_w: 4,
-        cells_h: 5,
-        grain: 2,
+        cells_w: 8,
+        cells_h: 10,
+        grain: 1,
         pal: &[
             ".", "#1b1220", "#3ec8b4", "#21877e", "#ffcf5c", "#ff6b57", "#fff3c4", "#14564f",
             "#e8913a",

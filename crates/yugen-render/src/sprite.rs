@@ -2351,32 +2351,39 @@ mod tests {
 
     #[test]
     fn a_finer_grain_packs_more_texels_into_the_same_world_rect() {
-        // The frostmite is the game's one grain-2 experiment (see its art
-        // comment). Both halves of the invariant it bends are asserted: the
-        // TEXELS double per axis, and the DRAWN rect does not move a pixel --
-        // the whole point is more resolution inside the same silhouette, and a
-        // grain that changed w_px would be a resize wearing an experiment's
-        // name.
-        let spec = yugen_data::mobs::MOBS
-            .iter()
-            .find(|m| m.id == "frostmite")
-            .expect("the frostmite exists");
-        let mob_art = spec.art.as_ref().expect("frostmite has art");
-        let art = sprite_art_from_content(mob_art, "frostmite", &FromContentOpts::default())
-            .expect("frostmite art builds");
-        assert_eq!(art.grain, 2, "the experiment's knob is set");
-        let baked = BakedSprite::new(&art, "frostmite").expect("frostmite bakes");
+        // Both halves of the invariant grain bends are asserted: the TEXELS
+        // double per axis, and the DRAWN rect does not move a pixel — the whole
+        // point is more resolution inside the same silhouette, and a grain that
+        // changed `w_px` would be a resize wearing an experiment's name.
+        //
+        // Built here rather than read out of shipped content. It used to sample
+        // the frostmite, which was the game's one grain-2 record; every body
+        // sprite is grain 1 now, because BODY_SCALE doubled the cell box of each
+        // one and halving the grain is what spreads the SAME characters over
+        // twice the cells. A guard that can be switched off by a content edit is
+        // not guarding the mechanism, so this constructs both grains itself and
+        // pins the relationship between them.
+        let coarse = art(vec![one_frame(["1.", ".2"])], PlayMode::Loop);
+
+        let mut fine = art(vec![vec!["1..2", ".12.", ".21.", "2..1"]], PlayMode::Loop);
+        fine.grain = 2;
+
+        let baked_coarse = BakedSprite::new(&coarse, "coarse").expect("grain 1 bakes");
+        let baked_fine = BakedSprite::new(&fine, "fine").expect("grain 2 bakes");
+
         assert_eq!(
-            baked.atlas_size().y,
-            mob_art.cells_h as u32 * 2,
+            baked_fine.atlas_size().y,
+            baked_coarse.atlas_size().y * 2,
             "texel height is cells * grain"
         );
         assert_eq!(
-            (baked.w_px, baked.h_px),
-            (
-                (mob_art.cells_w * CELL_SIZE) as f32,
-                (mob_art.cells_h * CELL_SIZE) as f32,
-            ),
+            baked_fine.atlas_size().x,
+            baked_coarse.atlas_size().x * 2,
+            "texel width is cells * grain"
+        );
+        assert_eq!(
+            (baked_fine.w_px, baked_fine.h_px),
+            (baked_coarse.w_px, baked_coarse.h_px),
             "the drawn rect is still cells * CELL_SIZE -- grain must never touch it"
         );
     }
@@ -2481,7 +2488,12 @@ mod tests {
         // makes the offset arithmetic `tile * tile_w`.
         let def = &SPRITES[sprite::PLAYER as usize];
         let art = sprite_art_from_content(def, "player", &FromContentOpts::default()).unwrap();
-        assert_eq!(art.grain, 2, "the player is the grain-2 subject");
+        // The player is grain 1 under BODY_SCALE: doubling its cell box and
+        // halving its grain is what spread the same characters over twice the
+        // cells. The tile arithmetic below is the claim, and it holds at any
+        // grain — so it is read off the record rather than pinned to a value.
+        let g = art.grain;
+        assert!(g >= 1, "grain is a positive texel rate");
         let b = BakedSprite::new(&art, "player").unwrap();
         let layout = b.layout();
         assert_eq!(layout.textures.len(), b.bake_count);
@@ -2549,13 +2561,14 @@ mod tests {
         let player = atlases
             .get("player")
             .expect("the player sprite is in the table");
-        // 4, not 2: the character was redrawn at 4x5. The number is asserted
-        // rather than derived so that a bake reading the WRONG record still
-        // fails here — `by_code` and `get` are two different lookups and this is
-        // the one place both are checked against the same expectation.
-        assert_eq!(player.baked.cells_w, 4);
+        // 8, not 2: the character was redrawn at 4x5 and then BODY_SCALE spread
+        // the same art over 8x10 cells. The number is asserted rather than
+        // derived so that a bake reading the WRONG record still fails here —
+        // `by_code` and `get` are two different lookups and this is the one place
+        // both are checked against the same expectation.
+        assert_eq!(player.baked.cells_w, 8);
         assert!(player.baked.state_id(Pose::WallSlide).is_some());
-        assert_eq!(atlases.by_code(sprite::PLAYER).unwrap().baked.cells_w, 4);
+        assert_eq!(atlases.by_code(sprite::PLAYER).unwrap().baked.cells_w, 8);
 
         // The images really landed in the store, one per sprite and no more.
         assert_eq!(app.world().resource::<Assets<Image>>().len(), SPRITE_COUNT);

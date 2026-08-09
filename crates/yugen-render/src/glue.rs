@@ -29,9 +29,9 @@ use crate::input::{BevyKeys, FixedSubstep, PlayerIntent, Tool};
 use crate::items::{GroundItems, Pack};
 use crate::mobs::Creatures;
 use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
-use crate::scenes::Scene;
+use crate::scenes::{Paused, Scene};
 use crate::sprite::SpriteAtlases;
-use crate::ui::{IconAtlas, Icons, UiScreen};
+use crate::ui::{IconAtlas, Icons, MenuCursor, RunAge, UiScreen};
 use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
@@ -65,10 +65,20 @@ pub struct GluePlugin;
 impl Plugin for GluePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, install_icons)
+            // `.after(InputSystems)` for the reason `input::gather_intent`
+            // states: that set is what repopulates `just_pressed`, and this
+            // reads it.
+            .add_systems(
+                PreUpdate,
+                toggle_pause
+                    .after(bevy::input::InputSystems)
+                    .run_if(in_state(Scene::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 step_the_body
                     .in_set(PlayerSet::Step)
+                    .run_if(crate::scenes::running)
                     .after(SimSet::Stream)
                     .before(SimSet::Simulate)
                     .run_if(resource_exists::<SimWorld>)
@@ -85,7 +95,12 @@ impl Plugin for GluePlugin {
             // maintained.
             .add_systems(
                 Update,
-                (follow_scene, death_ends_the_run, confirm_advances_the_scene)
+                (
+                    follow_scene,
+                    death_ends_the_run,
+                    menu_chosen.run_if(in_state(Scene::Menu)),
+                    confirm_advances_the_scene,
+                )
                     .chain()
                     .run_if(resource_exists::<State<Scene>>),
             )
@@ -308,7 +323,20 @@ struct RunState<'w> {
 }
 
 /// [`confirm_advances_the_scene`] is the only thing that sets this state.
-fn start_a_run(mut commands: Commands, mut focus: ResMut<WorldFocus>, mut run: RunState) {
+fn start_a_run(
+    mut commands: Commands,
+    mut focus: ResMut<WorldFocus>,
+    mut run: RunState,
+    mut paused: ResMut<Paused>,
+    mut age: ResMut<RunAge>,
+) {
+    // A new run starts unpaused, with its clock at zero so the control hints
+    // are back at full. Restarting from the death card must not inherit the
+    // faded hints of the run that just ended, and a run that began while the
+    // pause card was up would resume into a stopped world.
+    *paused = Paused(false);
+    *age = RunAge(0.0);
+
     let RunState {
         body,
         arrows,
@@ -402,6 +430,47 @@ fn give_starting_kit(inv: &mut Inventory) {
     inv.select_slot(0);
 }
 
+/// Up and down move the title card's cursor; `Quit` leaves the game.
+///
+/// Bound to the jump and down keys rather than to new ones, which is what
+/// `worldselect` does with the same list and for the same reason: the player
+/// has one pair of keys for "up" and "down" and a menu is not the place to
+/// teach them a second.
+///
+/// The exit is here and not in `confirm_advances_the_scene` because that
+/// function is deliberately the only thing in the tree that writes
+/// `NextState<Scene>`, and quitting is not a scene change.
+fn menu_chosen(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<MenuCursor>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let bevy_keys = BevyKeys(&keys);
+    if bevy_keys.any_pressed(KEYS.jump) {
+        cursor.step(-1);
+    }
+    if bevy_keys.any_pressed(KEYS.down) {
+        cursor.step(1);
+    }
+    if bevy_keys.any_pressed(KEYS.confirm) && cursor.item() == "Quit" {
+        exit.write(AppExit::Success);
+    }
+}
+
+/// `Esc` stops the world without leaving it.
+///
+/// Gated on `Scene::Playing`, so it cannot be reached from a card. Pausing the
+/// title screen would put up a card over a card, and the only way out of the
+/// inner one would be the key that had just been shown not to work.
+///
+/// See `scenes::Paused` for why this is a resource rather than a scene, and
+/// `ui::pause_at` for what the card says.
+fn toggle_pause(keys: Res<ButtonInput<KeyCode>>, mut paused: ResMut<Paused>) {
+    if BevyKeys(&keys).any_pressed(KEYS.pause) {
+        paused.0 = !paused.0;
+    }
+}
+
 /// `Enter` or `Space` leaves the menu, and leaves the death screen.
 ///
 /// This is `Game.updateMenu`/`updateGameOver`'s one line each, and it lives here
@@ -424,6 +493,7 @@ fn confirm_advances_the_scene(
     keys: Res<ButtonInput<KeyCode>>,
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
+    cursor: Res<MenuCursor>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.confirm) {
         return;
@@ -433,7 +503,14 @@ fn confirm_advances_the_scene(
         // dying and pressing confirm is a restart of the run you were in, and
         // sending the player back to a directory listing to do it would be a
         // different game.
-        Scene::Menu => next.set(Scene::WorldSelect),
+        //
+        // Which row was chosen is `menu_chosen`'s business; this only knows
+        // that "Play" is the one that advances.
+        Scene::Menu => {
+            if cursor.item() == "Play" {
+                next.set(Scene::WorldSelect);
+            }
+        }
         Scene::GameOver => next.set(Scene::Playing),
         // `WorldSelect` reads confirm itself — see `crate::worldselect` — and
         // this must not also act on it, or picking a world would start the

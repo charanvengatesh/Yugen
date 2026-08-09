@@ -38,25 +38,21 @@
 //! that computed its own answer would agree with itself and not with the game.
 
 use bevy::prelude::*;
-use yugen_core::config::{CELL_SIZE, CHUNK_CELLS, View};
+use yugen_core::config::{CELL_SIZE, CHUNK_CELLS};
+use yugen_core::input::{KEYS, KeyState};
 use yugen_core::sim::biomes::{Biome, UndergroundLayerId};
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::materials::CellId;
 
 use crate::ambience::AmbientLife;
+use crate::input::BevyKeys;
 use crate::input::CursorWorld;
 use crate::light::{LightPass, depth_at};
 use crate::mobs::Creatures;
 use crate::player::PlayerBody;
-use crate::ui::{Align, TextStyle, UiPrim, rgb, rgba};
+use crate::ui::layout::Chrome;
+use crate::ui::{Align, TextStyle, UiPrim, theme};
 use crate::world::{SimWorld, WorldFocus};
-
-/// The key that shows and hides the panel.
-///
-/// F3 because that is where a decade of block games have put it, and because it
-/// collides with nothing: `crate::input`'s bindings are letters, digits and the
-/// mouse.
-const TOGGLE: KeyCode = KeyCode::F3;
 
 /// Frames the frame-time average is taken over.
 ///
@@ -123,6 +119,28 @@ pub struct DebugReadout {
     pub xp: i32,
     /// The player's health, or `None` with no body (free camera).
     pub health: Option<f32>,
+    /// The body's velocity in px/s, and whether it is standing on something.
+    ///
+    /// The first thing asked of any platformer bug and the last thing a
+    /// screenshot can answer. "Why will it not jump" is `on_ground` and nothing
+    /// else; "why is it drifting" is `vx` at rest.
+    pub motion: Option<(f32, f32, bool)>,
+    /// The buffer size and the zoom that produced it.
+    ///
+    /// `View::for_screen` is a pure function of the window size and everything
+    /// in the overlay is laid out against its output, so a layout that looks
+    /// wrong is a layout being given a buffer somebody did not expect.
+    pub view: (i32, i32, f32),
+    /// Time of day, `0.0..1.0`, and the phase name it falls in.
+    pub clock: Option<(f32, &'static str)>,
+    /// Live particles.
+    pub particles: usize,
+    /// Prims in this frame's display list, and quads in the painter's pool.
+    ///
+    /// The overlay's own cost, which nothing else reports. The pool only ever
+    /// grows, so a gap between the two is the high-water mark of some screen
+    /// that is no longer up.
+    pub draw: (usize, usize),
     /// What the pointer is over, if it is over anything.
     pub cursor: Option<CursorReadout>,
 }
@@ -133,27 +151,30 @@ pub struct DebugOverlay(pub bool);
 
 // --- The layout --------------------------------------------------------------
 
-/// Panel inset from the top-left, clear of `ui::hud`'s health bar.
-const X: i32 = 8;
-/// Baseline of the first line.
+/// Widest the panel gets, in buffer px.
 ///
-/// The plate is drawn 10px above this, so 52 puts its top edge at 42 — clear of
-/// `ui::hud`'s health plate, which runs from `MARGIN - 4` = 12 to
-/// `MARGIN - 4 + BAR_H + 8` = 40. The first value here was 46, which overlapped
-/// it by four pixels; that was found by looking at a capture, not by arithmetic,
-/// which is the argument for taking the capture.
-const Y: i32 = 52;
+/// Clamped against `layout::Chrome`'s instrument region, so a buffer narrower
+/// than this gets a narrower panel rather than one running off the edge. The
+/// old code clamped against `view.w` while starting at x = 2, which overran any
+/// view under 342 px.
+const PANEL_W: i32 = 340;
+
+/// Inset from the plate's edge to its text.
+const PAD: i32 = 6;
+
 /// Line pitch. [`ROW`] is 11px, so this is a comfortable single space.
 const LINE: i32 = 13;
+
 /// Column the values start in, so the labels do not have to be padded.
 const VALUE_X: i32 = 92;
+
 /// The 11px face, matching `ui`'s stat rows.
 const ROW: TextStyle = TextStyle::for_px(11);
 
 /// The panel, as a display list.
 ///
 /// Pure: same readout in, same primitives out. Test it by calling it.
-pub fn overlay(r: &DebugReadout, view: View) -> Vec<UiPrim> {
+pub fn overlay(r: &DebugReadout, chrome: Chrome) -> Vec<UiPrim> {
     let mut rows: Vec<(&str, String)> = Vec::with_capacity(12);
 
     // Always true, world or no world, which is why it is first: a panel whose
@@ -185,6 +206,24 @@ pub fn overlay(r: &DebugReadout, view: View) -> Vec<UiPrim> {
         ));
         rows.push(("biome", format!("{} {:.0}%", r.biome.0, r.biome.1 * 100.0)));
         rows.push(("layer", format!("{} {:.0}%", r.layer.0, r.layer.1 * 100.0)));
+        if let Some((vx, vy, grounded)) = r.motion {
+            rows.push((
+                "motion",
+                format!(
+                    "{vx:.0}, {vy:.0} px/s   {}",
+                    if grounded { "grounded" } else { "airborne" }
+                ),
+            ));
+        }
+        if let Some((t, phase)) = r.clock {
+            // As a 24-hour clock as well as the raw phase: "0.72" is only
+            // meaningful to somebody who already knows the answer.
+            let mins = (t * 24.0 * 60.0) as i32;
+            rows.push((
+                "clock",
+                format!("{:02}:{:02}  {phase}  ({t:.3})", mins / 60, mins % 60),
+            ));
+        }
         rows.push((
             "mobs",
             match r.health {
@@ -219,32 +258,49 @@ pub fn overlay(r: &DebugReadout, view: View) -> Vec<UiPrim> {
         }
     }
 
-    let w = view.w.min(340);
-    let h = LINE * rows.len() as i32 + 8;
+    // The region `layout::Chrome` set aside for an instrument, rather than the
+    // hand-tuned `Y = 52` this used to carry. That constant was found by
+    // looking at a capture after the first value overlapped the health plate by
+    // four pixels; the region is derived from the plate instead, so it cannot.
+    rows.push((
+        "view",
+        format!("{} x {} @ {:.2}x", r.view.0, r.view.1, r.view.2),
+    ));
+    rows.push((
+        "draw",
+        format!(
+            "{} prims   {} quads   {} particles",
+            r.draw.0, r.draw.1, r.particles
+        ),
+    ));
+
+    let region = chrome.instrument;
+    let w = PANEL_W.min(region.w);
+    let h = (LINE * rows.len() as i32 + 8).min(region.h);
     let mut out = Vec::with_capacity(rows.len() * 2 + 1);
 
     // One plate behind the lot. The frame under this panel is arbitrary — snow,
     // lava, a lit cave — and 11px text on an unknown background is unreadable
     // exactly when it matters most.
-    out.push(UiPrim::rect(X - 6, Y - 10, w, h, rgba(0, 0, 0, 0.66)));
+    out.push(UiPrim::rect(region.x, region.y, w, h, theme::PLATE_DENSE));
 
     for (i, (label, value)) in rows.iter().enumerate() {
-        let baseline = Y + LINE * i as i32;
+        let baseline = region.y + PAD + ROW.cap_h() + LINE * i as i32;
         out.push(UiPrim::text(
             label.to_string(),
-            X,
+            region.x + PAD,
             baseline,
             Align::Left,
             ROW,
-            rgb(0x8c, 0xa0, 0xb4),
+            theme::INK_DIM,
         ));
         out.push(UiPrim::text(
             value.clone(),
-            X + VALUE_X,
+            region.x + PAD + VALUE_X,
             baseline,
             Align::Left,
             ROW,
-            rgb(0xe6, 0xee, 0xf6),
+            theme::INK,
         ));
     }
     out
@@ -268,24 +324,53 @@ fn material_name(id: CellId) -> &'static str {
 /// argument budget, the same way `light`'s solve does it.
 #[derive(bevy::ecs::system::SystemParam)]
 struct Sources<'w> {
-    time: Res<'w, Time>,
+    time: Res<'w, Time<Real>>,
     world: Option<Res<'w, SimWorld>>,
     focus: Res<'w, WorldFocus>,
     cursor: Res<'w, CursorWorld>,
     life: Option<Res<'w, AmbientLife>>,
+    // Every one of these is optional for the reason the three above it are: a
+    // host may run `DebugPlugin` without the rest of the game, and `gather`
+    // runs in `PreUpdate` on the very first frame, before `Startup` has
+    // inserted the render target. A missing one means that system is not in the
+    // app, not that something failed.
+    target: Option<Res<'w, crate::lowres::LowResTarget>>,
+    clock: Option<Res<'w, crate::daynight::WorldClock>>,
+    particles: Option<Res<'w, crate::particles::ParticleSystem>>,
+    frame: Option<Res<'w, crate::ui::UiFrame>>,
+    quads: Option<Res<'w, crate::ui::UiQuads>>,
     light: Option<Res<'w, LightPass>>,
     creatures: Option<Res<'w, Creatures>>,
     body: Option<Res<'w, PlayerBody>>,
 }
 
 /// Show and hide the panel.
+///
+/// # Which keys, and why two
+///
+/// `KEYS.debug` lists BOTH `F3` and `Backquote`, and both are needed. F3 is
+/// where a decade of block games have put it, so it is the one a player will
+/// try first. Backquote is the one that always works: on macOS, F3 is Mission
+/// Control, and the window server takes the press before winit ever sees it —
+/// a binding that silently does nothing on one of the three platforms this
+/// builds for.
+///
+/// This used to be a hardcoded `KeyCode::F3` while `KEYS.debug` declared
+/// Backquote and was read by nothing — precisely the "declared, read, and
+/// written by nothing" shape this module's own header cites as its reason for
+/// existing. It goes through the binding table now, like every other key.
 fn toggle(keys: Res<ButtonInput<KeyCode>>, mut shown: ResMut<DebugOverlay>) {
-    if keys.just_pressed(TOGGLE) {
+    if BevyKeys(&keys).any_pressed(KEYS.debug) {
         shown.0 = !shown.0;
     }
 }
 
 /// Fill the readout from the live world.
+///
+/// The frame time comes from `Time<Real>` and not `Time`. `main.rs` installs
+/// `TimeUpdateStrategy::ManualDuration` under `--script`, so the virtual clock
+/// reports a synthetic 16.67 ms there — meaning the panel would claim a steady
+/// 60 fps in exactly the runs used to measure what a frame costs.
 ///
 /// Runs every frame regardless of whether the panel is up, and that is
 /// deliberate: the frame-time average has to keep converging while the panel is
@@ -302,6 +387,19 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
     } else {
         out.frame_ms + (dt - out.frame_ms) / SMOOTHING_FRAMES
     };
+
+    // Read before the early return: these are true whether or not a world
+    // exists, and a panel that went blank on the menu would be a panel that
+    // could not be used to diagnose the menu.
+    if let Some(target) = src.target.as_ref() {
+        out.view = (target.view.w, target.view.h, target.view.zoom);
+    }
+    out.particles = src.particles.as_ref().map_or(0, |p| p.live_count());
+    out.draw = (
+        src.frame.as_ref().map_or(0, |f| f.prims.len()),
+        src.quads.as_ref().map_or(0, |q| q.pool_len()),
+    );
+    out.clock = src.clock.as_ref().map(|c| (c.0.t(), c.0.phase().name()));
 
     let Some(world) = src.world.as_ref() else {
         out.live = false;
@@ -322,6 +420,7 @@ fn gather(src: Sources, mut out: ResMut<DebugReadout>) {
     out.mobs = src.creatures.as_ref().map_or(0, |c| c.0.count());
     out.xp = src.creatures.as_ref().map_or(0, |c| c.0.xp_banked());
     out.health = src.body.as_ref().map(|b| b.0.health);
+    out.motion = src.body.as_ref().map(|b| (b.0.vx, b.0.vy, b.0.on_ground));
 
     if let Some(life) = src.life.as_ref() {
         let mood = life.ambience.mood();
@@ -380,7 +479,13 @@ impl Plugin for DebugPlugin {
             // `Update`, so the panel shows this frame's numbers rather than the
             // previous one's. `crate::ambience::publish_mood` is in the same
             // schedule for the same reason.
-            .add_systems(PreUpdate, (toggle, gather));
+            //
+            // `.after(InputSystems)` because that set is what repopulates
+            // `just_pressed`, and `toggle` reads it. `input::gather_intent`
+            // pins itself the same way and for the same reason; this did not,
+            // and was relying on the scheduler's topological order to come out
+            // the right way round.
+            .add_systems(PreUpdate, (toggle.after(bevy::input::InputSystems), gather));
     }
 }
 
@@ -388,8 +493,12 @@ impl Plugin for DebugPlugin {
 mod tests {
     use super::*;
 
-    fn view() -> View {
-        View::for_screen(1280, 720)
+    fn view() -> yugen_core::config::View {
+        yugen_core::config::View::for_screen(1280, 720)
+    }
+
+    fn chrome() -> Chrome {
+        Chrome::of(view())
     }
 
     /// The whole point of the pure split: no world, no GPU, no app.
@@ -399,7 +508,7 @@ mod tests {
             frame_ms: 8.3,
             ..DebugReadout::default()
         };
-        let text = texts(&overlay(&r, view()));
+        let text = texts(&overlay(&r, chrome()));
         assert!(
             text.iter().any(|t| t.contains("no world yet")),
             "expected an explicit 'no world' line, got {text:?}"
@@ -433,8 +542,9 @@ mod tests {
                 wall: 0,
                 light: Some(0.125),
             }),
+            ..DebugReadout::default()
         };
-        let text = texts(&overlay(&r, view())).join(" | ");
+        let text = texts(&overlay(&r, chrome())).join(" | ");
         for want in [
             "2334",
             "60, 200",
@@ -470,12 +580,12 @@ mod tests {
             }),
             ..DebugReadout::default()
         };
-        let focus = texts(&overlay(&r, view())).join(" | ");
+        let focus = texts(&overlay(&r, chrome())).join(" | ");
         assert!(focus.contains("at focus"), "{focus}");
         assert!(!focus.contains("pointer"), "{focus}");
 
         r.cursor.as_mut().unwrap().from_pointer = true;
-        let pointer = texts(&overlay(&r, view())).join(" | ");
+        let pointer = texts(&overlay(&r, chrome())).join(" | ");
         assert!(pointer.contains("pointer"), "{pointer}");
         assert!(!pointer.contains("at focus"), "{pointer}");
 
@@ -503,7 +613,7 @@ mod tests {
             }),
             ..DebugReadout::default()
         };
-        for p in overlay(&r, v) {
+        for p in overlay(&r, Chrome::of(v)) {
             match p {
                 UiPrim::Rect { x, y, w, h, .. } => {
                     assert!(x >= 0 && y >= 0 && x + w <= v.w && y + h <= v.h, "{p:?}");

@@ -9,18 +9,19 @@ what the sweep can and cannot see.
 
 | Tier | Where | Size | What it describes |
 |---|---|---|---|
-| 1 — content | `content/` | 237 records | one THING: a block, a mob, an item |
-| 2 — config | `crates/yugen-core/src/config/` | 99 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 592 constants | ONE ALGORITHM, beside the code it explains |
+| 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
+| 2 — config | `crates/yugen-core/src/config/` | 100 constants | the WHOLE GAME: geometry, physics, worldgen |
+| 3 — module | `crates/*/src/**` | 638 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
 | Directory | Files | Records | Distinct fields |
 |---|---|---|---|
-| `content/blocks/` | 8 | 56 | 40 |
-| `content/items/` | 8 | 84 | 32 |
+| `content/blocks/` | 8 | 61 | 41 |
+| `content/fonts/` | 0 | 0 | 0 |
+| `content/items/` | 8 | 87 | 32 |
 | `content/mobs/` | 3 | 20 | 52 |
-| `content/sprites/` | 2 | 56 | 13 |
+| `content/sprites/` | 2 | 88 | 13 |
 | `content/structures/` | 6 | 14 | 23 |
 | `content/worldgen/` | 1 | 7 | 22 |
 
@@ -87,50 +88,50 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `STEP_DT` | `1.0 / 120.0` | Seconds per physics step. | 30 |
-| `MAX_STEPS_PER_FRAME` | `5` | Clamp on catch-up steps per frame, to avoid a spiral of death. | 33 |
-| `PLAYER_CELLS_W` | `2` | Player collision box width, in cells. | 59 |
-| `PLAYER_CELLS_H` | `3` | Player collision box height, in cells. | 62 |
-| `PLAYER_W` | `(PLAYER_CELLS_W * CELL_SIZE) as f32` | Player collision box width, in world px. | 65 |
-| `PLAYER_H` | `(PLAYER_CELLS_H * CELL_SIZE) as f32` | Player collision box height, in world px. | 68 |
-| `PHYS_TUNED_H` (private) | `24.0` | Character height the raw numbers below were originally tuned against. | 75 |
-| `PHYS_SIZE_SCALE` (private) | `PLAYER_H / PHYS_TUNED_H` | Linear scale of the current character against that reference. | 78 |
-| `MOVE_TEMPO` (private) | `0.55` | Overall movement tempo — a pure FEEL knob, deliberately independent of body size. | 94 |
-| `PHYS_SCALE` | `PHYS_SIZE_SCALE * MOVE_TEMPO` | Combined factor actually applied to every distance-bearing tunable. | 97 |
-| `GRAVITY` | `scaled(2400.0)` | Downward acceleration, px/s^2. | 110 |
-| `MAX_FALL_SPEED` | `scaled(1400.0)` | Terminal fall speed, px/s. | 113 |
-| `MOVE_ACCEL` | `scaled(6000.0)` | Ground acceleration, px/s^2. | 116 |
-| `AIR_ACCEL` | `scaled(3600.0)` | In-air acceleration, px/s^2. | 119 |
-| `MAX_RUN_SPEED` | `scaled(360.0)` | Horizontal speed cap, px/s. | 122 |
-| `GROUND_FRICTION` | `scaled(5000.0)` | Deceleration on normal ground, px/s^2. | 125 |
-| `ICE_FRICTION` | `scaled(350.0)` | Deceleration on ice, px/s^2 — slippery by being an order of magnitude lower. | 128 |
-| `AIR_FRICTION` | `scaled(900.0)` | Deceleration in air, px/s^2. | 131 |
-| `JUMP_SPEED` | `scaled(780.0)` | Initial upward velocity of a jump, px/s. | 134 |
-| `JUMP_CUT` | `0.45` | Fraction of upward velocity retained when the jump button is released early. | 137 |
-| `COYOTE_TIME` | `0.1` | Seconds after leaving the ground during which a jump still works. | 140 |
-| `JUMP_BUFFER` | `0.12` | Seconds a jump press is remembered before landing. | 143 |
-| `LIQUID_DRAG` | `0.06` | Velocity retained per SECOND while submerged. | 155 |
-| `LIQUID_GRAVITY_SCALE` | `0.35` | Gravity multiplier while swimming. | 158 |
-| `SWIM_SUBMERGE_MIN` | `0.55` | Fraction of the body that must be in liquid before swim rules take over. | 165 |
-| `SWIM_ACCEL` | `scaled(1500.0)` | Upward acceleration while holding up or jump, px/s^2. | 171 |
-| `SWIM_SINK_ACCEL` | `scaled(900.0)` | Downward acceleration while holding down, px/s^2. | 174 |
-| `SWIM_MAX_UP` | `scaled(250.0)` | Ascent cap while swimming, px/s. | 177 |
-| `SWIM_MAX_DOWN` | `scaled(320.0)` | Terminal sink rate while swimming, px/s. | 180 |
-| `SWIM_ACCEL_H` | `scaled(2200.0)` | Horizontal acceleration while swimming, px/s^2 (versus [`MOVE_ACCEL`] on land). | 183 |
-| `SWIM_MAX_SPEED_H` | `scaled(190.0)` | Horizontal speed cap while swimming, px/s. | 186 |
-| `SWIM_BUOYANCY` | `scaled(1150.0)` | Upward acceleration at full submersion, px/s^2. | 195 |
-| `SWIM_OUT_BOOST` | `scaled(430.0)` | Upward kick when a swim stroke breaks the surface, px/s. | 201 |
-| `SWIM_EXIT_SUBMERSION` | `0.8` | Below this submersion a swim stroke counts as breaking the surface. | 204 |
-| `CLIMB_SPEED_UP` | `scaled(150.0)` | Upward climb speed, px/s. | 217 |
-| `CLIMB_SPEED_DOWN` | `scaled(210.0)` | Downward climb speed, px/s. | 224 |
-| `CLIMB_SPEED_H` | `scaled(90.0)` | Sideways speed while attached to a climbable, px/s. | 231 |
-| `CLIMB_REMOUNT_LOCK` | `0.22` | Seconds after jumping off a ladder during which you cannot re-grab it. | 239 |
-| `CLIMB_TOP_BOOST` | `scaled(190.0)` | Upward velocity kept when a climb ends because the body left the last rung. | 245 |
-| `DROP_THROUGH_TIME` | `0.24` | Seconds of one-way-platform pass-through granted by a deliberate down input. | 258 |
-| `STEP_UP_CELLS` | `1` | Height, in cells, a blocked horizontal move may be retried lifted by. | 273 |
-| `STEP_UP_MAX` | `(STEP_UP_CELLS * CELL_SIZE) as f32` | Step-up height in world px. | 276 |
-| `STEP_UP_REARM` | `0.8 * CELL_SIZE as f32` | Horizontal travel a body must cover after one step-up before it is allowed another, in world px. | 303 |
-| `STEP_UP_SMOOTH` | `scaled(420.0)` | Visual rise rate, px/s. | 306 |
+| `STEP_DT` | `1.0 / 120.0` | Seconds per physics step. | 31 |
+| `MAX_STEPS_PER_FRAME` | `5` | Clamp on catch-up steps per frame, to avoid a spiral of death. | 34 |
+| `PLAYER_CELLS_W` | `2 * BODY_SCALE` | Player collision box width, in cells. | 60 |
+| `PLAYER_CELLS_H` | `3 * BODY_SCALE` | Player collision box height, in cells. | 63 |
+| `PLAYER_W` | `(PLAYER_CELLS_W * CELL_SIZE) as f32` | Player collision box width, in world px. | 66 |
+| `PLAYER_H` | `(PLAYER_CELLS_H * CELL_SIZE) as f32` | Player collision box height, in world px. | 69 |
+| `PHYS_TUNED_H` (private) | `24.0` | Character height the raw numbers below were originally tuned against. | 76 |
+| `PHYS_SIZE_SCALE` (private) | `PLAYER_H / PHYS_TUNED_H` | Linear scale of the current character against that reference. | 79 |
+| `MOVE_TEMPO` (private) | `0.55` | Overall movement tempo — a pure FEEL knob, deliberately independent of body size. | 95 |
+| `PHYS_SCALE` | `PHYS_SIZE_SCALE * MOVE_TEMPO` | Combined factor actually applied to every distance-bearing tunable. | 98 |
+| `GRAVITY` | `scaled(2400.0)` | Downward acceleration, px/s^2. | 111 |
+| `MAX_FALL_SPEED` | `scaled(1400.0)` | Terminal fall speed, px/s. | 114 |
+| `MOVE_ACCEL` | `scaled(6000.0)` | Ground acceleration, px/s^2. | 117 |
+| `AIR_ACCEL` | `scaled(3600.0)` | In-air acceleration, px/s^2. | 120 |
+| `MAX_RUN_SPEED` | `scaled(360.0)` | Horizontal speed cap, px/s. | 123 |
+| `GROUND_FRICTION` | `scaled(5000.0)` | Deceleration on normal ground, px/s^2. | 126 |
+| `ICE_FRICTION` | `scaled(350.0)` | Deceleration on ice, px/s^2 — slippery by being an order of magnitude lower. | 129 |
+| `AIR_FRICTION` | `scaled(900.0)` | Deceleration in air, px/s^2. | 132 |
+| `JUMP_SPEED` | `scaled(780.0)` | Initial upward velocity of a jump, px/s. | 135 |
+| `JUMP_CUT` | `0.45` | Fraction of upward velocity retained when the jump button is released early. | 138 |
+| `COYOTE_TIME` | `0.1` | Seconds after leaving the ground during which a jump still works. | 141 |
+| `JUMP_BUFFER` | `0.12` | Seconds a jump press is remembered before landing. | 144 |
+| `LIQUID_DRAG` | `0.06` | Velocity retained per SECOND while submerged. | 156 |
+| `LIQUID_GRAVITY_SCALE` | `0.35` | Gravity multiplier while swimming. | 159 |
+| `SWIM_SUBMERGE_MIN` | `0.55` | Fraction of the body that must be in liquid before swim rules take over. | 166 |
+| `SWIM_ACCEL` | `scaled(1500.0)` | Upward acceleration while holding up or jump, px/s^2. | 172 |
+| `SWIM_SINK_ACCEL` | `scaled(900.0)` | Downward acceleration while holding down, px/s^2. | 175 |
+| `SWIM_MAX_UP` | `scaled(250.0)` | Ascent cap while swimming, px/s. | 178 |
+| `SWIM_MAX_DOWN` | `scaled(320.0)` | Terminal sink rate while swimming, px/s. | 181 |
+| `SWIM_ACCEL_H` | `scaled(2200.0)` | Horizontal acceleration while swimming, px/s^2 (versus [`MOVE_ACCEL`] on land). | 184 |
+| `SWIM_MAX_SPEED_H` | `scaled(190.0)` | Horizontal speed cap while swimming, px/s. | 187 |
+| `SWIM_BUOYANCY` | `scaled(1150.0)` | Upward acceleration at full submersion, px/s^2. | 196 |
+| `SWIM_OUT_BOOST` | `scaled(430.0)` | Upward kick when a swim stroke breaks the surface, px/s. | 202 |
+| `SWIM_EXIT_SUBMERSION` | `0.8` | Below this submersion a swim stroke counts as breaking the surface. | 205 |
+| `CLIMB_SPEED_UP` | `scaled(150.0)` | Upward climb speed, px/s. | 218 |
+| `CLIMB_SPEED_DOWN` | `scaled(210.0)` | Downward climb speed, px/s. | 225 |
+| `CLIMB_SPEED_H` | `scaled(90.0)` | Sideways speed while attached to a climbable, px/s. | 232 |
+| `CLIMB_REMOUNT_LOCK` | `0.22` | Seconds after jumping off a ladder during which you cannot re-grab it. | 240 |
+| `CLIMB_TOP_BOOST` | `scaled(190.0)` | Upward velocity kept when a climb ends because the body left the last rung. | 246 |
+| `DROP_THROUGH_TIME` | `0.24` | Seconds of one-way-platform pass-through granted by a deliberate down input. | 259 |
+| `STEP_UP_CELLS` | `BODY_SCALE` | Height, in cells, a blocked horizontal move may be retried lifted by. | 276 |
+| `STEP_UP_MAX` | `(STEP_UP_CELLS * CELL_SIZE) as f32` | Step-up height in world px. | 279 |
+| `STEP_UP_REARM` | `0.8 * CELL_SIZE as f32` | Horizontal travel a body must cover after one step-up before it is allowed another, in world px. | 316 |
+| `STEP_UP_SMOOTH` | `scaled(420.0)` | Visual rise rate, px/s. | 319 |
 
 ### `render`
 
@@ -187,8 +188,16 @@ only the exported surface is held to the rule.
 | `UNDERWORLD_DEPTH` | `470` | Cells below the surface where the underworld's ash and lava begins. | 72 |
 | `UNDERWORLD_FLOOR` | `640` | Cells below the surface where impenetrable bedrock begins. | 75 |
 | `GEN_LATTICE` | `4` | Stride of the coarse lattice worldgen samples its low-frequency fields on before bilinear-interpolating per cell. | 84 |
+| `BODY_SCALE` | `2` | How much bigger the player and the creatures are than the day they were authored. | 220 |
 
 ## Tier 3 — module constants
+
+### `crates/yugen-core/src/bin/worldgen-dump.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `BAND_H` (private) | `8` | Height in px of each context band, and the gap under them. | 114 |
+| `BAND_GAP` (private) | `2` | Height in px of each context band, and the gap under them. | 115 |
 
 ### `crates/yugen-core/src/entities/mobs/brain.rs`
 
@@ -218,20 +227,20 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MAX_MOBS` | `32` | Hard population cap. | 116 |
-| `MOB_DT` (private) | `1.0 / 60.0` | Mobs integrate at a fixed 60Hz (the player runs at 120Hz; mobs do not need it). | 120 |
-| `MAX_MOB_STEPS` (private) | `3` | Catch-up steps per frame, to avoid a spiral of death after a stall. | 122 |
-| `SPAWN_INTERVAL` (private) | `0.15` | Seconds between spawn attempts. | 125 |
-| `SPAWN_TRIES` (private) | `12` | Rejection-sampled candidate cells per attempt. | 127 |
-| `OFFSCREEN_MARGIN` (private) | `32.0` | How far outside the viewport edge a spawn must be to be genuinely unseen. | 129 |
-| `SPAWN_SEPARATION` (private) | `30.0` | Minimum gap between two freshly spawned creatures, world px. | 131 |
-| `PACK_SPREAD` (private) | `5.0` | Cells either side of the pack leader that a follower may be sampled at. | 133 |
-| `OUT_OF_RANGE_OFFSET` (private) | `1.0e6` | How far from the player the phantom target sits when the real one may not be perceived ([`MobTarget::targetable`] is `false`). | 175 |
-| `MAX_SHOTS` (private) | `24` | Hard cap on projectiles in flight. | 179 |
-| `MAX_LOOT` (private) | `32` | Hard cap on undrained loot entries. | 181 |
-| `MAX_EVENTS` (private) | `48` | Hard cap on undrained events. | 183 |
-| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 326 |
-| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 328 |
+| `MAX_MOBS` | `32` | Hard population cap. | 117 |
+| `MOB_DT` (private) | `1.0 / 60.0` | Mobs integrate at a fixed 60Hz (the player runs at 120Hz; mobs do not need it). | 121 |
+| `MAX_MOB_STEPS` (private) | `3` | Catch-up steps per frame, to avoid a spiral of death after a stall. | 123 |
+| `SPAWN_INTERVAL` (private) | `0.15` | Seconds between spawn attempts. | 126 |
+| `SPAWN_TRIES` (private) | `12` | Rejection-sampled candidate cells per attempt. | 128 |
+| `OFFSCREEN_MARGIN` (private) | `32.0` | How far outside the viewport edge a spawn must be to be genuinely unseen. | 130 |
+| `SPAWN_SEPARATION` (private) | `30.0` | Minimum gap between two freshly spawned creatures, world px. | 132 |
+| `PACK_SPREAD` (private) | `5.0` | Cells either side of the pack leader that a follower may be sampled at. | 134 |
+| `OUT_OF_RANGE_OFFSET` (private) | `1.0e6` | How far from the player the phantom target sits when the real one may not be perceived ([`MobTarget::targetable`] is `false`). | 176 |
+| `MAX_SHOTS` (private) | `24` | Hard cap on projectiles in flight. | 180 |
+| `MAX_LOOT` (private) | `32` | Hard cap on undrained loot entries. | 182 |
+| `MAX_EVENTS` (private) | `48` | Hard cap on undrained events. | 184 |
+| `SAFE_HX` (private) | `((WINDOW_COLS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The streaming window's half-width, shrunk by the recenter hysteresis (a full chunk of drift) plus a margin, so a spawn candidate is inside the loaded window even at the worst-case moment just before the window shifts. | 327 |
+| `SAFE_HY` (private) | `((WINDOW_ROWS * CELL_SIZE) / 2 - (CHUNK_CELLS + 8) * CELL_SIZE) as f32` | The same, vertically. | 329 |
 
 ### `crates/yugen-core/src/entities/player.rs`
 
@@ -273,7 +282,7 @@ only the exported surface is held to the rule.
 | `TOOL_DEFAULT_DIG_SPEED` (private) | `1.0` | What a tool item leaves unsaid. | 185 |
 | `TOOL_DEFAULT_REACH` (private) | `6.0` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 187 |
 | `TOOL_DEFAULT_BRUSH_MAX` (private) | `1` | See [`TOOL_DEFAULT_DIG_SPEED`]. | 189 |
-| `PALETTE_SLOTS` | `8` | How many palette groups there are, i.e. how many digit keys the host scans. | 288 |
+| `PALETTE_SLOTS` | `8` | How many palette groups there are, i.e. how many digit keys the host scans. | 299 |
 
 ### `crates/yugen-core/src/items/drops.rs`
 
@@ -323,53 +332,55 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `FIRE_LIFE` (private) | `30` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 87 |
-| `SMOKE_LIFE` (private) | `120` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 88 |
-| `STEAM_LIFE` (private) | `140` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 89 |
-| `GAS_WANDER` (private) | `0.35` | sideways drift when a gas can't rise | 92 |
-| `STEAM_CONDENSE` (private) | `0.008` | steam collapsing back to water on expiry | 93 |
-| `FIRE_SMOKE` (private) | `0.06` | fire puffing smoke upward | 94 |
-| `LAVA_IGNITE` (private) | `0.04` | lava lighting an adjacent flammable | 95 |
-| `HEAT_WAKE_DELTA` (private) | `2` | How much a cell's temperature must swing in one tick to keep its chunk awake. | 106 |
-| `BEH_REACT` (private) | `1 << 0` | can DRIVE a neighbour reaction | 139 |
-| `BEH_HEAT` (private) | `1 << 1` | has a thermal threshold a byte can actually reach | 140 |
-| `BEH_GROW` (private) | `1 << 2` | spreads onto a substrate | 141 |
-| `BEH_STATE_SHIFT` (private) | `4` | MaterialState of a MOVING material; 0 = static | 142 |
+| `FIRE_LIFE` (private) | `30` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 88 |
+| `SMOKE_LIFE` (private) | `120` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 89 |
+| `STEAM_LIFE` (private) | `140` | Gas lifetimes, in ticks, seeded into `aux` when a gas cell is created. | 90 |
+| `MIST_LIFE` (private) | `420` | Mist hangs. | 93 |
+| `GAS_WANDER` (private) | `0.35` | sideways drift when a gas can't rise | 96 |
+| `STEAM_CONDENSE` (private) | `0.008` | steam collapsing back to water on expiry | 97 |
+| `MIST_CONDENSE` (private) | `0.05` | mist beads into water far more readily | 98 |
+| `FIRE_SMOKE` (private) | `0.06` | fire puffing smoke upward | 99 |
+| `LAVA_IGNITE` (private) | `0.04` | lava lighting an adjacent flammable | 100 |
+| `HEAT_WAKE_DELTA` (private) | `2` | How much a cell's temperature must swing in one tick to keep its chunk awake. | 111 |
+| `BEH_REACT` (private) | `1 << 0` | can DRIVE a neighbour reaction | 144 |
+| `BEH_HEAT` (private) | `1 << 1` | has a thermal threshold a byte can actually reach | 145 |
+| `BEH_GROW` (private) | `1 << 2` | spreads onto a substrate | 146 |
+| `BEH_STATE_SHIFT` (private) | `4` | MaterialState of a MOVING material; 0 = static | 147 |
 
 ### `crates/yugen-core/src/sim/biomes.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `BIOME_COUNT` | `9` | How many biomes compete for a column. | 177 |
-| `VOLCANIC_INDEX` | `Biome::Volcanic as usize` | Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate. | 355 |
-| `UG_COUNT` | `6` | How many underground layers compete for a column. | 469 |
-| `TEMP_FREQ` (private) | `0.0011` | Climate fields | 562 |
-| `TEMP_ANCHOR` (private) | `41.7` | Climate fields | 563 |
-| `MOIST_FREQ` (private) | `0.0017` | Climate fields | 564 |
-| `MOIST_ANCHOR` (private) | `613.3` | Climate fields | 565 |
-| `VOLC_FREQ` (private) | `0.00062` | Climate fields | 566 |
-| `VOLC_ANCHOR` (private) | `907.1` | Climate fields | 567 |
-| `CLIMATE_OCTAVES` (private) | `2` | Climate fields | 568 |
-| `CLIMATE_SPREAD` (private) | `1.5` | Contrast gain applied to a raw fBm value before it becomes a 0..1 climate coordinate. | 574 |
-| `BLEND_WIDTH` (private) | `0.085` | Width, in climate-distance units, of the band around a boundary where two (or more) biomes both contribute. | 579 |
-| `VOLC_SPREAD` (private) | `0.5` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 589 |
-| `VOLC_T0` (private) | `0.835` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 590 |
-| `VOLC_D0` (private) | `0.19` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 591 |
-| `VOLC_GAIN` (private) | `1.65` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 592 |
-| `POOL_MAX` (private) | `if BIOME_COUNT > UG_COUNT { BIOME_COUNT } else { UG_COUNT }` | Capacity of every scratch array below: the larger of the two palettes. | 644 |
-| `CAP_BASE` (private) | `6.0` | Base topsoil thickness in cells; scaled per biome. | 948 |
-| `UG_FADE_START` (private) | `22.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 953 |
-| `UG_FADE_SPAN` (private) | `46.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 954 |
-| `UG_FADE_JITTER` (private) | `13.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 955 |
-| `UG_JITTER_FREQ` (private) | `0.013` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 956 |
-| `UG_JITTER_ANCHOR` (private) | `317.4` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 957 |
+| `BIOME_COUNT` | `11` | How many biomes compete for a column. | 183 |
+| `VOLCANIC_INDEX` | `Biome::Volcanic as usize` | Index of Volcanic in [`BIOMES`] — it is the one biome not placed by climate. | 394 |
+| `UG_COUNT` | `8` | How many underground layers compete for a column. | 526 |
+| `TEMP_FREQ` (private) | `0.0011` | Climate fields | 647 |
+| `TEMP_ANCHOR` (private) | `41.7` | Climate fields | 648 |
+| `MOIST_FREQ` (private) | `0.0017` | Climate fields | 649 |
+| `MOIST_ANCHOR` (private) | `613.3` | Climate fields | 650 |
+| `VOLC_FREQ` (private) | `0.00062` | Climate fields | 651 |
+| `VOLC_ANCHOR` (private) | `907.1` | Climate fields | 652 |
+| `CLIMATE_OCTAVES` (private) | `2` | Climate fields | 653 |
+| `CLIMATE_SPREAD` (private) | `1.5` | Contrast gain applied to a raw fBm value before it becomes a 0..1 climate coordinate. | 659 |
+| `BLEND_WIDTH` (private) | `0.085` | Width, in climate-distance units, of the band around a boundary where two (or more) biomes both contribute. | 664 |
+| `VOLC_SPREAD` (private) | `0.5` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 674 |
+| `VOLC_T0` (private) | `0.835` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 675 |
+| `VOLC_D0` (private) | `0.19` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 676 |
+| `VOLC_GAIN` (private) | `1.65` | Volcanic's synthetic distance: `VOLC_D0 - (volcanism - VOLC_T0) * VOLC_GAIN`, floored at 0, competing against real climate distances (median ~0.19). | 677 |
+| `POOL_MAX` (private) | `if BIOME_COUNT > UG_COUNT { BIOME_COUNT } else { UG_COUNT }` | Capacity of every scratch array below: the larger of the two palettes. | 729 |
+| `CAP_BASE` (private) | `6.0` | Base topsoil thickness in cells; scaled per biome. | 1033 |
+| `UG_FADE_START` (private) | `22.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 1038 |
+| `UG_FADE_SPAN` (private) | `46.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 1039 |
+| `UG_FADE_JITTER` (private) | `13.0` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 1040 |
+| `UG_JITTER_FREQ` (private) | `0.013` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 1041 |
+| `UG_JITTER_ANCHOR` (private) | `317.4` | Depth window (below the surface) over which the surface rock signature hands off to the underground layer. | 1042 |
 
 ### `crates/yugen-core/src/sim/chunk_store.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
 | `PREFETCH_MIN_PARALLEL` (private) | `8` | How many chunks [`ChunkStore::prefetch`] wants to see before it reaches for a thread pool. | 30 |
-| `MAX_PERSISTED_CHUNKS` | `2048` | Upper bound on retained diverged chunks. | 51 |
+| `MAX_PERSISTED_CHUNKS` | `8192` | Upper bound on retained diverged chunks. | 59 |
 
 ### `crates/yugen-core/src/sim/decor/ores.rs`
 
@@ -398,7 +409,7 @@ only the exported surface is held to the rule.
 | `CAVERN` (private) | `CAVERN_DEPTH as f64` |  | 173 |
 | `DEEP` (private) | `DEEP_DEPTH as f64` |  | 174 |
 | `N_ORES` (private) | `ORES.len()` |  | 241 |
-| `MEMO_N` (private) | `8` | Per-column memo | 322 |
+| `MEMO_N` (private) | `8` | Per-column memo | 330 |
 
 ### `crates/yugen-core/src/sim/decor/structures.rs`
 
@@ -429,44 +440,48 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `S_GATE` (private) | `101` | does anything grow in this column at all | 49 |
-| `S_MIX` (private) | `211` | which of the two blended biomes governs | 50 |
-| `S_SPECIES` (private) | `307` | which of the two blended biomes governs | 51 |
-| `S_H` (private) | `409` | height | 52 |
-| `S_LEAN` (private) | `503` | lean magnitude / direction (+1) | 53 |
-| `S_RX` (private) | `601` | canopy half-width, and per-species shape flags | 54 |
-| `S_RY` (private) | `701` | canopy half-height | 55 |
-| `S_NB` (private) | `809` | branch / arm count | 56 |
-| `S_BR` (private) | `907` | + k: branch height along the trunk | 57 |
-| `S_BRD` (private) | `1009` | + k: branch direction | 58 |
-| `S_BRL` (private) | `1103` | + k: branch length | 59 |
-| `S_ROOT` (private) | `1201` | + k: root flares and prop roots | 60 |
-| `S_LOBE` (private) | `1301` | canopy side lobes | 61 |
-| `S_PAL` (private) | `1409` | palette coin-flips | 62 |
-| `S_VINE` (private) | `1511` | vine seeding | 63 |
-| `S_BLOB` (private) | `1709` | + 137k: per-cell canopy dither | 64 |
-| `S_CLUT` (private) | `1801` | ground clutter gate | 65 |
-| `S_CMIX` (private) | `1901` | ground clutter gate | 66 |
-| `S_CKIND` (private) | `2003` | ground clutter gate | 67 |
-| `REACH_X` (private) | `8` | The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or a 4-cell limb tipped with a 2-cell leaf clump — 8 either way. | 75 |
-| `REACH_Y` (private) | `26` | The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or a 4-cell limb tipped with a 2-cell leaf clump — 8 either way. | 76 |
-| `ROOT_DEPTH` (private) | `3` | Deepest a root or a seeded moss cell reaches below the surface row. | 78 |
-| `TREE_STRIDE` (private) | `3` | Candidate lattices. | 83 |
-| `TREE_PHASE` (private) | `1` | Candidate lattices. | 84 |
-| `CLUTTER_STRIDE` (private) | `2` | Candidate lattices. | 85 |
-| `CLUTTER_PHASE` (private) | `0` | Candidate lattices. | 86 |
-| `CLUTTER_REACH` (private) | `2` | Candidate lattices. | 87 |
-| `MAX_TREE_DENSITY` (private) | `0.56` | No biome grows on more than this fraction of its candidate columns. | 90 |
-| `MAX_CLUTTER_DENSITY` (private) | `0.62` | Likewise for ground cover. | 92 |
-| `SP_BROADLEAF` (private) | `0` |  | 145 |
-| `SP_CONIFER` (private) | `1` |  | 146 |
-| `SP_JUNGLE` (private) | `2` |  | 147 |
-| `SP_ACACIA` (private) | `3` |  | 148 |
-| `SP_MANGROVE` (private) | `4` |  | 149 |
-| `SP_CACTUS` (private) | `5` |  | 150 |
-| `SP_SNAG` (private) | `6` |  | 151 |
-| `SP_SHROOM` (private) | `7` |  | 152 |
-| `SP_SHRUB` (private) | `8` |  | 153 |
+| `S_GATE` (private) | `101` | does anything grow in this column at all | 54 |
+| `S_MIX` (private) | `211` | which of the two blended biomes governs | 55 |
+| `S_SPECIES` (private) | `307` | which of the two blended biomes governs | 56 |
+| `S_H` (private) | `409` | height | 57 |
+| `S_LEAN` (private) | `503` | lean magnitude / direction (+1) | 58 |
+| `S_RX` (private) | `601` | canopy half-width, and per-species shape flags | 59 |
+| `S_RY` (private) | `701` | canopy half-height | 60 |
+| `S_NB` (private) | `809` | branch / arm count | 61 |
+| `S_BR` (private) | `907` | + k: branch height along the trunk | 62 |
+| `S_BRD` (private) | `1009` | + k: branch direction | 63 |
+| `S_BRL` (private) | `1103` | + k: branch length | 64 |
+| `S_ROOT` (private) | `1201` | + k: root flares and prop roots | 65 |
+| `S_LOBE` (private) | `1301` | canopy side lobes | 66 |
+| `S_PAL` (private) | `1409` | palette coin-flips | 67 |
+| `S_VINE` (private) | `1511` | vine seeding | 68 |
+| `S_BLOB` (private) | `1709` | + 137k: per-cell canopy dither | 69 |
+| `S_CLUT` (private) | `1801` | ground clutter gate | 70 |
+| `S_CMIX` (private) | `1901` | ground clutter gate | 71 |
+| `S_CKIND` (private) | `2003` | ground clutter gate | 72 |
+| `S_DEPTH` (private) | `2101` | Which plane a tree stands in. | 74 |
+| `S_BARK` (private) | `2203` | Per-row bark wobble: width at `+0`, centre drift at `+1+row`. | 76 |
+| `REACH_X` (private) | `8` | The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or a 4-cell limb tipped with a 2-cell leaf clump — 8 either way. | 84 |
+| `REACH_Y` (private) | `26` | The widest thing here is a jungle tree: 2 cells of lean plus a crown of 6, or a 4-cell limb tipped with a 2-cell leaf clump — 8 either way. | 85 |
+| `ROOT_DEPTH` (private) | `3` | Deepest a root or a seeded moss cell reaches below the surface row. | 87 |
+| `TREE_STRIDE` (private) | `3` | Candidate lattices, in AUTHORED cells — every one of them is multiplied by the raster factor at the scan, so the spacing grows with the trees standing in it. | 94 |
+| `TREE_PHASE` (private) | `1` | Candidate lattices, in AUTHORED cells — every one of them is multiplied by the raster factor at the scan, so the spacing grows with the trees standing in it. | 95 |
+| `CLUTTER_STRIDE` (private) | `2` | Candidate lattices, in AUTHORED cells — every one of them is multiplied by the raster factor at the scan, so the spacing grows with the trees standing in it. | 96 |
+| `CLUTTER_PHASE` (private) | `0` | Candidate lattices, in AUTHORED cells — every one of them is multiplied by the raster factor at the scan, so the spacing grows with the trees standing in it. | 97 |
+| `CLUTTER_REACH` (private) | `2` | Candidate lattices, in AUTHORED cells — every one of them is multiplied by the raster factor at the scan, so the spacing grows with the trees standing in it. | 98 |
+| `BEHIND_SHARE` (private) | `0.35` | Share of trees that stand BEHIND the play plane. | 110 |
+| `MAX_TREE_DENSITY` (private) | `0.56` | No biome grows on more than this fraction of its candidate columns. | 113 |
+| `MAX_CLUTTER_DENSITY` (private) | `0.62` | Likewise for ground cover. | 115 |
+| `SP_BROADLEAF` (private) | `0` |  | 174 |
+| `SP_CONIFER` (private) | `1` |  | 175 |
+| `SP_JUNGLE` (private) | `2` |  | 176 |
+| `SP_ACACIA` (private) | `3` |  | 177 |
+| `SP_MANGROVE` (private) | `4` |  | 178 |
+| `SP_CACTUS` (private) | `5` |  | 179 |
+| `SP_SNAG` (private) | `6` |  | 180 |
+| `SP_SHROOM` (private) | `7` |  | 181 |
+| `SP_SHRUB` (private) | `8` |  | 182 |
+| `FOOT_REACH` (private) | `3` | A root flare: the trunk widening where it meets the ground, `spread` cells either side, tallest against the trunk and dying out to nothing. | 680 |
 
 ### `crates/yugen-core/src/sim/noise.rs`
 
@@ -511,100 +526,107 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CHEESE_FX` (private) | `0.03` | Cheese chambers. | 109 |
-| `CHEESE_FY` (private) | `0.038` | Cheese chambers. | 110 |
-| `CHEESE_WARP_AMP` (private) | `16.0` | Cheese chambers. | 111 |
-| `CHEESE_WARP_FREQ` (private) | `0.0075` | Cheese chambers. | 112 |
-| `CHEESE_T0` (private) | `0.6` | Thresholds are quoted against the MEASURED distribution of their field, not against its theoretical range — gradient-noise fBm is nowhere near uniform and a threshold picked by eye is off by an order of magnitude in open volume. | 124 |
-| `CHEESE_TD` (private) | `0.1` | How much the threshold relaxes by full depth — bigger caverns lower down. | 126 |
-| `CHEESE_TB` (private) | `0.06` | How hard the low-frequency bias field pushes the threshold around. | 128 |
-| `UNDERWORLD_T0` (private) | `-0.16` | Underworld cheese threshold — below the field's median, so the band is void. | 130 |
-| `TUN_FX` (private) | `0.0098` | Tunnels. | 145 |
-| `TUN_FY` (private) | `0.0215` | field A: squashed vertically -> horizontal passages | 146 |
-| `TUN_BX` (private) | `0.017` | field B: the reverse aspect -> vertical connections | 147 |
-| `TUN_BY` (private) | `0.0085` | field B: the reverse aspect -> vertical connections | 148 |
-| `TUN_WARP` (private) | `0.55` | Fraction of the cheese domain-warp vector applied to the tunnel coordinates. | 155 |
-| `TUN_OCT` (private) | `1` | Octaves per tunnel field. | 163 |
-| `TUN_T0` (private) | `0.962` | Ridged threshold for a passage — the single biggest lever on how much of the underground is open, and the one that is impossible to guess. | 176 |
-| `TUN_TD` (private) | `0.018` | Threshold relief by full depth: deeper passages are wider. | 178 |
-| `TUN_TR` (private) | `0.01` | Modulation of the threshold by the low-frequency radius field, +/- this. | 180 |
-| `TUN_JUNCTION` (private) | `0.018` | How far below the passage threshold BOTH fields must be for a junction room. | 184 |
-| `TUN_SCALE_GAIN` (private) | `0.03` | A biome/layer `caveScale` is a MULTIPLIER on openness, but these fields are thresholded, not scaled — dividing the threshold by the scale (what the old generator did) is wildly non-linear near the tail and turns caveScale 1.35 into "half the world is missing". | 196 |
-| `CHEESE_SCALE_GAIN` (private) | `0.1` | A biome/layer `caveScale` is a MULTIPLIER on openness, but these fields are thresholded, not scaled — dividing the threshold by the scale (what the old generator did) is wildly non-linear near the tail and turns caveScale 1.35 into "half the world is missing". | 197 |
-| `FADE_BITE` (private) | `0.7` | Threshold penalty where the surface fade is fully closed. | 200 |
-| `RAV_FX` (private) | `0.0074` | Ravines. | 205 |
-| `RAV_FY` (private) | `0.00105` | Ravines. | 206 |
-| `RAV_T_CLOSED` (private) | `1.2` | Threshold where no ravine is permitted at all. | 208 |
-| `RAV_T_OPEN` (private) | `0.87` | Threshold in a fully ravine-prone region. | 211 |
-| `RAV_W0` (private) | `0.12` | Weirdness at which ravines start. | 218 |
-| `RAV_W1` (private) | `0.45` | Weirdness at which ravines are fully enabled. | 220 |
-| `CHASM_W0` (private) | `0.34` | Weirdness at which a ravine's top window starts opening above the topsoil. | 224 |
-| `CHASM_W1` (private) | `0.66` | Weirdness at which the top window is fully open. | 226 |
-| `RAV_TOP_BURIED` (private) | `30.0` | Depth window: a non-breaching ravine starts here. | 228 |
-| `RAV_TOP_CHASM` (private) | `-3.0` | Depth window: a chasm starts above ground. | 230 |
-| `RAV_TAPER_FROM` (private) | `120.0` | Depth at which the ravine starts tapering shut at the bottom. | 232 |
-| `RAV_TAPER_TO` (private) | `195.0` | Depth by which the ravine has tapered fully shut. | 234 |
-| `RAV_WINDOW_BITE` (private) | `0.25` | How much the threshold is raised where the depth window is closed. | 236 |
-| `LIQ_BASE` (private) | `320.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 250 |
-| `LIQ_WET_GAIN` (private) | `165.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 251 |
-| `LIQ_WET_FREQ` (private) | `0.0011` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 252 |
-| `LIQ_WET_ANCHOR` (private) | `733.19` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 253 |
-| `LIQ_POCKET_BIAS_GAIN` (private) | `300.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 254 |
-| `LIQ_WOBBLE` (private) | `52.0` | Amplitude of the 2D wobble on the liquid table. | 261 |
-| `LIQ_WOBBLE_FREQ` (private) | `0.0062` | Amplitude of the 2D wobble on the liquid table. | 262 |
-| `LIQ_WOBBLE_ANCHOR` (private) | `2201.7` | Amplitude of the 2D wobble on the liquid table. | 263 |
-| `BAND_SHIFT_AMP` (private) | `30.0` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 275 |
-| `BAND_SHIFT_FREQ` (private) | `0.0023` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 276 |
-| `BAND_SHIFT_ANCHOR` (private) | `4409.7` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 277 |
-| `BIAS_FX` (private) | `0.0021` | Low-frequency openness bias — the field that makes some REGIONS cavey and others near-solid, so exploring has a payoff gradient. | 281 |
-| `BIAS_FY` (private) | `0.0034` | Low-frequency openness bias — the field that makes some REGIONS cavey and others near-solid, so exploring has a payoff gradient. | 282 |
-| `TUNMOD_FX` (private) | `0.0105` | Tunnel radius modulation along a passage's length. | 285 |
-| `TUNMOD_FY` (private) | `0.0088` | Tunnel radius modulation along a passage's length. | 286 |
-| `STRATA_FX` (private) | `0.0024` | Strata: near-horizontal geological banding for the deep rock. | 291 |
-| `STRATA_FY` (private) | `0.03` | Strata: near-horizontal geological banding for the deep rock. | 292 |
-| `STRIDE` (private) | `GEN_LATTICE` |  | 359 |
-| `LAT` (private) | `CHUNK_CELLS as usize / STRIDE + 1` |  | 360 |
-| `LAT_N` (private) | `LAT * LAT` |  | 361 |
+| `CHEESE_FX` (private) | `0.03` | Cheese chambers. | 110 |
+| `CHEESE_FY` (private) | `0.038` | Cheese chambers. | 111 |
+| `CHEESE_WARP_AMP` (private) | `16.0` | Cheese chambers. | 112 |
+| `CHEESE_WARP_FREQ` (private) | `0.0075` | Cheese chambers. | 113 |
+| `CHEESE_T0` (private) | `0.6` | Thresholds are quoted against the MEASURED distribution of their field, not against its theoretical range — gradient-noise fBm is nowhere near uniform and a threshold picked by eye is off by an order of magnitude in open volume. | 125 |
+| `CHEESE_TD` (private) | `0.1` | How much the threshold relaxes by full depth — bigger caverns lower down. | 127 |
+| `CHEESE_TB` (private) | `0.06` | How hard the low-frequency bias field pushes the threshold around. | 129 |
+| `UNDERWORLD_T0` (private) | `-0.16` | Underworld cheese threshold — below the field's median, so the band is void. | 131 |
+| `TUN_FX` (private) | `0.0098` | Tunnels. | 146 |
+| `TUN_FY` (private) | `0.0215` | field A: squashed vertically -> horizontal passages | 147 |
+| `TUN_BX` (private) | `0.017` | field B: the reverse aspect -> vertical connections | 148 |
+| `TUN_BY` (private) | `0.0085` | field B: the reverse aspect -> vertical connections | 149 |
+| `TUN_WARP` (private) | `0.55` | Fraction of the cheese domain-warp vector applied to the tunnel coordinates. | 156 |
+| `TUN_OCT` (private) | `1` | Octaves per tunnel field. | 164 |
+| `TUN_T0` (private) | `0.962` | Ridged threshold for a passage — the single biggest lever on how much of the underground is open, and the one that is impossible to guess. | 177 |
+| `TUN_TD` (private) | `0.018` | Threshold relief by full depth: deeper passages are wider. | 179 |
+| `TUN_TR` (private) | `0.01` | Modulation of the threshold by the low-frequency radius field, +/- this. | 181 |
+| `TUN_JUNCTION` (private) | `0.018` | How far below the passage threshold BOTH fields must be for a junction room. | 185 |
+| `TUN_SCALE_GAIN` (private) | `0.03` | A biome/layer `caveScale` is a MULTIPLIER on openness, but these fields are thresholded, not scaled — dividing the threshold by the scale (what the old generator did) is wildly non-linear near the tail and turns caveScale 1.35 into "half the world is missing". | 197 |
+| `CHEESE_SCALE_GAIN` (private) | `0.1` | A biome/layer `caveScale` is a MULTIPLIER on openness, but these fields are thresholded, not scaled — dividing the threshold by the scale (what the old generator did) is wildly non-linear near the tail and turns caveScale 1.35 into "half the world is missing". | 198 |
+| `FADE_BITE` (private) | `0.7` | Threshold penalty where the surface fade is fully closed. | 201 |
+| `RAV_FX` (private) | `0.0074` | Ravines. | 206 |
+| `RAV_FY` (private) | `0.00105` | Ravines. | 207 |
+| `RAV_T_CLOSED` (private) | `1.2` | Threshold where no ravine is permitted at all. | 209 |
+| `RAV_T_OPEN` (private) | `0.87` | Threshold in a fully ravine-prone region. | 212 |
+| `RAV_W0` (private) | `0.12` | Weirdness at which ravines start. | 219 |
+| `RAV_W1` (private) | `0.45` | Weirdness at which ravines are fully enabled. | 221 |
+| `CHASM_W0` (private) | `0.34` | Weirdness at which a ravine's top window starts opening above the topsoil. | 225 |
+| `CHASM_W1` (private) | `0.66` | Weirdness at which the top window is fully open. | 227 |
+| `RAV_TOP_BURIED` (private) | `30.0` | Depth window: a non-breaching ravine starts here. | 229 |
+| `RAV_TOP_CHASM` (private) | `-3.0` | Depth window: a chasm starts above ground. | 231 |
+| `RAV_TAPER_FROM` (private) | `120.0` | Depth at which the ravine starts tapering shut at the bottom. | 233 |
+| `RAV_TAPER_TO` (private) | `195.0` | Depth by which the ravine has tapered fully shut. | 235 |
+| `RAV_WINDOW_BITE` (private) | `0.25` | How much the threshold is raised where the depth window is closed. | 237 |
+| `LIQ_BASE` (private) | `320.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 251 |
+| `LIQ_WET_GAIN` (private) | `165.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 252 |
+| `LIQ_WET_FREQ` (private) | `0.0011` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 253 |
+| `LIQ_WET_ANCHOR` (private) | `733.19` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 254 |
+| `LIQ_POCKET_BIAS_GAIN` (private) | `300.0` | Liquid table: the depth below which an open cell holds the layer's pocket liquid instead of air. | 255 |
+| `LIQ_WOBBLE` (private) | `52.0` | Amplitude of the 2D wobble on the liquid table. | 262 |
+| `LIQ_WOBBLE_FREQ` (private) | `0.0062` | Amplitude of the 2D wobble on the liquid table. | 263 |
+| `LIQ_WOBBLE_ANCHOR` (private) | `2201.7` | Amplitude of the 2D wobble on the liquid table. | 264 |
+| `BAND_SHIFT_AMP` (private) | `30.0` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 276 |
+| `BAND_SHIFT_FREQ` (private) | `0.0023` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 277 |
+| `BAND_SHIFT_ANCHOR` (private) | `4409.7` | Amplitude of the per-column shift applied to every DEPTH BAND boundary (cavern -> deep -> underworld -> bedrock) and to the depth term that widens caves. | 278 |
+| `GAL_FX` (private) | `0.0012` | Flooded galleries: the ravine field turned on its side. | 289 |
+| `GAL_FY` (private) | `0.0081` | Flooded galleries: the ravine field turned on its side. | 290 |
+| `GAL_T_CLOSED` (private) | `1.2` | Threshold where no gallery is permitted. | 292 |
+| `GAL_T_OPEN` (private) | `0.868` | Threshold inside the fully-open band. | 300 |
+| `GAL_CORE` (private) | `24.0` | Half-height of the fully-open window around the liquid table, in cells. | 302 |
+| `GAL_REACH` (private) | `55.0` | Half-height at which the window has tapered fully shut. | 306 |
+| `GAL_WINDOW_BITE` (private) | `0.25` | How much the threshold is raised where the window is closing, mirroring [`RAV_WINDOW_BITE`]: the ribbon tapers to a point instead of ending flat. | 309 |
+| `BIAS_FX` (private) | `0.0021` | Low-frequency openness bias — the field that makes some REGIONS cavey and others near-solid, so exploring has a payoff gradient. | 313 |
+| `BIAS_FY` (private) | `0.0034` | Low-frequency openness bias — the field that makes some REGIONS cavey and others near-solid, so exploring has a payoff gradient. | 314 |
+| `TUNMOD_FX` (private) | `0.0105` | Tunnel radius modulation along a passage's length. | 317 |
+| `TUNMOD_FY` (private) | `0.0088` | Tunnel radius modulation along a passage's length. | 318 |
+| `STRATA_FX` (private) | `0.0024` | Strata: near-horizontal geological banding for the deep rock. | 323 |
+| `STRATA_FY` (private) | `0.03` | Strata: near-horizontal geological banding for the deep rock. | 324 |
+| `STRIDE` (private) | `GEN_LATTICE` |  | 397 |
+| `LAT` (private) | `CHUNK_CELLS as usize / STRIDE + 1` |  | 398 |
+| `LAT_N` (private) | `LAT * LAT` |  | 399 |
 
 ### `crates/yugen-core/src/sim/worldgen/chunk.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SPAWN_SEARCH` (private) | `512` | How far either side of the requested column [`spawn_point`] will look. | 455 |
-| `SPAWN_CLEARANCE` (private) | `4` | How far above sea level the ground has to be to count as dry land. | 457 |
-| `SPAWN_COL` | `8` | The column the TypeScript defaulted to. | 459 |
-| `SPAWN_WALK_CELLS` (private) | `12` | Cells of walkable ground a spawn wants either side of the body. | 520 |
-| `SPAWN_STEP_UP` (private) | `1` | How far the ground may RISE between two adjacent columns and still be walked. | 528 |
-| `SPAWN_GROUND_SCAN` (private) | `24` | How far below the spawn row to look for the ground. | 537 |
+| `SPAWN_SEARCH` (private) | `512` | How far either side of the requested column [`spawn_point`] will look. | 575 |
+| `SPAWN_CLEARANCE` (private) | `4` | How far above sea level the ground has to be to count as dry land. | 577 |
+| `SPAWN_COL` | `8` | The column the TypeScript defaulted to. | 579 |
+| `SPAWN_WALK_CELLS` (private) | `12` | Cells of walkable ground a spawn wants either side of the body. | 651 |
+| `SPAWN_STEP_UP` (private) | `1` | How far the ground may RISE between two adjacent columns and still be walked. | 659 |
+| `SPAWN_GROUND_SCAN` (private) | `24` | How far below the spawn row to look for the ground. | 668 |
 
 ### `crates/yugen-core/src/sim/worldgen/features.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SHAFT_FREQ` (private) | `0.011` | Abandoned mineshaft. | 542 |
-| `SHAFT_ANCHOR` (private) | `517.3` | Abandoned mineshaft. | 543 |
+| `SHAFT_FREQ` (private) | `0.011` | Abandoned mineshaft. | 543 |
+| `SHAFT_ANCHOR` (private) | `517.3` | Abandoned mineshaft. | 544 |
 
 ### `crates/yugen-core/src/sim/worldgen/fields.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CONT_FREQ` (private) | `0.00056` | ~1800 cells ~= 5 screens per continent lobe. | 41 |
-| `CONT_ANCHOR` (private) | `83.41` | ~1800 cells ~= 5 screens per continent lobe. | 42 |
-| `CONT_OCTAVES` (private) | `3` | ~1800 cells ~= 5 screens per continent lobe. | 43 |
-| `EROS_FREQ` (private) | `0.00091` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 47 |
-| `EROS_ANCHOR` (private) | `1471.27` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 48 |
-| `EROS_OCTAVES` (private) | `3` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 49 |
-| `PV_FREQ` (private) | `0.0059` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 53 |
-| `PV_ANCHOR` (private) | `2903.73` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 54 |
-| `PV_OCTAVES` (private) | `4` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 55 |
-| `PV_GAIN` (private) | `2.1` | Ridged gain for [`peaks_valleys`] — slightly above `ridged2`'s 2.0 default so the crests stay thin. | 60 |
-| `WEIRD_FREQ` (private) | `0.00042` | ~2400 cells. | 64 |
-| `WEIRD_ANCHOR` (private) | `5417.19` | ~2400 cells. | 65 |
-| `WEIRD_OCTAVES` (private) | `2` | ~2400 cells. | 66 |
-| `WARP_STRENGTH` (private) | `90.0` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 78 |
-| `WARP_FREQ` (private) | `0.0013` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 79 |
-| `WARP_ANCHOR` (private) | `6673.11` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 80 |
-| `FIELD_SPREAD` (private) | `1.8` | Contrast gain applied to the raw fBm before it becomes a world field. | 94 |
+| `CONT_FREQ` (private) | `0.00056` | ~1800 cells ~= 5 screens per continent lobe. | 49 |
+| `CONT_ANCHOR` (private) | `83.41` | ~1800 cells ~= 5 screens per continent lobe. | 50 |
+| `CONT_OCTAVES` (private) | `3` | ~1800 cells ~= 5 screens per continent lobe. | 51 |
+| `EROS_FREQ` (private) | `0.00091` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 55 |
+| `EROS_ANCHOR` (private) | `1471.27` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 56 |
+| `EROS_OCTAVES` (private) | `3` | ~1100 cells: erosion regions are smaller than continents, so a single landmass can carry both a mountain spine and a flat basin. | 57 |
+| `PV_FREQ` (private) | `0.0059` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 61 |
+| `PV_ANCHOR` (private) | `2903.73` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 62 |
+| `PV_OCTAVES` (private) | `4` | ~170 cells for the coarsest ridge, with 4 octaves of detail on top. | 63 |
+| `PV_GAIN` (private) | `2.1` | Ridged gain for [`peaks_valleys`] — slightly above `ridged2`'s 2.0 default so the crests stay thin. | 68 |
+| `WEIRD_FREQ` (private) | `0.00042` | ~2400 cells. | 72 |
+| `WEIRD_ANCHOR` (private) | `5417.19` | ~2400 cells. | 73 |
+| `WEIRD_OCTAVES` (private) | `2` | ~2400 cells. | 74 |
+| `WARP_STRENGTH` (private) | `90.0` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 86 |
+| `WARP_FREQ` (private) | `0.0013` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 87 |
+| `WARP_ANCHOR` (private) | `6673.11` | Domain warp applied to the column BEFORE the continental and erosion fields are sampled. | 88 |
+| `FIELD_SPREAD` (private) | `1.8` | Contrast gain applied to the raw fBm before it becomes a world field. | 102 |
 
 ### `crates/yugen-core/src/sim/worldgen/heightmap.rs`
 
@@ -615,8 +637,8 @@ only the exported surface is held to the rule.
 | `TERRACE_PHASE_ANCHOR` (private) | `311.73` | Phase field for the shelf grid, so terraces are not globally coplanar. | 133 |
 | `TERRACE_MIN_W` (private) | `0.01` | Below this the terrace blend is skipped entirely — at a weight this small the snap moves the ground line by well under a cell and the work is wasted. | 137 |
 | `RELIEF_SCALE` (private) | `1.0` | The relief term is scaled by this before [`SURFACE_AMPLITUDE`]. | 145 |
-| `MEMO_SIZE` (private) | `4096` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 307 |
-| `MEMO_MASK` (private) | `MEMO_SIZE as i32 - 1` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 308 |
+| `MEMO_SIZE` (private) | `4096` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 331 |
+| `MEMO_MASK` (private) | `MEMO_SIZE as i32 - 1` | Direct-mapped cache of [`Heightmap::surface_row_at`], keyed by column. | 332 |
 
 ### `crates/yugen-core/src/sim/worldgen/layers.rs`
 
@@ -627,7 +649,7 @@ only the exported surface is held to the rule.
 | `CAP_DITHER_FX` (private) | `0.19` |  | 80 |
 | `CAP_DITHER_FY` (private) | `0.31` |  | 81 |
 | `CAP_DITHER_ANCHOR` (private) | `71.5` |  | 82 |
-| `VEIN_FREQ` (private) | `0.2` | Vein field frequency — high enough to read as a seam, not a region. | 203 |
+| `VEIN_FREQ` (private) | `0.2` | Vein field frequency — high enough to read as a seam, not a region. | 210 |
 
 ### `crates/yugen-core/src/sim/worldgen/loot.rs`
 
@@ -639,50 +661,54 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `COL_STRIDE` (private) | `112` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 513 |
-| `COL_PHASE` (private) | `53` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 514 |
-| `COL_DENSITY` (private) | `0.5` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 515 |
-| `SUB_STRIDE_X` (private) | `88` |  | 517 |
-| `SUB_STRIDE_Y` (private) | `64` |  | 518 |
-| `SUB_PHASE_X` (private) | `29` |  | 519 |
-| `SUB_PHASE_Y` (private) | `37` |  | 520 |
-| `SUB_DENSITY` (private) | `0.24` |  | 521 |
-| `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 523 |
+| `COL_STRIDE` (private) | `112` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 516 |
+| `COL_PHASE` (private) | `53` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 517 |
+| `COL_DENSITY` (private) | `0.5` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 518 |
+| `SUB_STRIDE_X` (private) | `88` |  | 520 |
+| `SUB_STRIDE_Y` (private) | `64` |  | 521 |
+| `SUB_PHASE_X` (private) | `29` |  | 522 |
+| `SUB_PHASE_Y` (private) | `37` |  | 523 |
+| `SUB_DENSITY` (private) | `0.24` |  | 524 |
+| `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 526 |
 
 ### `crates/yugen-render/src/ambience.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 123 |
-| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 130 |
-| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 142 |
-| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 146 |
-| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 153 |
-| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 160 |
-| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 163 |
-| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 167 |
-| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 173 |
-| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 176 |
-| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 179 |
-| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 191 |
-| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 196 |
-| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 203 |
-| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 208 |
-| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 220 |
-| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 227 |
-| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 231 |
-| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 238 |
-| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 247 |
-| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 254 |
-| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 258 |
-| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 265 |
-| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 271 |
-| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 277 |
-| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 288 |
-| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 318 |
-| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 403 |
-| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 406 |
-| `HOT_STRIDE_CELLS` (private) | `4` | Cells between hot-list samples. | 772 |
+| `UG_FADE_START` (private) | `26.0` | Depth, in cells below the LOCAL surface, at which the underground mood starts taking over from the outdoor one. | 124 |
+| `UG_FADE_SPAN` (private) | `74.0` | Cells over which that handover completes. | 131 |
+| `POLLEN_SAVANNA` (private) | `0.6` | How much of a plains' pollen a savanna throws. | 143 |
+| `POLLEN_JUNGLE` (private) | `0.5` | How much of a plains' pollen a jungle throws. | 147 |
+| `SAND_NIGHT_FLOOR` (private) | `0.3` | Fraction of the daytime sand skim that still blows at midnight. | 154 |
+| `EMBER_BASE` (private) | `0.45` | Ember output over cold ground that merely happens to contain lava. | 161 |
+| `EMBER_TERRAIN_GAIN` (private) | `0.55` | Extra ember output at full magma-layer or volcanic-biome weight. | 164 |
+| `EMBER_NIGHT_GAIN` (private) | `0.25` | Extra ember output at midnight. | 168 |
+| `FIREFLY_MIREFEN` (private) | `0.6` | How much of a swamp's fireflies the Mirefen carries. | 173 |
+| `DRIP_SCALD` (private) | `0.7` | How much of a grotto's drip the Scald condenses. | 177 |
+| `GLINT_RIME` (private) | `0.65` | How much of a geode's glint the Rime Hollows throw. | 184 |
+| `CAVEDUST_DUST_HOLLOWS` (private) | `1.6` | How much MORE cave dust the Dust Hollows raise than the Stone Caverns that anchor the emitter. | 188 |
+| `EMBER_FULL_HOT` (private) | `6.0` | Hot cells in view at which the ember rate saturates. | 194 |
+| `EMBER_JITTER_PX` (private) | `18.0` | Horizontal spread, in world px, over which an ember leaves its lava cell. | 197 |
+| `EMBER_LIFT_PX` (private) | `4.0` | World px above the lava cell an ember starts at, so it does not spawn buried. | 200 |
+| `DEBT_CAP` (private) | `3.0` | Most whole motes one emitter may owe after a single frame. | 212 |
+| `RATE_EPS` (private) | `0.001` | Below this rate an emitter is treated as off and forfeits its accumulated debt, rather than trickling one mote out every few minutes at a weight that has effectively gone to zero. | 217 |
+| `AIR_TRIES` (private) | `4` | Rejection-sampling attempts for a plain air cell. | 224 |
+| `SURFACE_TRIES` (private) | `6` | Rejection-sampling attempts for a point that must touch a surface — a ground line, a ceiling, a wall face. | 229 |
+| `WANDER_RATE` (private) | `2.3` | Radians per second the wander phase advances. | 241 |
+| `WANDER_Y_FREQ` (private) | `1.7` | Frequency ratio of the vertical wander to the horizontal one. | 248 |
+| `WANDER_Y_GAIN` (private) | `0.6` | Vertical wander amplitude relative to horizontal. | 252 |
+| `FADE_IN_RATE` (private) | `5.0` | How fast a `fade_in` mote reaches full alpha, as a multiple of its life. | 259 |
+| `POOL_CAPACITY` | `256` | Motes alive at once before new spawns are dropped. | 268 |
+| `HOT_MAX` | `64` | Most emissive cells the ember emitter will consider in one frame. | 275 |
+| `EMIT_MAX_LEVEL` (private) | `15.0` | Highest emitter level in the content set, which normalises `light_emit` into the 0..1 the light pass works in. | 279 |
+| `EMIT_FALLBACK_GAIN` (private) | `0.8` | Gain applied to a block's `emissive` when it declares no `light_emit`. | 286 |
+| `MOTE_Z` (private) | `0.42` | Where a mote sits in z: over the terrain, under the creatures. | 292 |
+| `MOTE_GLOW_Z` (private) | `0.44` | Where a self-luminous mote sits. | 298 |
+| `WEATHER_COUNT` | `5` | How many weather kinds [`Weather`] has, and the width of [`Mood::weather`]. | 309 |
+| `EMITTER_COUNT` | `8` | How many emitters compete for the frame. | 339 |
+| `UP` (private) | `-core::f32::consts::FRAC_PI_2` | Straight up — the launch angle a spec that names none gets. | 424 |
+| `ANY_DIRECTION` (private) | `core::f32::consts::TAU` | A full circle of spread: the mote leaves in any direction at all. | 427 |
+| `HOT_STRIDE_CELLS` (private) | `4` | Cells between hot-list samples. | 804 |
 
 ### `crates/yugen-render/src/cellmap.rs`
 
@@ -723,26 +749,27 @@ only the exported surface is held to the rule.
 | `SIN_MASK` (private) | `SIN_SIZE as i32 - 1` | Sine table for the shimmer wave. | 884 |
 | `SIN_SCALE` (private) | `SIN_SIZE as f64 / TAU` | Sine table for the shimmer wave. | 885 |
 | `EMIT_MAX` (private) | `512` | Cap on the census. | 899 |
-| `TEX_A_PERIOD` | `PA` | Period of [`TEX_A`], in cells — 61. | 1205 |
-| `TEX_B_PERIOD` | `PB` | Period of [`TEX_B`], in cells — 67. | 1208 |
-| `TEX_PATTERN_COUNT` | `TEX_COUNT` | Patterns in each tile set — the slab count in [`TEX_A`] and [`TEX_B`]. | 1211 |
-| `SHADE_EDGE_CLASSES` | `EDGE_CODES` | Edge classes per material in the shade table. | 1214 |
-| `SHADE_PATTERN_LEVELS` | `PAT_LEVELS` | Pattern levels per edge class in the shade table — 64. | 1217 |
-| `SHADE_MATERIAL_STRIDE` | `SHADE_STRIDE` | Entries per material in [`CellShades::table`] — 512. | 1220 |
-| `SHADE_PAT_MID` | `PAT_MID` | `31.0` — the neutral, no-offset pattern sample. | 1223 |
-| `SHADE_PAT_SIGMA` | `PAT_SIGMA` | Standard deviation of a summed pattern sample, in its 0..62 range. | 1226 |
-| `SHADE_EDGE_SCALE` | `52.0` | Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness offset a class contributes. | 1230 |
-| `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1236 |
-| `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1239 |
+| `TEX_A_PERIOD` | `PA` | Period of [`TEX_A`], in cells — 61. | 1279 |
+| `TEX_GRAIN` | `1` | Texels per cell, per axis, in the SHIPPING terrain pass. | 1302 |
+| `TEX_B_PERIOD` | `PB` | Period of [`TEX_B`], in cells — 67. | 1305 |
+| `TEX_PATTERN_COUNT` | `TEX_COUNT` | Patterns in each tile set — the slab count in [`TEX_A`] and [`TEX_B`]. | 1308 |
+| `SHADE_EDGE_CLASSES` | `EDGE_CODES` | Edge classes per material in the shade table. | 1311 |
+| `SHADE_PATTERN_LEVELS` | `PAT_LEVELS` | Pattern levels per edge class in the shade table — 64. | 1314 |
+| `SHADE_MATERIAL_STRIDE` | `SHADE_STRIDE` | Entries per material in [`CellShades::table`] — 512. | 1317 |
+| `SHADE_PAT_MID` | `PAT_MID` | `31.0` — the neutral, no-offset pattern sample. | 1320 |
+| `SHADE_PAT_SIGMA` | `PAT_SIGMA` | Standard deviation of a summed pattern sample, in its 0..62 range. | 1323 |
+| `SHADE_EDGE_SCALE` | `52.0` | Rim/AO scale: `EDGE_GAIN[class] * MAT_EDGE/255 * this` is the brightness offset a class contributes. | 1327 |
+| `SHIMMER_SIN_SCALE` | `SIN_SCALE` | Radians-to-table-index scale for the shimmer wave — `SIN_SIZE / TAU`. | 1333 |
+| `SHIMMER_SIN_SIZE` | `SIN_SIZE` | Entries in the shimmer sine table. | 1336 |
 
 ### `crates/yugen-render/src/craftscreen.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VISIBLE_ROWS` (private) | `10` | Rows the panel is SIZED for. | 65 |
-| `CARD_MARGIN` (private) | `40` | Clearance kept between the panel and the edge of the buffer. | 73 |
-| `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 191 |
-| `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 497 |
+| `VISIBLE_ROWS` (private) | `10` | Rows the panel is SIZED for. | 66 |
+| `CARD_MARGIN` (private) | `40` | Clearance kept between the panel and the edge of the buffer. | 81 |
+| `ROW_H` (private) | `26` | Height of one row: a name line and an ingredient line under it. | 199 |
+| `SWALLOWED_HOTBAR` | `HOTBAR` | Hotbar keys the screen swallows while it is open. | 509 |
 
 ### `crates/yugen-render/src/daynight.rs`
 
@@ -755,11 +782,11 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 67 |
-| `X` (private) | `8` | Panel inset from the top-left, clear of `ui::hud`'s health bar. | 137 |
-| `Y` (private) | `52` | Baseline of the first line. | 145 |
-| `LINE` (private) | `13` | Line pitch. | 147 |
-| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 149 |
+| `SMOOTHING_FRAMES` (private) | `60.0` | Frames the frame-time average is taken over. | 63 |
+| `PANEL_W` (private) | `340` | Widest the panel gets, in buffer px. | 160 |
+| `PAD` (private) | `6` | Inset from the plate's edge to its text. | 163 |
+| `LINE` (private) | `13` | Line pitch. | 166 |
+| `VALUE_X` (private) | `92` | Column the values start in, so the labels do not have to be padded. | 169 |
 
 ### `crates/yugen-render/src/dump.rs`
 
@@ -813,70 +840,70 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `EMIT_MAX_LEVEL` (private) | `15.0` | The authored `lightEmit` level a material must declare to be at full scale. | 191 |
-| `EMIT_FALLBACK_GAIN` (private) | `0.8` | What a material that declares `emissive` but no `lightEmit` is worth. | 198 |
-| `EMIT_SATURATION` (private) | `1.35` | How far an emitter's cast is pushed away from grey. | 207 |
-| `DEPTH_RANGE_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which depth walks from 0 to 1. | 311 |
-| `AMBIENT_FLOOR` (private) | `0.12` | Ambient floor so unlit caves stay readable rather than pure black. | 314 |
-| `AMBIENT_DEPTH_FALL` (private) | `0.05` | How much of the ambient floor the deep takes away. | 320 |
-| `SKY_NIGHT` (private) | `0.22` | Open sky at midnight. | 325 |
-| `SKY_DAY_GAIN` (private) | `0.78` | What full daylight adds on top of [`SKY_NIGHT`]. | 328 |
-| `OPEN_DECAY_PER_CELL` (private) | `0.997_490_6` | What one SIM CELL of open air costs the flood. | 342 |
-| `SOLID_DECAY_PER_CELL` (private) | `0.861_173_5` | What one SIM CELL of opaque rock costs the flood. | 349 |
-| `WALL_DECAY_PER_CELL` (private) | `0.962_0` | What one SIM CELL of open air with a WALL behind it costs the flood. | 370 |
-| `OPEN_DECAY` (private) | `over_a_light_cell(OPEN_DECAY_PER_CELL)` | What one LIGHT CELL of open air costs the flood. | 373 |
-| `WALL_DECAY` (private) | `over_a_light_cell(WALL_DECAY_PER_CELL)` | What one LIGHT CELL of walled air costs the flood. | 376 |
-| `SOLID_DECAY` (private) | `over_a_light_cell(SOLID_DECAY_PER_CELL)` | What one LIGHT CELL of opaque rock costs the flood. | 389 |
-| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 440 |
-| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 445 |
-| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 447 |
-| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 452 |
-| `SPLAT_REACH_CELLS` (private) | `4` | How far a splat's four arms reach, in SIM CELLS. | 469 |
-| `FAR_REACH_CELLS` (private) | `8` | How far a strong emitter's far ring reaches, in SIM CELLS. | 475 |
-| `BLUR_REACH_CELLS` (private) | `4` | How far the blur that turns splats into glow spreads, in SIM CELLS. | 488 |
-| `SPLAT_REACH` (private) | `in_light_cells(SPLAT_REACH_CELLS)` | [`SPLAT_REACH_CELLS`] in light cells. | 491 |
-| `FAR_REACH` (private) | `in_light_cells(FAR_REACH_CELLS)` | [`FAR_REACH_CELLS`] in light cells. | 494 |
-| `BLUR_REACH` (private) | `in_light_cells(BLUR_REACH_CELLS)` | [`BLUR_REACH_CELLS`] in light cells — the blur's radius in taps per side. | 497 |
-| `LIGHT_SOFTNESS` (private) | `0.5` | How soft the light's own edges are against the art's, 0..1. | 525 |
-| `LIGHT_SNAP` (private) | `if LIGHT_DOWNSCALE == 1 { LIGHT_SOFTNESS } else { 1.0 }` | [`LIGHT_SOFTNESS`], or a full bilinear upscale if the grid is coarser than the art. | 536 |
-| `BLUR_BACK` (private) | `(BLUR_REACH / 2) as usize` | How far back one box pass of the blur looks, and how far forward. | 555 |
-| `BLUR_FWD` (private) | `(BLUR_REACH - BLUR_REACH / 2) as usize` | See [`BLUR_BACK`]. | 558 |
-| `SPLAT_EDGE` (private) | `0.42` | What the four arms of a scalar splat get, relative to its centre. | 581 |
-| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 590 |
-| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 593 |
-| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 599 |
-| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 602 |
-| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 608 |
-| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 614 |
-| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 617 |
-| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 620 |
-| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 629 |
-| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 668 |
-| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 676 |
-| `BLOOM_RADIUS_CELLS` (private) | `3` | Gather radius of the bloom blur, in CELLS. | 709 |
-| `BLOOM_EMIT_SLOTS` (private) | `MATERIAL_SLOTS` | Materials the bloom's emit table has room for. | 717 |
-| `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 729 |
-| `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 738 |
-| `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 745 |
-| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 776 |
-| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 785 |
-| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 794 |
-| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 797 |
-| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 799 |
-| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 801 |
-| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 803 |
-| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 805 |
-| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 807 |
-| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 809 |
-| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 834 |
-| `UNDERWORLD_ALPHA` (private) | `0.10` | Strength of the underworld glow at full depth. | 864 |
-| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 898 |
-| `VIGNETTE_REBAKE_EPS` (private) | `0.002` | How far `depth` or `day` must move before the vignette is baked again. | 1915 |
-| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2239 |
-| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2241 |
-| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2253 |
-| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2268 |
-| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2270 |
+| `EMIT_MAX_LEVEL` (private) | `15.0` | The authored `lightEmit` level a material must declare to be at full scale. | 193 |
+| `EMIT_FALLBACK_GAIN` (private) | `0.8` | What a material that declares `emissive` but no `lightEmit` is worth. | 200 |
+| `EMIT_SATURATION` (private) | `1.35` | How far an emitter's cast is pushed away from grey. | 209 |
+| `DEPTH_RANGE_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which depth walks from 0 to 1. | 313 |
+| `AMBIENT_FLOOR` (private) | `0.12` | Ambient floor so unlit caves stay readable rather than pure black. | 316 |
+| `AMBIENT_DEPTH_FALL` (private) | `0.05` | How much of the ambient floor the deep takes away. | 322 |
+| `SKY_NIGHT` (private) | `0.22` | Open sky at midnight. | 327 |
+| `SKY_DAY_GAIN` (private) | `0.78` | What full daylight adds on top of [`SKY_NIGHT`]. | 330 |
+| `OPEN_DECAY_PER_CELL` (private) | `0.997_490_6` | What one SIM CELL of open air costs the flood. | 344 |
+| `SOLID_DECAY_PER_CELL` (private) | `0.861_173_5` | What one SIM CELL of opaque rock costs the flood. | 351 |
+| `WALL_DECAY_PER_CELL` (private) | `0.962_0` | What one SIM CELL of open air with a WALL behind it costs the flood. | 372 |
+| `OPEN_DECAY` (private) | `over_a_light_cell(OPEN_DECAY_PER_CELL)` | What one LIGHT CELL of open air costs the flood. | 375 |
+| `WALL_DECAY` (private) | `over_a_light_cell(WALL_DECAY_PER_CELL)` | What one LIGHT CELL of walled air costs the flood. | 378 |
+| `SOLID_DECAY` (private) | `over_a_light_cell(SOLID_DECAY_PER_CELL)` | What one LIGHT CELL of opaque rock costs the flood. | 391 |
+| `SEED_DECAY` (private) | `0.985` | Per-CELL decay used to seed a column whose top starts below the surface. | 442 |
+| `FLICKER_BASE` (private) | `0.88` | Flicker midpoint, so the swing lands on 0.76..1.0. | 447 |
+| `FLICKER_SWING` (private) | `0.12` | Flicker amplitude. | 449 |
+| `FLICKER_RATE` (private) | `5.5` | Flicker rate, radians per second. | 454 |
+| `SPLAT_REACH_CELLS` (private) | `4` | How far a splat's four arms reach, in SIM CELLS. | 471 |
+| `FAR_REACH_CELLS` (private) | `8` | How far a strong emitter's far ring reaches, in SIM CELLS. | 477 |
+| `BLUR_REACH_CELLS` (private) | `4` | How far the blur that turns splats into glow spreads, in SIM CELLS. | 490 |
+| `SPLAT_REACH` (private) | `in_light_cells(SPLAT_REACH_CELLS)` | [`SPLAT_REACH_CELLS`] in light cells. | 493 |
+| `FAR_REACH` (private) | `in_light_cells(FAR_REACH_CELLS)` | [`FAR_REACH_CELLS`] in light cells. | 496 |
+| `BLUR_REACH` (private) | `in_light_cells(BLUR_REACH_CELLS)` | [`BLUR_REACH_CELLS`] in light cells — the blur's radius in taps per side. | 499 |
+| `LIGHT_SOFTNESS` (private) | `0.5` | How soft the light's own edges are against the art's, 0..1. | 527 |
+| `LIGHT_SNAP` (private) | `if LIGHT_DOWNSCALE == 1 { LIGHT_SOFTNESS } else { 1.0 }` | [`LIGHT_SOFTNESS`], or a full bilinear upscale if the grid is coarser than the art. | 538 |
+| `BLUR_BACK` (private) | `(BLUR_REACH / 2) as usize` | How far back one box pass of the blur looks, and how far forward. | 557 |
+| `BLUR_FWD` (private) | `(BLUR_REACH - BLUR_REACH / 2) as usize` | See [`BLUR_BACK`]. | 560 |
+| `SPLAT_EDGE` (private) | `0.42` | What the four arms of a scalar splat get, relative to its centre. | 583 |
+| `FAR_SPLAT_LEVEL` (private) | `0.55` | The declared level above which an emitter also throws a far ring. | 592 |
+| `FAR_SPLAT_GAIN` (private) | `0.16` | What the far ring gets, relative to the splat's centre. | 595 |
+| `COLOUR_GAIN` (private) | `0.62` | How much of a splat's strength goes into the COLOUR grids. | 601 |
+| `COLOUR_EDGE` (private) | `0.45` | What the four neighbours of a colour splat get, relative to its centre. | 604 |
+| `HEAT_THRESHOLD` (private) | `70.0` | Cell temperature below which residual heat casts no light at all. | 610 |
+| `HEAT_RANGE` (private) | `185.0` | Temperature span from [`HEAT_THRESHOLD`] to a full-strength heat glow. | 616 |
+| `HEAT_GAIN` (private) | `0.3` | What the hottest possible non-emitting cell is worth as a light source. | 619 |
+| `HEAT_EDGE` (private) | `0.5` | What the four neighbours of a heat splat get, relative to its centre. | 622 |
+| `HOT_MAX` (private) | `64` | Cap on the hot list the ambience layer seeds its embers from. | 631 |
+| `EMIT_CENSUS_MAX` | `512` | Cap on the emitter census. | 670 |
+| `CENSUS_GROUP` (private) | `LIGHT_DOWNSCALE` | Cells per census dedup group along a row. | 678 |
+| `BLOOM_RADIUS_CELLS` (private) | `3` | Gather radius of the bloom blur, in CELLS. | 711 |
+| `BLOOM_EMIT_SLOTS` (private) | `MATERIAL_SLOTS` | Materials the bloom's emit table has room for. | 719 |
+| `BLOOM_LEVEL_KNEE_LO` (private) | `0.25` | Emitted level below which a material contributes nothing to the bloom. | 731 |
+| `BLOOM_LEVEL_KNEE_HI` (private) | `0.75` | Emitted level at which a material contributes its colour in full. | 740 |
+| `BLOOM_SIGMA_CELLS` (private) | `1.5` | Standard deviation of the bloom's gather kernel, in cells. | 747 |
+| `BLOOM_INTENSITY` (private) | `0.3` | How much of the blurred emissive field reaches the frame. | 778 |
+| `BLOOM_CAMERA_ORDER` (private) | `-2` | Where the bloom's gather pass sits in camera order. | 787 |
+| `VIGNETTE_CELL` (private) | `16` | View px per vignette sample. | 796 |
+| `VIGNETTE_INNER` (private) | `0.35` | Vignette inner radius as a fraction of the view's short axis, at the surface. | 799 |
+| `VIGNETTE_INNER_DEPTH` (private) | `0.1` | How much depth shrinks the bright core. | 801 |
+| `VIGNETTE_INNER_NIGHT` (private) | `0.06` | How much night shrinks the bright core. | 803 |
+| `VIGNETTE_OUTER` (private) | `0.72` | Vignette outer radius as a fraction of the view's long axis. | 805 |
+| `VIGNETTE_EDGE` (private) | `0.55` | Edge darkness at the surface in daylight. | 807 |
+| `VIGNETTE_EDGE_DEPTH` (private) | `0.25` | How much depth lightens the edge — the deep is dark enough already. | 809 |
+| `VIGNETTE_EDGE_NIGHT` (private) | `0.1` | How much night closes the edges in. | 811 |
+| `UNDERWORLD_GLOW_DEPTH` (private) | `0.62` | Depth at which the underworld glow starts to ramp in, as a 0..1 fraction of the depth range. | 836 |
+| `UNDERWORLD_ALPHA` (private) | `0.10` | Strength of the underworld glow at full depth. | 866 |
+| `BIOME_AMBIENT_ALPHA` (private) | `0.05` | Strength of a biome's ambient cast. | 900 |
+| `VIGNETTE_REBAKE_EPS` (private) | `0.002` | How far `depth` or `day` must move before the vignette is baked again. | 1928 |
+| `SHADOW_Z` (private) | `0.70` | Where the darkness sits in z: over everything it darkens, under the UI. | 2252 |
+| `COLOUR_Z` (private) | `0.71` | The coloured light, immediately over the darkness it re-lights. | 2254 |
+| `BLOOM_Z` (private) | `0.72` | Bloom, over the coloured light it belongs to. | 2266 |
+| `VIGNETTE_Z` (private) | `0.75` | The vignette, over everything in the world. | 2281 |
+| `WASH_Z` (private) | `0.76` | The flat washes, last, exactly as the original drew them. | 2283 |
 
 ### `crates/yugen-render/src/lowres.rs`
 
@@ -888,19 +915,19 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 137 |
-| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 140 |
-| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 149 |
-| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 152 |
-| `TELL_Z` (private) | `0.44` | Where a burrower's breach tell sits: just UNDER the creatures. | 161 |
-| `TELL_ALPHA_BASE` (private) | `0.35` | The tell's alpha at the moment it appears, before the countdown has run. | 169 |
-| `TELL_ALPHA_SWELL` (private) | `0.5` | How much alpha the tell gains over its countdown. | 171 |
-| `TELL_CHURN_RATE` (private) | `26.0` | Radians per second of the churn that lifts alternate cells of the tell. | 179 |
-| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 188 |
-| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 190 |
-| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 192 |
-| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 199 |
-| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 326 |
+| `MOB_Z` (private) | `0.45` | Where the creatures sit in z: under the player, over the cell quad. | 135 |
+| `SHOT_Z` (private) | `0.55` | Where shots sit — over everything that can be hit by one. | 138 |
+| `MOB_GLOW_Z` (private) | `0.80` | Where a luminous creature's second, additive pass sits. | 147 |
+| `SHOT_GLOW_Z` (private) | `0.81` | A glowing shot's additive pass, immediately over the creatures'. | 150 |
+| `TELL_Z` (private) | `0.44` | Where a burrower's breach tell sits: just UNDER the creatures. | 159 |
+| `TELL_ALPHA_BASE` (private) | `0.35` | The tell's alpha at the moment it appears, before the countdown has run. | 167 |
+| `TELL_ALPHA_SWELL` (private) | `0.5` | How much alpha the tell gains over its countdown. | 169 |
+| `TELL_CHURN_RATE` (private) | `26.0` | Radians per second of the churn that lifts alternate cells of the tell. | 177 |
+| `GLOW_PULSE_BASE` (private) | `0.8` | The self-luminance pulse: `BASE + SWING * sin(state_t * RATE + wander)`. | 186 |
+| `GLOW_PULSE_SWING` (private) | `0.2` | Half the peak-to-peak of the pulse. | 188 |
+| `GLOW_PULSE_RATE` (private) | `3.0` | Radians per second of the pulse. | 190 |
+| `SHOT_GLOW_PAD_PX` (private) | `1.0` | How far a glowing shot's additive square overhangs the shot itself, in px. | 197 |
+| `POSE_COUNT` (private) | `3` | How many poses a creature's brain can ask for. | 324 |
 
 ### `crates/yugen-render/src/particles.rs`
 
@@ -970,31 +997,31 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SKY_PIXEL_PX` (private) | `CELL_SIZE` | The side of one backdrop pixel, in view px. | 163 |
-| `SKY_DITHER` (private) | `1.0` | How much of a block's own height the ordered dither is allowed to move the sample by. | 180 |
-| `BAYER_N` (private) | `4` | Side of [`BAYER`]. | 193 |
-| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 222 |
-| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 225 |
-| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 247 |
-| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 253 |
-| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 257 |
-| `STAR_COUNT` | `90` | How many stars the field holds. | 260 |
-| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 267 |
-| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 273 |
-| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 276 |
-| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 279 |
-| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 282 |
-| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 285 |
-| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 288 |
-| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 306 |
-| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 321 |
-| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 354 |
-| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 357 |
-| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 369 |
-| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 1050 |
-| `STARS_Z` | `-99.0` | Stars, over the gradient. | 1053 |
-| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 1056 |
-| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 1059 |
+| `SKY_PIXEL_PX` (private) | `CELL_SIZE` | The side of one backdrop pixel, in view px. | 164 |
+| `SKY_DITHER` (private) | `1.0` | How much of a block's own height the ordered dither is allowed to move the sample by. | 181 |
+| `BAYER_N` (private) | `4` | Side of [`BAYER`]. | 194 |
+| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 223 |
+| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 226 |
+| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 248 |
+| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 254 |
+| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 258 |
+| `STAR_COUNT` | `90` | How many stars the field holds. | 261 |
+| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 268 |
+| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 274 |
+| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 277 |
+| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 280 |
+| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 283 |
+| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 286 |
+| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 289 |
+| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 307 |
+| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 322 |
+| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 355 |
+| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 358 |
+| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 370 |
+| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 1051 |
+| `STARS_Z` | `-99.0` | Stars, over the gradient. | 1054 |
+| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 1057 |
+| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 1060 |
 
 ### `crates/yugen-render/src/sprite.rs`
 
@@ -1003,27 +1030,68 @@ only the exported surface is held to the rule.
 | `VARIANT_COUNT` | `VARIANT_TINT.len()` | Ceiling for [`SpriteArt::variants`]. | 127 |
 | `POSE_COUNT` (private) | `14` | How many [`Pose`] variants there are — the width of a sprite's id table. | 167 |
 
-### `crates/yugen-render/src/ui.rs`
+### `crates/yugen-render/src/ui/font_table.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `CELL_W` (private) | `5` | Widest a glyph cell gets, in font pixels. | 234 |
-| `CELL_H` (private) | `7` | Tallest a glyph cell gets, in font pixels. | 240 |
-| `GLYPH_GAP` (private) | `1` | Blank columns between one glyph cell and the next, in font pixels. | 247 |
-| `LINE_GAP` (private) | `2` | Blank rows between one baseline's cell and the next, in font pixels. | 254 |
-| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 829 |
-| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 832 |
-| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 839 |
-| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 845 |
-| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 853 |
-| `BAR_W` (private) | `220` | Health bar width in buffer px. | 856 |
-| `BAR_H` (private) | `20` | Health bar height in buffer px. | 859 |
-| `PIP_R` (private) | `8` | Radius of the dash-readiness pip, in buffer px. | 862 |
-| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 868 |
-| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 874 |
-| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 880 |
-| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 1808 |
-| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 1820 |
+| `UNITS_PER_PIXEL` | `50` | Font units per pixel of the design grid this was rasterised on. | 12 |
+| `CELL_W` | `7` | Cell width in font pixels. | 15 |
+| `CELL_H` | `14` | Cell height in font pixels: [`ASCENT`] plus [`DESCENT`]. | 18 |
+| `ASCENT` | `11` | Rows of the cell above the baseline. | 21 |
+| `DESCENT` | `3` | Rows of the cell below the baseline. | 25 |
+| `ADVANCE` | `7` | Pen movement from one glyph to the next, in font pixels. | 29 |
+| `CAP` | `8` | Baseline to the top of a capital, in font pixels. | 36 |
+
+### `crates/yugen-render/src/ui/layout.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `VITALS_H` | `26` | Height of the vitals plate. | 185 |
+| `VITALS_W` | `164` | Width of the vitals plate. | 194 |
+| `STATS_H` (private) | `13` | Height of the stat row under the vitals, plate included. | 197 |
+| `ROW_GAP` (private) | `3` | Blank rows between the vitals plate and the stat plate. | 206 |
+| `PANEL_H` | `62` | Height of the bottom-left hotbar plate. | 212 |
+| `HINT_LINES` (private) | `3` | Lines of control hint in the top-right stack. | 215 |
+| `HINT_PITCH` (private) | `14` | Pitch of the hint stack, in buffer px. | 218 |
+
+### `crates/yugen-render/src/ui/mod.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `LINE_GAP` (private) | `2` | Blank rows between one line's cap and the next, in font pixels. | 256 |
+| `SMALL_GAP` (private) | `1` | Blank columns after a [`Face::Small`] cell, in font pixels. | 266 |
+| `SMALL_W` (private) | `3` | [`Face::Small`]'s cell width in font pixels. | 269 |
+| `SMALL_H` (private) | `5` | [`Face::Small`]'s cell height in font pixels. | 273 |
+| `SWATCH` (private) | `26` | Swatch edge, in buffer px. | 800 |
+| `SWATCH_GAP` (private) | `6` | Blank buffer px between one swatch and the next. | 803 |
+| `PANEL_H` (private) | `62` | Height of the bottom-left plate, in buffer px. | 810 |
+| `MARGIN` (private) | `16` | Distance from the buffer edge to a plate, in buffer px. | 816 |
+| `SELECT_LIFT` (private) | `2` | How far the selected slot lifts out of the strip, in buffer px. | 824 |
+| `TOAST_UP` (private) | `96` | Baseline of the toast line, as px UP from the bottom of the buffer. | 830 |
+| `NOTE_UP` (private) | `122` | Top of the cursor-feedback note, as px UP from the bottom of the buffer. | 836 |
+| `TOAST_LIFE_S` | `3.0` | How long a toast stays up, in seconds, and the alpha ramp's denominator. | 842 |
+| `STAT_PAD` (private) | `3` | Inset from the stat plate's edge to its text. | 1249 |
+| `PLATE_PAD` (private) | `5` | Inset from the vitals plate's edge to its content. | 1252 |
+| `GUTTER` (private) | `50` | Left edge of both bars, measured from the content's left edge. | 1258 |
+| `ROW_PITCH` (private) | `11` | Baseline-to-baseline of the vitals plate's two rows. | 1261 |
+| `BAR_H` (private) | `7` | Height of the health bar, in buffer px. | 1264 |
+| `DASH_W` (private) | `56` | Width of the dash bar. | 1271 |
+| `DASH_H` (private) | `3` | Height of the dash bar. | 1274 |
+| `FLASH_S` | `0.35` | Seconds the damage flash takes to decay. | 1280 |
+| `HINTS_HOLD_S` (private) | `25.0` | Seconds the control hints stay at full strength at the start of a run. | 1306 |
+| `HINTS_FADE_S` (private) | `4.0` | Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up. | 1313 |
+| `UI_Z` (private) | `1.0` | Where the overlay sits in z: above everything any other pass draws. | 2109 |
+| `UI_Z_STEP` (private) | `1.0e-3` | z added per quad, so the display list's ORDER survives the sort. | 2121 |
+| `ATLAS_STRIDE` (private) | `font_table::CELL_W` | Columns one glyph's atlas cell occupies, whichever face it belongs to. | 2307 |
+
+### `crates/yugen-render/src/ui/theme.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `UNIT` | `4` | The spacing scale, in buffer pixels. | 196 |
+| `PAD` | `2 * UNIT` | Inside a plate, between its edge and its content. | 199 |
+| `GAP` | `3 * UNIT` | Between two related things — a label and its value, a pip and its caption. | 202 |
+| `MARGIN` | `4 * UNIT` | Between two unrelated things, and from the buffer edge to a plate. | 209 |
 
 ### `crates/yugen-render/src/weather.rs`
 
@@ -1042,7 +1110,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 324 |
+| `AUTOSAVE_EVERY_S` (private) | `30.0` | Seconds between autosaves while a world with a save directory is running. | 330 |
 
 ### `crates/yugen-render/src/worldselect.rs`
 

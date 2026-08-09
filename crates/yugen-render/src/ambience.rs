@@ -110,6 +110,7 @@ use crate::light::BiomeAmbient;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
 use crate::weather::WeatherWeights;
 use crate::world::{SimWorld, WorldFocus};
+use yugen_core::config::WorldScale;
 
 // ---------------------------------------------------------------------------
 // Tuning — every number below is read by ambience and by nothing else
@@ -935,14 +936,16 @@ impl Ambience {
         let mut mood = Mood::default();
 
         // Depth below the LOCAL surface, not an absolute row.
-        let surface = self.heightmap.surface_row_at(&self.noise, col, None) as f32;
+        let surface = self
+            .heightmap
+            .surface_row_at(&self.noise, col, None, WorldScale::LIVE) as f32;
         mood.underground = smoothstep01((cam_row - surface - UG_FADE_START) / UG_FADE_SPAN);
 
-        for (biome, w) in weights_of(&biome_mix_at(&self.noise, col)) {
+        for (biome, w) in weights_of(&biome_mix_at(&self.noise, col, WorldScale::LIVE)) {
             mood.surface[biome.index()] = w;
             mood.weather[biome.def().atmo.weather as usize] += w;
         }
-        for (layer, w) in weights_of(&underground_mix_at(&self.noise, col)) {
+        for (layer, w) in weights_of(&underground_mix_at(&self.noise, col, WorldScale::LIVE)) {
             mood.layer[layer.index()] = w;
         }
 

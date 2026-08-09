@@ -36,6 +36,8 @@
 //! data race or a per-thread copy of the same determinism hazard. Returning a
 //! `[f64; 8]` in registers costs less than the JS version's aliasing did anyway.
 
+use crate::config::WorldScale;
+
 use super::materials::{CellId, block};
 use super::noise::Noise;
 
@@ -693,18 +695,18 @@ fn shape01(v: f64, gain: f64) -> f64 {
 
 /// Temperature at an absolute world column, in [0,1].
 #[inline]
-pub fn temperature_at(noise: &Noise, wcx: i32) -> f64 {
+pub fn temperature_at(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
     shape01(
-        noise.fbm2(wcx as f64 * TEMP_FREQ, TEMP_ANCHOR, CLIMATE_OCTAVES),
+        noise.fbm2(scale.coord(wcx) * TEMP_FREQ, TEMP_ANCHOR, CLIMATE_OCTAVES),
         CLIMATE_SPREAD,
     )
 }
 
 /// Moisture at an absolute world column, in [0,1].
 #[inline]
-pub fn moisture_at(noise: &Noise, wcx: i32) -> f64 {
+pub fn moisture_at(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
     shape01(
-        noise.fbm2(wcx as f64 * MOIST_FREQ, MOIST_ANCHOR, CLIMATE_OCTAVES),
+        noise.fbm2(scale.coord(wcx) * MOIST_FREQ, MOIST_ANCHOR, CLIMATE_OCTAVES),
         CLIMATE_SPREAD,
     )
 }
@@ -712,9 +714,9 @@ pub fn moisture_at(noise: &Noise, wcx: i32) -> f64 {
 /// Volcanism at an absolute world column, in [0,1]. Sparser than the climate
 /// fields, and deliberately un-spread — see [`VOLC_SPREAD`].
 #[inline]
-pub fn volcanism_at(noise: &Noise, wcx: i32) -> f64 {
+pub fn volcanism_at(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
     shape01(
-        noise.fbm2(wcx as f64 * VOLC_FREQ, VOLC_ANCHOR, 2),
+        noise.fbm2(scale.coord(wcx) * VOLC_FREQ, VOLC_ANCHOR, 2),
         VOLC_SPREAD,
     )
 }
@@ -919,10 +921,10 @@ fn mix_scalar<T: Copy>(mix: &Mix<T>, read: impl Fn(T) -> f64) -> f64 {
 }
 
 /// Every biome's climate distance at `wcx`, in palette order.
-fn biome_dist_at(noise: &Noise, wcx: i32) -> [f64; BIOME_COUNT] {
-    let temp = temperature_at(noise, wcx);
-    let moist = moisture_at(noise, wcx);
-    let volc = volcanism_at(noise, wcx);
+fn biome_dist_at(noise: &Noise, wcx: i32, scale: WorldScale) -> [f64; BIOME_COUNT] {
+    let temp = temperature_at(noise, wcx, scale);
+    let moist = moisture_at(noise, wcx, scale);
+    let volc = volcanism_at(noise, wcx, scale);
 
     let mut dist = [0.0f64; BIOME_COUNT];
     for i in 0..BIOME_COUNT {
@@ -946,16 +948,16 @@ fn biome_dist_at(noise: &Noise, wcx: i32) -> [f64; BIOME_COUNT] {
 }
 
 /// Every underground layer's climate distance at `wcx`, in palette order.
-fn underground_dist_at(noise: &Noise, wcx: i32) -> [f64; UG_COUNT] {
+fn underground_dist_at(noise: &Noise, wcx: i32, scale: WorldScale) -> [f64; UG_COUNT] {
     // Independent fields: different frequencies AND different noise-space anchors
     // from the surface climate, so the deep world is genuinely decoupled from what
     // grows on top of it.
     let heat = shape01(
-        noise.fbm2(wcx as f64 * 0.00083 + 12.5, 2311.7, CLIMATE_OCTAVES),
+        noise.fbm2(scale.coord(wcx) * 0.00083 + 12.5, 2311.7, CLIMATE_OCTAVES),
         CLIMATE_SPREAD,
     );
     let wet = shape01(
-        noise.fbm2(wcx as f64 * 0.00131 - 31.25, 1487.3, CLIMATE_OCTAVES),
+        noise.fbm2(scale.coord(wcx) * 0.00131 - 31.25, 1487.3, CLIMATE_OCTAVES),
         CLIMATE_SPREAD,
     );
 
@@ -970,14 +972,14 @@ fn underground_dist_at(noise: &Noise, wcx: i32) -> [f64; UG_COUNT] {
 }
 
 /// Surface biome mix for an absolute column. Pure in `wcx`.
-pub fn biome_mix_at(noise: &Noise, wcx: i32) -> Mix<Biome> {
-    let wts = Weights::fill(&biome_dist_at(noise, wcx));
+pub fn biome_mix_at(noise: &Noise, wcx: i32, scale: WorldScale) -> Mix<Biome> {
+    let wts = Weights::fill(&biome_dist_at(noise, wcx, scale));
     mix_of(&Biome::ALL, &wts)
 }
 
 /// Underground layer mix for an absolute column. Pure in `wcx`.
-pub fn underground_mix_at(noise: &Noise, wcx: i32) -> Mix<UndergroundLayerId> {
-    let wts = Weights::fill(&underground_dist_at(noise, wcx));
+pub fn underground_mix_at(noise: &Noise, wcx: i32, scale: WorldScale) -> Mix<UndergroundLayerId> {
+    let wts = Weights::fill(&underground_dist_at(noise, wcx, scale));
     mix_of(&UndergroundLayerId::ALL, &wts)
 }
 
@@ -1098,8 +1100,8 @@ fn height_from_weights(wts: &Weights) -> HeightParams {
 ///
 /// This is the one place in worldgen that produces a fresh value per column;
 /// everything under it works in fixed-size arrays on the stack.
-pub fn column_profile_at(noise: &Noise, wcx: i32) -> ColumnProfile {
-    let wts = Weights::fill(&biome_dist_at(noise, wcx));
+pub fn column_profile_at(noise: &Noise, wcx: i32, scale: WorldScale) -> ColumnProfile {
+    let wts = Weights::fill(&biome_dist_at(noise, wcx, scale));
     let s = mix_of(&Biome::ALL, &wts);
     // Read the height params out of the SAME weights the surface mix came from.
     // (In the TypeScript this line had to run before `undergroundMixAt` clobbered
@@ -1107,8 +1109,8 @@ pub fn column_profile_at(noise: &Noise, wcx: i32) -> ColumnProfile {
     // was protecting, that these are bit-for-bit the floats `height_params_at`
     // computes, is still the whole point.)
     let h = height_from_weights(&wts);
-    let u = underground_mix_at(noise, wcx);
-    let jitter = noise.n1(wcx as f64 * UG_JITTER_FREQ + UG_JITTER_ANCHOR) * UG_FADE_JITTER;
+    let u = underground_mix_at(noise, wcx, scale);
+    let jitter = noise.n1(scale.coord(wcx) * UG_JITTER_FREQ + UG_JITTER_ANCHOR) * UG_FADE_JITTER;
     let fade_start = UG_FADE_START + jitter;
 
     ColumnProfile {
@@ -1142,8 +1144,8 @@ pub fn column_profile_at(noise: &Noise, wcx: i32) -> ColumnProfile {
 /// Runs the same weighting as [`biome_mix_at`] and sums straight out of the
 /// weights, skipping the mix entirely: the lighting pass calls this for every
 /// light column of every frame.
-pub fn height_params_at(noise: &Noise, wcx: i32) -> HeightParams {
-    let wts = Weights::fill(&biome_dist_at(noise, wcx));
+pub fn height_params_at(noise: &Noise, wcx: i32, scale: WorldScale) -> HeightParams {
+    let wts = Weights::fill(&biome_dist_at(noise, wcx, scale));
     height_from_weights(&wts)
 }
 
@@ -1178,8 +1180,8 @@ fn add_scaled(dst: &mut Rgb, src: Rgb, w: f64) {
 /// continuous even where three climate regions meet — the same reason the terrain
 /// blend uses a weight set (see [`Mix`]). `weather` stays the dominant biome's,
 /// so the particle kind switches cleanly rather than dissolving into a mush.
-pub fn resolve_atmosphere(noise: &Noise, wcx: i32) -> ResolvedAtmosphere {
-    let mix = biome_mix_at(noise, wcx);
+pub fn resolve_atmosphere(noise: &Noise, wcx: i32, scale: WorldScale) -> ResolvedAtmosphere {
+    let mix = biome_mix_at(noise, wcx, scale);
     let mut sky_top: Rgb = [0.0, 0.0, 0.0];
     let mut sky_top_deep: Rgb = [0.0, 0.0, 0.0];
     let mut sky_bottom: Rgb = [0.0, 0.0, 0.0];
@@ -1240,8 +1242,8 @@ pub struct BiomePair {
 /// sits into a fixed-width band, and it reaches an exact 50/50 on a boundary.
 /// Prefer [`biome_mix_at`] for anything that must stay continuous at a three-way
 /// junction — `b`'s identity can swap there, [`Mix`] handles it.
-pub fn biome_at(noise: &Noise, wcx: i32) -> BiomePair {
-    let m = biome_mix_at(noise, wcx);
+pub fn biome_at(noise: &Noise, wcx: i32, scale: WorldScale) -> BiomePair {
+    let m = biome_mix_at(noise, wcx, scale);
     BiomePair {
         a: m.top,
         b: m.second,
@@ -1250,8 +1252,8 @@ pub fn biome_at(noise: &Noise, wcx: i32) -> BiomePair {
 }
 
 /// Index of the DOMINANT biome at an absolute column.
-pub fn biome_index_at(noise: &Noise, wcx: i32) -> usize {
-    biome_mix_at(noise, wcx).top.index()
+pub fn biome_index_at(noise: &Noise, wcx: i32, scale: WorldScale) -> usize {
+    biome_mix_at(noise, wcx, scale).top.index()
 }
 
 /// The biome at a palette index, or Plains if the index is out of range.
@@ -1262,6 +1264,7 @@ pub fn biome_at_index(i: usize) -> Biome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::config::worldgen::SEED;
 
     fn noise() -> Noise {
@@ -1313,7 +1316,7 @@ mod tests {
         let mut cols = 0;
         let mut wcx = -30_000;
         while wcx < 30_000 {
-            wins[biome_mix_at(&n, wcx).top.index()] += 1;
+            wins[biome_mix_at(&n, wcx, WorldScale::LEGACY).top.index()] += 1;
             cols += 1;
             wcx += 13;
         }
@@ -1351,7 +1354,7 @@ mod tests {
         let mut cols = 0;
         let mut wcx = -30_000;
         while wcx < 30_000 {
-            wins[underground_mix_at(&n, wcx).top.index()] += 1;
+            wins[underground_mix_at(&n, wcx, WorldScale::LEGACY).top.index()] += 1;
             cols += 1;
             wcx += 13;
         }
@@ -1387,9 +1390,9 @@ mod tests {
         let mut wcx = -30_000;
         while wcx < 30_000 {
             for v in [
-                temperature_at(&n, wcx),
-                moisture_at(&n, wcx),
-                volcanism_at(&n, wcx),
+                temperature_at(&n, wcx, WorldScale::LEGACY),
+                moisture_at(&n, wcx, WorldScale::LEGACY),
+                volcanism_at(&n, wcx, WorldScale::LEGACY),
             ] {
                 assert!((0.0..=1.0).contains(&v), "climate escaped [0,1] at {wcx}");
             }
@@ -1405,8 +1408,8 @@ mod tests {
         let n = noise();
         let mut wcx = -20_000;
         while wcx < 20_000 {
-            let s = biome_mix_at(&n, wcx);
-            let u = underground_mix_at(&n, wcx);
+            let s = biome_mix_at(&n, wcx, WorldScale::LEGACY);
+            let u = underground_mix_at(&n, wcx, WorldScale::LEGACY);
             for cum in [s.cum(), u.cum()] {
                 assert!(!cum.is_empty(), "an empty mix at {wcx}");
                 assert_eq!(cum[cum.len() - 1], 1.0, "cum does not reach 1 at {wcx}");
@@ -1425,7 +1428,7 @@ mod tests {
         let n = noise();
         let mut wcx = -20_000;
         while wcx < 20_000 {
-            let m = biome_mix_at(&n, wcx);
+            let m = biome_mix_at(&n, wcx, WorldScale::LEGACY);
             assert!(
                 (0.0..=0.5 + 1e-12).contains(&m.second_w),
                 "second_w = {} at {wcx}",
@@ -1467,11 +1470,11 @@ mod tests {
         let biomes = &Biome::ALL[..];
         let layers = &UndergroundLayerId::ALL[..];
         let tol = 0.15;
-        let mut prev = column_profile_at(&n, -6001);
+        let mut prev = column_profile_at(&n, -6001, WorldScale::LEGACY);
         let mut boundaries = 0;
         let mut worst: f64 = 0.0;
         for wcx in -6000..6000 {
-            let p = column_profile_at(&n, wcx);
+            let p = column_profile_at(&n, wcx, WorldScale::LEGACY);
             if p.surf_a != prev.surf_a {
                 boundaries += 1;
             }
@@ -1538,11 +1541,14 @@ mod tests {
         // about it first.
         let n = noise();
         let cols = [-9973, 0, 1, 12, -1, 5000, 4999, -20000, 77, 77];
-        let first: Vec<ColumnProfile> = cols.iter().map(|&c| column_profile_at(&n, c)).collect();
+        let first: Vec<ColumnProfile> = cols
+            .iter()
+            .map(|&c| column_profile_at(&n, c, WorldScale::LEGACY))
+            .collect();
         let mut again: Vec<ColumnProfile> = cols
             .iter()
             .rev()
-            .map(|&c| column_profile_at(&n, c))
+            .map(|&c| column_profile_at(&n, c, WorldScale::LEGACY))
             .collect();
         again.reverse();
         for (a, b) in first.iter().zip(again.iter()) {
@@ -1576,8 +1582,8 @@ mod tests {
         let n = noise();
         let mut wcx = -20_000;
         while wcx < 20_000 {
-            let p = column_profile_at(&n, wcx);
-            let h = height_params_at(&n, wcx);
+            let p = column_profile_at(&n, wcx, WorldScale::LEGACY);
+            let h = height_params_at(&n, wcx, WorldScale::LEGACY);
             assert_eq!(p.amp_scale.to_bits(), h.amp_scale.to_bits(), "at {wcx}");
             assert_eq!(
                 p.height_offset.to_bits(),
@@ -1595,7 +1601,7 @@ mod tests {
         let n = noise();
         let mut wcx = 0;
         let m = loop {
-            let m = biome_mix_at(&n, wcx);
+            let m = biome_mix_at(&n, wcx, WorldScale::LEGACY);
             if m.len() >= 2 && m.second_w > 0.2 {
                 break m;
             }
@@ -1653,7 +1659,7 @@ mod tests {
         let span = 40_000;
         let mut volcanic = 0;
         for wcx in 0..span {
-            if biome_mix_at(&n, wcx).top == Biome::Volcanic {
+            if biome_mix_at(&n, wcx, WorldScale::LEGACY).top == Biome::Volcanic {
                 volcanic += 1;
             }
         }
@@ -1673,7 +1679,7 @@ mod tests {
         let mut seen = [false; BIOME_COUNT];
         let mut wcx = -60_000;
         while wcx < 60_000 {
-            seen[biome_index_at(&n, wcx)] = true;
+            seen[biome_index_at(&n, wcx, WorldScale::LEGACY)] = true;
             wcx += 3;
         }
         for (i, &s) in seen.iter().enumerate() {
@@ -1686,7 +1692,7 @@ mod tests {
         let n = noise();
         let mut wcx = -10_000;
         while wcx < 10_000 {
-            let p = column_profile_at(&n, wcx);
+            let p = column_profile_at(&n, wcx, WorldScale::LEGACY);
             assert!(p.ug_fade_start > 0.0, "fade starts above ground at {wcx}");
             assert!(p.ug_fade_end > p.ug_fade_start);
             assert!(p.cap_thickness > 0.0);
@@ -1701,8 +1707,8 @@ mod tests {
         let n = noise();
         let mut wcx = -10_000;
         while wcx < 10_000 {
-            let a = resolve_atmosphere(&n, wcx);
-            let m = biome_mix_at(&n, wcx);
+            let a = resolve_atmosphere(&n, wcx, WorldScale::LEGACY);
+            let m = biome_mix_at(&n, wcx, WorldScale::LEGACY);
             for ch in 0..3 {
                 let lo = m
                     .items()
@@ -1731,7 +1737,10 @@ mod tests {
         assert_eq!(biome_at_index(BIOME_COUNT - 1), Biome::Mirefen);
         assert_eq!(biome_at_index(9999), Biome::Plains);
         let n = noise();
-        let p = biome_at(&n, 0);
-        assert_eq!(p.a, biome_at_index(biome_index_at(&n, 0)));
+        let p = biome_at(&n, 0, WorldScale::LEGACY);
+        assert_eq!(
+            p.a,
+            biome_at_index(biome_index_at(&n, 0, WorldScale::LEGACY))
+        );
     }
 }

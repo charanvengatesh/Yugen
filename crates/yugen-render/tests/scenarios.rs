@@ -39,10 +39,11 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
+use yugen_core::config::WorldScale;
 use yugen_core::input::KEYS;
 use yugen_core::sim::coords::WorldCell;
 use yugen_core::sim::edits::EditMode;
-use yugen_core::sim::materials::{CellId, code_of};
+use yugen_core::sim::materials::{CellId, Tag, code_of, has_tags};
 use yugen_render::daynight::{DayNight, WorldClock};
 use yugen_render::player::{NoPlayer, PlayerBody};
 use yugen_render::scene::{ARRANGE_FRAMES, ScenePlugin, StartAt, StartWith, StartupEdit};
@@ -141,6 +142,21 @@ impl Observed {
             .iter()
             .zip(&self.wall)
             .filter(|(f, w)| **f == 0 && **w != 0)
+            .count()
+    }
+
+    /// Air cells with TERRAIN behind them — the wall plane proper.
+    ///
+    /// Separate from [`Frame::air_with_wall`] because a share of trees are drawn
+    /// into the wall plane so the player can walk through them, and a canopy
+    /// behind open sky is not the same claim as rock behind open sky. The
+    /// lighting draws the same distinction: `light.rs` exempts flora from
+    /// `WALL_DECAY` for exactly this reason.
+    fn air_with_rock_wall(&self) -> usize {
+        self.front
+            .iter()
+            .zip(&self.wall)
+            .filter(|(f, w)| **f == 0 && **w != 0 && !has_tags(**w, Tag::FLORA))
             .count()
     }
 
@@ -524,20 +540,42 @@ fn underground_air_has_a_wall_behind_it_and_open_sky_does_not() {
         under.air_with_wall(),
         under.air()
     );
-    // Above the surface line there is deliberately no wall, which is what makes
-    // "you have dug through to open sky" a state you can see.
+    // Above the surface line there is deliberately no ROCK wall, which is what
+    // makes "you have dug through to open sky" a state you can see. Trees drawn
+    // into the wall plane are exempt — they are scenery you walk through, not a
+    // backdrop the sky has been replaced by — so this counts terrain only.
     assert!(
-        above.air() > 0 && above.air_with_wall() * 4 < above.air(),
-        "open sky should have nothing behind it: {} of {} air cells walled",
-        above.air_with_wall(),
-        above.air()
+        above.air() > 0 && above.air_with_rock_wall() * 4 < above.air(),
+        "open sky should have no TERRAIN behind it: {} of {} air cells walled \
+         with rock ({} counting flora, which is allowed)",
+        above.air_with_rock_wall(),
+        above.air(),
+        above.air_with_wall()
     );
+}
+
+/// Depth of the lava sea, in px, in the LEGACY world geometry these scenarios
+/// were authored against — scaled at use.
+///
+/// The underworld begins at `UNDERWORLD_DEPTH` cells below the local surface and
+/// that is a legacy depth, so a fixed px coordinate stops naming the underworld
+/// the moment the world scales. At `WorldScale::LIVE` the unscaled 3000 px lands
+/// in ordinary deep stone, which is what these two tests reported: 0 lava of 441,
+/// and a body that stood in it at full health.
+const LAVA_SEA_PX: f64 = 3000.0;
+
+/// [`LAVA_SEA_PX`] in the world the game actually generates.
+fn lava_sea_y() -> f32 {
+    (LAVA_SEA_PX * WorldScale::LIVE.factor()) as f32
 }
 
 #[test]
 fn the_lava_sea_is_where_the_catalogue_says_it_is() {
     let deep = Scenario {
-        at: Some(StartAt { x: 0.0, y: 3000.0 }),
+        at: Some(StartAt {
+            x: 0.0,
+            y: lava_sea_y(),
+        }),
         free_camera: true,
         settle: 40,
         ..Scenario::default()
@@ -545,10 +583,11 @@ fn the_lava_sea_is_where_the_catalogue_says_it_is() {
     let Some(seen) = run_or_skip("lava sea", &deep) else {
         return;
     };
-    println!("lava sea at y=3000: {}", seen.census());
+    println!("lava sea at y={}: {}", lava_sea_y(), seen.census());
     assert!(
         seen.count("lava") > SAMPLE / 2,
-        "y=3000 is supposed to be a lava sea and holds {} lava of {SAMPLE}: {}",
+        "y={} is supposed to be a lava sea and holds {} lava of {SAMPLE}: {}",
+        lava_sea_y(),
         seen.count("lava"),
         seen.census()
     );
@@ -590,7 +629,10 @@ fn the_clock_reaches_the_states_the_catalogue_names() {
 #[test]
 fn lava_kills_a_body_and_a_carved_chamber_does_not() {
     let in_lava = Scenario {
-        at: Some(StartAt { x: 0.0, y: 3000.0 }),
+        at: Some(StartAt {
+            x: 0.0,
+            y: lava_sea_y(),
+        }),
         settle: 120,
         ..Scenario::default()
     };

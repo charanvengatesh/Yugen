@@ -1195,6 +1195,7 @@ impl Decorator for StructureDecorator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::config::worldgen::SEED;
     use crate::sim::biomes::column_profile_at;
     use crate::sim::materials::EMPTY;
@@ -1218,7 +1219,15 @@ mod tests {
         build: &mut dyn FnMut(&mut DecorContext<'_>),
     ) -> Vec<CellId> {
         let mut out = vec![background; CELLS];
-        let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm);
+        let mut ctx = DecorContext::new(
+            noise,
+            SEED,
+            base_x,
+            base_y,
+            &mut out,
+            hm,
+            WorldScale::LEGACY,
+        );
         build(&mut ctx);
         out
     }
@@ -1300,15 +1309,16 @@ mod tests {
         let mut ox = SURF_PHASE - 200 * SURF_STRIDE;
         while out.len() < want {
             let gate = {
-                let ctx = DecorContext::new(noise, SEED, 0, 0, &mut scratch, hm);
+                let ctx =
+                    DecorContext::new(noise, SEED, 0, 0, &mut scratch, hm, WorldScale::LEGACY);
                 h(&ctx, ox, 0, 1)
             };
             if gate < SURF_DENSITY {
-                let base = hm.surface_row_at(noise, ox, None);
+                let base = hm.surface_row_at(noise, ox, None, WorldScale::LEGACY);
                 let mut lo = base;
                 let mut hi = base;
                 for d in [-8, -4, 4, 8] {
-                    let s = hm.surface_row_at(noise, ox + d, None);
+                    let s = hm.surface_row_at(noise, ox + d, None, WorldScale::LEGACY);
                     lo = lo.min(s);
                     hi = hi.max(s);
                 }
@@ -1483,9 +1493,9 @@ mod tests {
         while oy < SUB_PHASE_Y + 6 * SUB_STRIDE_Y {
             let mut ox = SUB_PHASE_X - 8 * SUB_STRIDE_X;
             while ox < SUB_PHASE_X + 8 * SUB_STRIDE_X {
-                let depth = oy - hm.surface_row_at(&noise, ox, None);
+                let depth = oy - hm.surface_row_at(&noise, ox, None, WorldScale::LEGACY);
                 if depth >= SUB_MIN_DEPTH {
-                    let biome = column_profile_at(&noise, ox).surf_a;
+                    let biome = column_profile_at(&noise, ox, WorldScale::LEGACY).surf_a;
                     let mut run = |ctx: &mut DecorContext<'_>| {
                         let p = sub_palette(biome, depth, h(ctx, ox, oy, 2));
                         build_chamber(ctx, ox, oy, depth, p);

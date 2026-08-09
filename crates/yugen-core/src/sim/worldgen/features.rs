@@ -392,8 +392,9 @@ fn open_at(ctx: &mut DecorContext<'_>, wcx: i32, wcy: i32) -> bool {
     }
     let noise = ctx.noise;
     let col = ctx.profile_at(wcx);
-    let cc = cave_column_at(noise, wcx, surf, &col);
-    carve_exact(noise, wcx, wcy, depth, &cc) != Carve::Solid
+    let scale = ctx.scale();
+    let cc = cave_column_at(noise, wcx, surf, &col, scale);
+    carve_exact(noise, wcx, wcy, depth, &cc, scale) != Carve::Solid
 }
 
 /// Ground-line spread over a footprint, from positional probes only.
@@ -1075,6 +1076,7 @@ impl Decorator for LandmarkDecorator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::sim::materials::EMPTY;
     use crate::sim::noise::Noise;
     use crate::sim::worldgen::heightmap::Heightmap;
@@ -1157,7 +1159,8 @@ mod tests {
             (0, 0),
             (-CHUNK_CELLS, 32),
         ] {
-            let ctx = DecorContext::new(&noise, 11, bx, by, &mut cells, &mut hm);
+            let ctx =
+                DecorContext::new(&noise, 11, bx, by, &mut cells, &mut hm, WorldScale::LEGACY);
             let hit = overlaps(&ctx, x0, y0, x1, y1);
             // The relation stated the other way round: does the chunk's own box
             // meet the feature's? Same question, arguments swapped.
@@ -1188,13 +1191,29 @@ mod tests {
         let mut b = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         {
             let mut hm = Heightmap::new();
-            let mut ctx = DecorContext::new(&noise, seed, base_x, base_y, &mut a, &mut hm);
+            let mut ctx = DecorContext::new(
+                &noise,
+                seed,
+                base_x,
+                base_y,
+                &mut a,
+                &mut hm,
+                WorldScale::LEGACY,
+            );
             place_features(&mut ctx);
         }
         {
             // A DIFFERENT heightmap memo, so nothing carries over between the two.
             let mut hm = Heightmap::new();
-            let mut ctx = DecorContext::new(&noise, seed, base_x, base_y, &mut b, &mut hm);
+            let mut ctx = DecorContext::new(
+                &noise,
+                seed,
+                base_x,
+                base_y,
+                &mut b,
+                &mut hm,
+                WorldScale::LEGACY,
+            );
             place_features(&mut ctx);
         }
         assert_eq!(a, b, "the same chunk generated twice differs");
@@ -1219,6 +1238,7 @@ mod tests {
                     cy * CHUNK_CELLS,
                     &mut cells,
                     &mut hm,
+                    WorldScale::LEGACY,
                 );
                 place_features(&mut ctx);
                 painted += cells.iter().filter(|&&c| c != EMPTY).count();

@@ -518,6 +518,7 @@ pub fn for_each_overlapped_cell(grid: &CellGrid, b: Aabb, mut f: impl FnMut(i32,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{PLAYER_CELLS_H, PLAYER_CELLS_W, STEP_UP_CELLS};
     use crate::config::{PLAYER_H, PLAYER_W, STEP_UP_MAX};
     use crate::sim::coords::WorldCell;
     use crate::sim::materials::{EMPTY, block};
@@ -841,11 +842,17 @@ mod tests {
     fn step_up_clears_exactly_step_up_max_and_refuses_one_cell_more() {
         let rest_y = 20.0 * CS - PLAYER_H;
 
-        // One cell of rubble: cleared, and the body rises exactly one cell. The
-        // body sits in cells 8..=9, the rubble is the cell in front of it.
+        // A rubble stack exactly STEP_UP_CELLS tall: cleared, and the body rises
+        // exactly STEP_UP_MAX. The body's left edge is at cell 8, the rubble is
+        // the column in front of it. Written against the constant rather than as
+        // "one cell": the lift is a whole number of CELLS and the body's reach
+        // scales with it, so a literal here asserts the body's current size
+        // rather than the rule.
         let mut g = grid();
         floor(&mut g, 20);
-        g.set(10, 19, block::SAND);
+        for k in 1..=STEP_UP_CELLS {
+            g.set(10, 20 - k, block::SAND);
+        }
         let b = player_at(8.0 * CS, rest_y);
         let one = move_horizontal_stepped(&g, b, 2.0, STEP_UP_MAX);
         assert_eq!(one.stepped, STEP_UP_MAX);
@@ -853,11 +860,13 @@ mod tests {
         assert_eq!(one.x, b.x + 2.0);
         assert!(!one.blocked());
 
-        // Two cells: refused. The body stops flush against the wall at its old y.
+        // One cell more than the reach: refused. The body stops flush against the
+        // wall at its old y.
         let mut g2 = grid();
         floor(&mut g2, 20);
-        g2.set(10, 19, block::SAND);
-        g2.set(10, 18, block::SAND);
+        for k in 1..=STEP_UP_CELLS + 1 {
+            g2.set(10, 20 - k, block::SAND);
+        }
         let two = move_horizontal_stepped(&g2, b, 2.0, STEP_UP_MAX);
         assert_eq!(two.stepped, 0.0);
         assert_eq!(two.y, rest_y);
@@ -924,14 +933,17 @@ mod tests {
     fn for_each_overlapped_cell_visits_exactly_the_cells_touched() {
         let mut g = grid();
         g.set(2, 4, block::STONE);
-        // A 10x15 box at (10, 20) covers cells x 2..=3, y 4..=6 — and NOT x 4 or
-        // y 7, whose boundaries it only touches.
+        // A PLAYER_W x PLAYER_H box at (10, 20) starts on the cell boundary at
+        // (2, 4) and covers exactly PLAYER_CELLS_W x PLAYER_CELLS_H cells — and
+        // NOT the row and column past them, whose boundaries it only touches.
+        // Derived rather than written out: the point is the half-open edge rule,
+        // not the body's current size.
         let b = player_at(10.0, 20.0);
         let mut seen: Vec<(i32, i32, CellId)> = Vec::new();
         for_each_overlapped_cell(&g, b, |cx, cy, id| seen.push((cx, cy, id)));
 
-        let expect: Vec<(i32, i32)> = (4..=6)
-            .flat_map(|cy| (2..=3).map(move |cx| (cx, cy)))
+        let expect: Vec<(i32, i32)> = (4..4 + PLAYER_CELLS_H)
+            .flat_map(|cy| (2..2 + PLAYER_CELLS_W).map(move |cx| (cx, cy)))
             .collect();
         assert_eq!(
             seen.iter().map(|&(x, y, _)| (x, y)).collect::<Vec<_>>(),
@@ -948,17 +960,17 @@ mod tests {
         g.set_origin(-32, -32);
         g.set_world(WorldCell::new(-3, -3), block::STONE);
 
-        // A 10x15 box at (-15, -15) has its far edges exactly on x = -5 and y = 0,
-        // so it covers x -3..=-2 and y -3..=-1: the cells whose boundaries it only
-        // touches (-1 on x, 0 on y) are excluded, on the negative side of the
-        // origin just as on the positive. Truncating division would fold the whole
-        // span one cell toward zero.
+        // A PLAYER_W x PLAYER_H box at (-15, -15) starts exactly on the cell
+        // boundary at (-3, -3) and its far edges land exactly on a boundary too,
+        // so the cells it only touches are excluded on the negative side of the
+        // origin just as on the positive. Truncating division would fold the
+        // whole span one cell toward zero.
         let b = Aabb::new(-15.0, -15.0, PLAYER_W, PLAYER_H);
         let mut seen: Vec<(i32, i32, CellId)> = Vec::new();
         for_each_overlapped_cell(&g, b, |cx, cy, id| seen.push((cx, cy, id)));
 
-        let expect: Vec<(i32, i32)> = (-3..=-1)
-            .flat_map(|cy| (-3..=-2).map(move |cx| (cx, cy)))
+        let expect: Vec<(i32, i32)> = (-3..-3 + PLAYER_CELLS_H)
+            .flat_map(|cy| (-3..-3 + PLAYER_CELLS_W).map(move |cx| (cx, cy)))
             .collect();
         assert_eq!(
             seen.iter().map(|&(x, y, _)| (x, y)).collect::<Vec<_>>(),
@@ -970,11 +982,14 @@ mod tests {
     #[test]
     fn for_each_overlapped_cell_skips_unloaded_cells() {
         let g = grid();
-        // Straddles the window's west edge: only the in-window column is visited.
+        // Straddles the window's west edge by exactly one column: every column of
+        // the body except that one is visited, and the unloaded one is skipped
+        // rather than clamped onto its neighbour.
         let b = Aabb::new(-CS, 20.0, PLAYER_W, CS);
         let mut seen: Vec<(i32, i32)> = Vec::new();
         for_each_overlapped_cell(&g, b, |cx, cy, _| seen.push((cx, cy)));
-        assert_eq!(seen, vec![(0, 4)]);
+        let expect: Vec<(i32, i32)> = (0..PLAYER_CELLS_W - 1).map(|cx| (cx, 4)).collect();
+        assert_eq!(seen, expect);
     }
 
     #[test]

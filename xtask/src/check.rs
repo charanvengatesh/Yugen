@@ -27,6 +27,7 @@ use std::path::Path;
 use std::process::{Command, ExitCode};
 use std::time::{Duration, Instant};
 
+use crate::font;
 use crate::tuning;
 
 /// One gate: a name to invoke it by, a line saying what it proves, and the work.
@@ -46,6 +47,8 @@ enum Body {
     Cargo(&'static [&'static str]),
     /// The tuning index, run in this process. See [`crate::tuning`].
     Tuning,
+    /// The glyph table, run in this process. See [`crate::font`].
+    Font,
 }
 
 /// The gate list from `CLAUDE.md`, plus the tuning index, cheapest first.
@@ -63,6 +66,11 @@ pub const GATES: &[Gate] = &[
         name: "tuning",
         what: "docs/TUNING.md is current, config is documented, no name is shadowed",
         body: Body::Tuning,
+    },
+    Gate {
+        name: "font",
+        what: "the baked glyph table matches content/fonts/",
+        body: Body::Font,
     },
     Gate {
         name: "content",
@@ -98,6 +106,7 @@ impl Gate {
         match self.body {
             Body::Cargo(args) => format!("cargo {}", args.join(" ")),
             Body::Tuning => "cargo xtask tuning --check".to_string(),
+            Body::Font => "cargo xtask font --check".to_string(),
         }
     }
 
@@ -130,6 +139,16 @@ impl Gate {
                 Err(report) => {
                     eprint!("{report}");
                     Err("the tuning index rejected the tree".to_string())
+                }
+            },
+            Body::Font => match font::run(root, font::Mode::Check) {
+                Ok(summary) => {
+                    print!("{summary}");
+                    Ok(())
+                }
+                Err(report) => {
+                    eprint!("{report}");
+                    Err("the baked glyph table is stale".to_string())
                 }
             },
         }

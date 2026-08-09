@@ -23,3 +23,6 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 # Tier 1 reads `content/` through the same front end `contentc` uses, so the
 # record count in the index is the record count the compiler sees.
 toml = "0.9"
+# Rasterises `content/fonts/` for `cargo xtask font`. Pure Rust, and xtask-only:
+# the game crates must not gain a font dependency for a table that is committed.
+ab_glyph = "0.2"

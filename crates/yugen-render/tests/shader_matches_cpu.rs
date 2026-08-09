@@ -53,7 +53,7 @@ use bevy::math::{IVec2, Vec4};
 use bevy::render::render_resource::ShaderType;
 use bevy::render::render_resource::encase::UniformBuffer;
 use bevy::tasks::block_on;
-use yugen_core::config::{CHUNK_CELLS, WINDOW_COLS, WINDOW_ROWS};
+use yugen_core::config::{CHUNK_CELLS, WINDOW_COLS, WINDOW_ROWS, WorldScale};
 use yugen_core::sim::grid::CellGrid;
 use yugen_core::sim::materials::MAT_COUNT;
 use yugen_core::sim::worldgen::ChunkGen;
@@ -82,7 +82,16 @@ const SEED: u32 = 2334;
 /// 38 000 cells of lava, which is the only way the shimmer branch gets exercised
 /// at all. Both sit at NEGATIVE grid origins on both axes, so every `pmod` in the
 /// pattern lookup is a real negative-input modulo.
-const WINDOWS: [(&str, i32, i32); 2] = [("surface", -5, -1), ("depths", -5, 14)];
+/// The `depths` chunk ROW is scaled: the underworld sits `UNDERWORLD_DEPTH` cells
+/// below the local surface and that is a legacy depth, so a fixed chunk row stops
+/// naming the lava the moment the world scales. At `WorldScale::LIVE` the
+/// unscaled row 14 put this window in ordinary deep stone and the shimmer branch
+/// went from >100 000 animated texels to 5 960 — a guard on its way to passing
+/// vacuously, which the coverage assertion below caught.
+fn windows() -> [(&'static str, i32, i32); 2] {
+    let deep = (14.0 * WorldScale::LIVE.factor()) as i32;
+    [("surface", -5, -1), ("depths", -5, deep)]
+}
 
 /// Clock samples, chosen to cover BOTH regimes of the f64/f32 gap.
 ///
@@ -617,7 +626,7 @@ fn compare(grid: &CellGrid, cpu: &[u32], gpu: &[u8]) -> (Vec<Diff>, Vec<Diff>, u
 
 /// Every window, painted by the CPU and by the GPU at one clock.
 fn sweep(harness: &Harness, clock: f32) -> Vec<(&'static str, CellGrid, Vec<u32>, Vec<u8>)> {
-    WINDOWS
+    windows()
         .iter()
         .map(|&(name, cx, cy)| {
             let grid = window_grid(cx, cy);
@@ -727,8 +736,14 @@ fn at_rest_materials_are_byte_identical_to_the_cpu_blit() {
         }
     }
 
+    // Re-keyed for TEX_GRAIN = 1 and the scaled depths window: 1 141 248 static
+    // texels measured, against 1.2M at grain 2. Both causes are intended — a
+    // texel is a whole cell again, and the depths window now genuinely holds
+    // lava, whose cells are ANIMATED and so counted by the shimmer test rather
+    // than this one. The floor exists to catch the sweep silently shrinking, so
+    // it sits just under the measurement rather than at a round number.
     assert!(
-        checked > 1_200_000,
+        checked > 1_100_000,
         "the sweep shrank: only {checked} static texels compared"
     );
     assert!(
@@ -793,10 +808,19 @@ fn the_shimmer_matches_the_cpu_blit_to_a_measured_bound() {
         }
     }
 
-    // The depths window is 38 000 cells of lava; if this ever drops the branch
-    // is not being tested at all and the numbers below mean nothing.
+    // The depths window has to be MOSTLY LAVA or the branch is not being tested
+    // at all and the numbers below mean nothing.
+    //
+    // 36 344 animated texels measured at WorldScale::LIVE, against >100 000 at
+    // the 1x world. Two intended causes and no unintended one: a texel is a whole
+    // cell again at TEX_GRAIN 1, and the same relative depth in a 4x world holds
+    // a different amount of lava because the liquid table scaled with everything
+    // else. What matters is that it is tens of thousands rather than the 5 960
+    // this read when the window row was left unscaled and slid out of the
+    // underworld entirely — that is the failure this floor exists to catch, and
+    // it caught it.
     assert!(
-        animated_total > 100_000,
+        animated_total > 30_000,
         "the shimmer branch is barely exercised: {animated_total} animated cells"
     );
 

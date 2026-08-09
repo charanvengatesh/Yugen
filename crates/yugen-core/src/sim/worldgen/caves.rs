@@ -73,6 +73,7 @@
 use super::fields::{lerp, smooth_ramp, smoothstep01, weirdness};
 use crate::config::{
     CAVE_SURFACE_FADE, CHUNK_CELLS, DEEP_DEPTH, GEN_LATTICE, UNDERWORLD_DEPTH, UNDERWORLD_FLOOR,
+    WorldScale,
 };
 use crate::sim::biomes::ColumnProfile;
 use crate::sim::noise::Noise;
@@ -461,11 +462,11 @@ impl CaveLattice {
     /// coordinates. The lattice is anchored THERE, not to the chunk, and STRIDE
     /// divides CHUNK_CELLS, so neighbouring chunks share their edge corners bit
     /// for bit and the interpolation cannot produce a seam.
-    pub fn fill(&mut self, noise: &Noise, base_x: i32, base_y: i32) {
+    pub fn fill(&mut self, noise: &Noise, base_x: i32, base_y: i32, scale: WorldScale) {
         for gy in 0..LAT {
-            let wcy = f64::from(base_y + (gy * STRIDE) as i32);
+            let wcy = scale.coord(base_y + (gy * STRIDE) as i32);
             for gx in 0..LAT {
-                let wcx = f64::from(base_x + (gx * STRIDE) as i32);
+                let wcx = scale.coord(base_x + (gx * STRIDE) as i32);
                 let i = gy * LAT + gx;
 
                 let (wx, wy) = cheese_warp(noise, wcx, wcy);
@@ -512,8 +513,8 @@ impl CaveLattice {
 }
 
 /// Lattice-free strata, for the arbitrary-coordinate probe path.
-pub fn strata_exact(noise: &Noise, wcx: i32, wcy: i32) -> f64 {
-    strata_field(noise, f64::from(wcx), f64::from(wcy))
+pub fn strata_exact(noise: &Noise, wcx: i32, wcy: i32, scale: WorldScale) -> f64 {
+    strata_field(noise, scale.coord(wcx), scale.coord(wcy))
 }
 
 // ---------------------------------------------------------------------------
@@ -573,9 +574,15 @@ impl Default for CaveColumn {
 /// Everything gated on `weirdness` is gated CONTINUOUSLY (a ramp, not a
 /// comparison) so a ravine does not get clipped in half by the column where a
 /// boolean flipped — the slab's top just rises smoothly along its length.
-pub fn cave_column_at(noise: &Noise, wcx: i32, surf: i32, col: &ColumnProfile) -> CaveColumn {
-    let w = weirdness(noise, wcx);
-    let x = f64::from(wcx);
+pub fn cave_column_at(
+    noise: &Noise,
+    wcx: i32,
+    surf: i32,
+    col: &ColumnProfile,
+    scale: WorldScale,
+) -> CaveColumn {
+    let w = weirdness(noise, wcx, scale);
+    let x = scale.coord(wcx);
 
     let liquid_depth = LIQ_BASE - LIQ_WET_GAIN * noise.g2(x * LIQ_WET_FREQ, LIQ_WET_ANCHOR)
         + col.ug_pocket_bias * LIQ_POCKET_BIAS_GAIN;
@@ -649,8 +656,13 @@ struct Row {
 
 /// Depth-only carve parameters for one row of one column. Pure in (cc, depth).
 #[inline]
-fn compute_row(cc: &CaveColumn, depth: i32) -> Row {
-    let d = f64::from(depth);
+fn compute_row(cc: &CaveColumn, depth: i32, scale: WorldScale) -> Row {
+    // The depth crossing. `depth` arrives in world cells; every threshold below —
+    // UNDERWORLD_FLOOR, DEEP_DEPTH, CAVE_SURFACE_FADE, the ravine taper, the
+    // gallery window, the column's own cap and liquid table — is authored in
+    // legacy cells. Converting the depth ONCE here is what lets all of them stay
+    // exactly as written, still meaning the thickness they say they mean.
+    let d = scale.depth(f64::from(depth));
     // Band depth: the real depth plus this column's slow shift, so every band
     // interface is an undulating surface rather than a ruled line. The SURFACE
     // fade below deliberately uses the TRUE depth — the topsoil crust must be a
@@ -762,14 +774,21 @@ struct LatSite<'a> {
 ///
 /// Every field is sampled AT THE POINT OF USE, so a solid cell in the crust costs
 /// zero samples and a typical solid cell costs three rather than six.
-fn carve_core(noise: &Noise, wcx: i32, wcy: i32, site: Option<LatSite<'_>>, r: &Row) -> Carve {
+fn carve_core(
+    noise: &Noise,
+    wcx: i32,
+    wcy: i32,
+    site: Option<LatSite<'_>>,
+    r: &Row,
+    scale: WorldScale,
+) -> Carve {
     let mode = r.mode;
     if mode == Mode::Bedrock {
         return Carve::Solid;
     }
 
-    let x = f64::from(wcx);
-    let y = f64::from(wcy);
+    let x = scale.coord(wcx);
+    let y = scale.coord(wcy);
 
     let mut open = false;
     if r.rav_t < RAV_T_CLOSED {
@@ -893,14 +912,15 @@ impl CaveLattice {
         lx: i32,
         ly: i32,
         cc: &CaveColumn,
+        scale: WorldScale,
     ) -> Carve {
-        let row = compute_row(cc, depth);
+        let row = compute_row(cc, depth, scale);
         let site = LatSite {
             lattice: self,
             lx,
             ly,
         };
-        carve_core(noise, wcx, wcy, Some(site), &row)
+        carve_core(noise, wcx, wcy, Some(site), &row, scale)
     }
 }
 
@@ -917,22 +937,30 @@ impl CaveLattice {
 /// cells within a hair of a threshold. That is intentional and safe: `carve` is
 /// the authority on terrain, this is an oracle for placement, and a feature pass
 /// must overwrite what it finds rather than assume it.
-pub fn carve_exact(noise: &Noise, wcx: i32, wcy: i32, depth: i32, cc: &CaveColumn) -> Carve {
-    let row = compute_row(cc, depth);
-    carve_core(noise, wcx, wcy, None, &row)
+pub fn carve_exact(
+    noise: &Noise,
+    wcx: i32,
+    wcy: i32,
+    depth: i32,
+    cc: &CaveColumn,
+    scale: WorldScale,
+) -> Carve {
+    let row = compute_row(cc, depth, scale);
+    carve_core(noise, wcx, wcy, None, &row, scale)
 }
 
 /// SEAM FOR THE FEATURE PASS. Depth below the surface at which cave voids in this
 /// column start holding liquid — i.e. how deep a shaft can go before it floods.
 /// Cheap: one gradient sample.
-pub fn liquid_table_at(noise: &Noise, wcx: i32) -> f64 {
-    LIQ_BASE - LIQ_WET_GAIN * noise.g2(f64::from(wcx) * LIQ_WET_FREQ, LIQ_WET_ANCHOR)
+pub fn liquid_table_at(noise: &Noise, wcx: i32, scale: WorldScale) -> f64 {
+    LIQ_BASE - LIQ_WET_GAIN * noise.g2(scale.coord(wcx) * LIQ_WET_FREQ, LIQ_WET_ANCHOR)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::SEED;
+    use crate::config::WorldScale;
 
     /// A column with caves everywhere and a ravine permitted, so the tests can
     /// exercise every branch without building a `ColumnProfile`.
@@ -970,7 +998,7 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut lattice = CaveLattice::new();
         let (base_x, base_y) = (64, 256);
-        lattice.fill(&noise, base_x, base_y);
+        lattice.fill(&noise, base_x, base_y, WorldScale::LEGACY);
 
         for gy in 0..LAT - 1 {
             for gx in 0..LAT - 1 {
@@ -1004,7 +1032,7 @@ mod tests {
     fn the_bilerp_stays_between_the_corners_it_interpolates() {
         let noise = Noise::new(SEED);
         let mut lattice = CaveLattice::new();
-        lattice.fill(&noise, 0, 128);
+        lattice.fill(&noise, 0, 128, WorldScale::LEGACY);
         for ly in 0..CHUNK_CELLS {
             for lx in 0..CHUNK_CELLS {
                 let i = (ly >> 2) as usize * LAT + (lx >> 2) as usize;
@@ -1033,8 +1061,8 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut a = CaveLattice::new();
         let mut b = CaveLattice::new();
-        a.fill(&noise, 0, 0);
-        b.fill(&noise, CHUNK_CELLS, 0);
+        a.fill(&noise, 0, 0, WorldScale::LEGACY);
+        b.fill(&noise, CHUNK_CELLS, 0, WorldScale::LEGACY);
 
         for gy in 0..LAT {
             let right_of_a = gy * LAT + (LAT - 1);
@@ -1050,7 +1078,7 @@ mod tests {
 
         // Vertically too.
         let mut c = CaveLattice::new();
-        c.fill(&noise, 0, CHUNK_CELLS);
+        c.fill(&noise, 0, CHUNK_CELLS, WorldScale::LEGACY);
         for gx in 0..LAT {
             assert_eq!(a.strata[(LAT - 1) * LAT + gx], c.strata[gx]);
             assert_eq!(a.liq[(LAT - 1) * LAT + gx], c.liq[gx]);
@@ -1062,18 +1090,18 @@ mod tests {
         let noise = Noise::new(SEED);
         let cc = test_column();
         let mut lattice = CaveLattice::new();
-        lattice.fill(&noise, 0, 192);
+        lattice.fill(&noise, 0, 192, WorldScale::LEGACY);
 
         for ly in 0..CHUNK_CELLS {
             for lx in (0..CHUNK_CELLS).step_by(7) {
                 let (wcx, wcy) = (lx, 192 + ly);
                 let depth = wcy - cc.surf;
-                let first = lattice.carve(&noise, wcx, wcy, depth, lx, ly, &cc);
-                let again = lattice.carve(&noise, wcx, wcy, depth, lx, ly, &cc);
+                let first = lattice.carve(&noise, wcx, wcy, depth, lx, ly, &cc, WorldScale::LEGACY);
+                let again = lattice.carve(&noise, wcx, wcy, depth, lx, ly, &cc, WorldScale::LEGACY);
                 assert_eq!(first, again, "carve is not pure at ({wcx},{wcy})");
                 assert_eq!(
-                    carve_exact(&noise, wcx, wcy, depth, &cc),
-                    carve_exact(&noise, wcx, wcy, depth, &cc),
+                    carve_exact(&noise, wcx, wcy, depth, &cc, WorldScale::LEGACY),
+                    carve_exact(&noise, wcx, wcy, depth, &cc, WorldScale::LEGACY),
                     "carve_exact is not pure at ({wcx},{wcy})"
                 );
             }
@@ -1093,12 +1121,12 @@ mod tests {
         // Sweep the whole vertical extent of the world, a chunk at a time.
         let mut chunk_y = 0;
         while chunk_y < UNDERWORLD_FLOOR + 2 * CHUNK_CELLS {
-            lattice.fill(&noise, 0, chunk_y);
+            lattice.fill(&noise, 0, chunk_y, WorldScale::LEGACY);
             for ly in (0..CHUNK_CELLS).step_by(3) {
                 for lx in (0..CHUNK_CELLS).step_by(5) {
                     let wcy = chunk_y + ly;
                     let depth = wcy - cc.surf;
-                    let c = lattice.carve(&noise, lx, wcy, depth, lx, ly, &cc);
+                    let c = lattice.carve(&noise, lx, wcy, depth, lx, ly, &cc, WorldScale::LEGACY);
                     match c {
                         Carve::Solid => saw_solid = true,
                         Carve::Air => saw_air = true,
@@ -1133,7 +1161,7 @@ mod tests {
         let cc = test_column();
         let mut lattice = CaveLattice::new();
         let base_y = 256;
-        lattice.fill(&noise, 0, base_y);
+        lattice.fill(&noise, 0, base_y, WorldScale::LEGACY);
 
         let mut disagreements = 0;
         let mut total = 0;
@@ -1142,8 +1170,8 @@ mod tests {
                 let wcy = base_y + ly;
                 let depth = wcy - cc.surf;
                 total += 1;
-                if lattice.carve(&noise, lx, wcy, depth, lx, ly, &cc)
-                    != carve_exact(&noise, lx, wcy, depth, &cc)
+                if lattice.carve(&noise, lx, wcy, depth, lx, ly, &cc, WorldScale::LEGACY)
+                    != carve_exact(&noise, lx, wcy, depth, &cc, WorldScale::LEGACY)
                 {
                     disagreements += 1;
                 }
@@ -1159,7 +1187,7 @@ mod tests {
     fn the_liquid_table_stays_inside_its_advertised_swing() {
         let noise = Noise::new(SEED);
         for wcx in -500..500 {
-            let d = liquid_table_at(&noise, wcx);
+            let d = liquid_table_at(&noise, wcx, WorldScale::LEGACY);
             assert!(
                 (LIQ_BASE - LIQ_WET_GAIN..=LIQ_BASE + LIQ_WET_GAIN).contains(&d),
                 "liquid table {d} at column {wcx}"

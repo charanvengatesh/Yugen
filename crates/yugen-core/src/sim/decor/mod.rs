@@ -31,6 +31,7 @@ pub mod ores;
 pub mod structures;
 pub mod trees;
 
+use crate::config::WorldScale;
 use crate::config::world::{CHUNK_CELLS, pmod};
 use crate::sim::biomes::{ColumnProfile, column_profile_at};
 use crate::sim::materials::{CellId, EMPTY, MAT_COLLIDE};
@@ -73,6 +74,31 @@ pub struct DecorContext<'a> {
     sink: Sink<'a>,
     /// Surface rows come from here, never from a chunk's contents.
     heightmap: &'a mut Heightmap,
+    /// The world scale the chunk under this pass was generated at.
+    scale: WorldScale,
+    /// The chunk's BACKGROUND plane, when the caller has one.
+    ///
+    /// `None` on the `generate` path, which has no wall plane at all — a
+    /// decoration aimed at the back simply draws nothing there, and the FRONT
+    /// plane comes out identical either way. That is what keeps `generate` and
+    /// `generate_with_back` in agreement about the thing the goldens hash.
+    back: Option<&'a mut [CellId]>,
+    /// Whether plots are currently going to the back plane. See
+    /// [`DecorContext::draw_behind`].
+    behind: bool,
+    /// Nearest-upscale anchor for the decoration currently being drawn.
+    ///
+    /// `None` means plot cells straight through, which is what a pass that has
+    /// already done its own scaling wants. `Some((ax, ay, k))` expands every
+    /// plotted cell into a `k x k` block laid out from `(ax, ay)`.
+    ///
+    /// This exists so a decorator can go on drawing the shape it was AUTHORED to
+    /// draw — a 22-cell trunk, a crown of 6 — and come out `k` times bigger with
+    /// its proportions intact, instead of having a scale threaded through every
+    /// one of the fifty cell-space constants that describe a tree. Those
+    /// constants are a drawing, not a set of lengths, and the honest way to
+    /// enlarge a drawing is to enlarge its pixels.
+    expand: Option<(i32, i32, i32)>,
 }
 
 impl<'a> DecorContext<'a> {
@@ -83,6 +109,7 @@ impl<'a> DecorContext<'a> {
         base_y: i32,
         out: &'a mut [CellId],
         heightmap: &'a mut Heightmap,
+        scale: WorldScale,
     ) -> DecorContext<'a> {
         debug_assert_eq!(out.len(), (CHUNK_CELLS * CHUNK_CELLS) as usize);
         DecorContext {
@@ -92,6 +119,10 @@ impl<'a> DecorContext<'a> {
             base_y,
             sink: Sink::Chunk(out),
             heightmap,
+            scale,
+            back: None,
+            behind: false,
+            expand: None,
         }
     }
 
@@ -109,6 +140,7 @@ impl<'a> DecorContext<'a> {
         base_y: i32,
         into: &'a mut Vec<(i32, i32, CellId)>,
         heightmap: &'a mut Heightmap,
+        scale: WorldScale,
     ) -> DecorContext<'a> {
         DecorContext {
             noise,
@@ -117,6 +149,10 @@ impl<'a> DecorContext<'a> {
             base_y,
             sink: Sink::Record(into),
             heightmap,
+            scale,
+            back: None,
+            behind: false,
+            expand: None,
         }
     }
 
@@ -138,6 +174,60 @@ impl<'a> DecorContext<'a> {
     /// Write a cell if it lands inside the chunk being generated; else discard.
     #[inline]
     pub fn plot(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if let Some((ax, ay, k)) = self.expand {
+            self.block(ax, ay, k, wcx, wcy, |c, x, y| c.plot_raw(x, y, code));
+            return;
+        }
+        self.plot_raw(wcx, wcy, code)
+    }
+
+    /// Draw one authored cell as the `k x k` block it expands to, in world cells.
+    ///
+    /// The authored cell is measured from the anchor and multiplied there, so the
+    /// anchor itself is the one cell that does not move — a tree's root stays on
+    /// the column it grew from however big the tree gets.
+    #[inline]
+    fn block(
+        &mut self,
+        ax: i32,
+        ay: i32,
+        k: i32,
+        wcx: i32,
+        wcy: i32,
+        mut f: impl FnMut(&mut Self, i32, i32),
+    ) {
+        let bx = ax + (wcx - ax) * k;
+        let by = ay + (wcy - ay) * k;
+        for dy in 0..k {
+            for dx in 0..k {
+                f(self, bx + dx, by + dy);
+            }
+        }
+    }
+
+    /// Write to the back plane if one is attached, otherwise drop the cell.
+    ///
+    /// Returns whether the write was HANDLED — true whenever the context is in
+    /// behind mode, back plane or not, because "there is no back plane" must
+    /// mean the cell is discarded and not that it lands in front.
+    #[inline]
+    fn plot_behind(&mut self, wcx: i32, wcy: i32, code: CellId) -> bool {
+        if !self.behind {
+            return false;
+        }
+        if let Some(i) = self.index(wcx, wcy)
+            && let Some(back) = self.back.as_deref_mut()
+        {
+            back[i] = code;
+        }
+        true
+    }
+
+    #[inline]
+    fn plot_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -153,6 +243,20 @@ impl<'a> DecorContext<'a> {
     /// must not eat rock.
     #[inline]
     pub fn plot_if_empty(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if let Some((ax, ay, k)) = self.expand {
+            self.block(ax, ay, k, wcx, wcy, |c, x, y| {
+                c.plot_if_empty_raw(x, y, code)
+            });
+            return;
+        }
+        self.plot_if_empty_raw(wcx, wcy, code)
+    }
+
+    #[inline]
+    fn plot_if_empty_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -170,6 +274,20 @@ impl<'a> DecorContext<'a> {
     /// replacing rock.
     #[inline]
     pub fn plot_if_solid(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if let Some((ax, ay, k)) = self.expand {
+            self.block(ax, ay, k, wcx, wcy, |c, x, y| {
+                c.plot_if_solid_raw(x, y, code)
+            });
+            return;
+        }
+        self.plot_if_solid_raw(wcx, wcy, code)
+    }
+
+    #[inline]
+    fn plot_if_solid_raw(&mut self, wcx: i32, wcy: i32, code: CellId) {
+        if self.plot_behind(wcx, wcy, code) {
+            return;
+        }
         let idx = self.index(wcx, wcy);
         match &mut self.sink {
             Sink::Chunk(out) => {
@@ -199,13 +317,85 @@ impl<'a> DecorContext<'a> {
         // `None` for the profile: the decorator asked for a column, not for a
         // column it has already profiled, so let the memo do its job rather
         // than paying for a profile the caller does not have.
-        self.heightmap.surface_row_at(self.noise, wcx, None)
+        self.heightmap
+            .surface_row_at(self.noise, wcx, None, self.scale)
+    }
+
+    /// The world scale this chunk was generated at. A decorator that measures
+    /// anything in cells has to put its authored lengths through this.
+    #[inline]
+    pub fn scale(&self) -> WorldScale {
+        self.scale
+    }
+
+    /// Draw everything that follows as a nearest-upscaled version of itself,
+    /// laid out from `(ax, ay)`, until [`DecorContext::drawn`] ends it.
+    ///
+    /// The anchor is the decoration's own origin — the column a tree grew from,
+    /// the cell an ore streak started at — because that is the one point that
+    /// must NOT move when the drawing gets bigger.
+    ///
+    /// A decorator that opts in must also multiply its REACH by the same factor,
+    /// or the chunk to its left stops looking far enough to redraw the half of
+    /// the decoration that overhangs it, and the world grows seams at every
+    /// chunk boundary. [`DecorContext::raster`] is that factor.
+    #[inline]
+    pub fn draw_upscaled(&mut self, ax: i32, ay: i32) {
+        let k = self.scale.raster();
+        self.expand = if k > 1 { Some((ax, ay, k)) } else { None };
+    }
+
+    /// End an upscaled drawing opened by [`DecorContext::draw_upscaled`].
+    #[inline]
+    pub fn drawn(&mut self) {
+        self.expand = None;
+    }
+
+    /// The whole-number upscale this context applies to authored cell rasters.
+    #[inline]
+    pub fn raster(&self) -> i32 {
+        self.scale.raster()
+    }
+
+    /// Attach the chunk's background plane, so decorations may be drawn behind
+    /// the one the player walks in.
+    #[must_use]
+    pub fn with_back(mut self, back: &'a mut [CellId]) -> DecorContext<'a> {
+        debug_assert_eq!(back.len(), (CHUNK_CELLS * CHUNK_CELLS) as usize);
+        self.back = Some(back);
+        self
+    }
+
+    /// Send everything that follows to the BACKGROUND plane, until
+    /// [`DecorContext::in_front`] ends it.
+    ///
+    /// The back plane is inert scenery: nothing collides with it and the automata
+    /// never touch it, so a body walks straight through whatever is drawn here.
+    /// That is the whole point — a forest with a third of its trees behind the
+    /// play plane has lanes through it and still reads as a forest.
+    ///
+    /// It is not free. The light solver counts any filled back cell as a wall, so
+    /// a back-plane canopy darkens the ground under it, and the cells are
+    /// mineable through the wall cursor like any other backdrop.
+    ///
+    /// A no-op when the context has no back plane, which is the `generate` path.
+    /// A decoration aimed at the back then draws NOTHING rather than falling
+    /// through to the front, so the front plane is identical on both paths.
+    #[inline]
+    pub fn draw_behind(&mut self) {
+        self.behind = true;
+    }
+
+    /// End a [`DecorContext::draw_behind`] block.
+    #[inline]
+    pub fn in_front(&mut self) {
+        self.behind = false;
     }
 
     /// Full climate/biome/layer profile for an absolute column.
     #[inline]
     pub fn profile_at(&self, wcx: i32) -> ColumnProfile {
-        column_profile_at(self.noise, wcx)
+        column_profile_at(self.noise, wcx, self.scale)
     }
 
     /// Stable hash in [0,1) from any two integers.
@@ -317,6 +507,7 @@ pub fn origin_cells(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
 
     #[test]
     fn origin_scans_are_phase_aligned_in_absolute_space() {
@@ -387,7 +578,7 @@ mod tests {
         let noise = Noise::new(1);
         let mut hm = Heightmap::new();
         let mut out = vec![EMPTY; (CHUNK_CELLS * CHUNK_CELLS) as usize];
-        let mut ctx = DecorContext::new(&noise, 1, 100, 200, &mut out, &mut hm);
+        let mut ctx = DecorContext::new(&noise, 1, 100, 200, &mut out, &mut hm, WorldScale::LEGACY);
 
         ctx.plot(100, 200, 7); // top-left corner, inside
         ctx.plot(99, 200, 9); // one west, outside

@@ -638,6 +638,7 @@ impl Decorator for OreDecorator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorldScale;
     use crate::config::world::{CHUNK_CELLS, pmod};
     use crate::config::worldgen::SEED;
     use crate::sim::noise::Noise;
@@ -649,7 +650,15 @@ mod tests {
     fn chunk(noise: &Noise, hm: &mut Heightmap, base_x: i32, base_y: i32) -> Vec<CellId> {
         let mut out = vec![ROCK; (CHUNK_CELLS * CHUNK_CELLS) as usize];
         {
-            let mut ctx = DecorContext::new(noise, SEED, base_x, base_y, &mut out, hm);
+            let mut ctx = DecorContext::new(
+                noise,
+                SEED,
+                base_x,
+                base_y,
+                &mut out,
+                hm,
+                WorldScale::LEGACY,
+            );
             OreDecorator.decorate(&mut ctx);
         }
         out
@@ -758,7 +767,7 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut hm = Heightmap::new();
         let mut out = vec![ROCK; (CHUNK_CELLS * CHUNK_CELLS) as usize];
-        let mut ctx = DecorContext::new(&noise, SEED, 0, 0, &mut out, &mut hm);
+        let mut ctx = DecorContext::new(&noise, SEED, 0, 0, &mut out, &mut hm, WorldScale::LEGACY);
         let mut memo = Memo::new();
 
         let mut seen = [0usize; N_ORES];
@@ -924,7 +933,7 @@ mod tests {
         let noise = Noise::new(SEED);
         let mut hm = Heightmap::new();
         let mut out = vec![ROCK; (CHUNK_CELLS * CHUNK_CELLS) as usize];
-        let mut ctx = DecorContext::new(&noise, SEED, 0, 0, &mut out, &mut hm);
+        let mut ctx = DecorContext::new(&noise, SEED, 0, 0, &mut out, &mut hm, WorldScale::LEGACY);
         let mut memo = Memo::new();
         // Deliberately adversarial: columns that collide in the same slot, walked
         // out of order and revisited.

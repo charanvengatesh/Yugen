@@ -640,6 +640,7 @@ fn place_particles(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yugen_core::config::WorldScale;
 
     use yugen_core::config::SEED;
 
@@ -684,19 +685,23 @@ mod tests {
     /// changes — a real boundary, found rather than written down, because which
     /// column a climate region ends on is worldgen's business.
     fn a_real_weather_boundary(a: &mut Ambience) -> i32 {
-        /// How far to look before giving up. A climate region is a few hundred
-        /// columns wide, so this crosses several of them.
-        const SEARCH_COLS: i32 = 4000;
+        // How far to look before giving up. A climate region is a few hundred
+        // AUTHORED columns wide and WorldScale::LIVE times that in world cells,
+        // so the search scales with them and still crosses several.
+        // Biome regions are WorldScale::LIVE times wider in cells than they were
+        // authored, so a boundary sits that much further from the origin. The
+        // search widens with them rather than the test being retuned by hand.
+        let search_cols = 4000 * WorldScale::LIVE.raster();
 
         let mut prev = heaviest(&weights_at(a, 0));
-        for col in 1..SEARCH_COLS {
+        for col in 1..search_cols {
             let now = heaviest(&weights_at(a, col));
             if now != prev {
                 return col;
             }
             prev = now;
         }
-        panic!("no weather boundary in the first {SEARCH_COLS} columns");
+        panic!("no weather boundary in the first {search_cols} columns");
     }
 
     #[test]

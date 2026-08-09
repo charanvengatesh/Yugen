@@ -31,6 +31,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
+use yugen_core::config::WorldScale;
 use yugen_core::config::{CHUNK_CELLS, SEED};
 use yugen_core::sim::biomes::{BIOMES, UNDERGROUND_LAYERS, biome_mix_at, underground_mix_at};
 use yugen_core::sim::materials::{CellId, MAT_B, MAT_G, MAT_R};
@@ -245,9 +246,9 @@ fn main() {
         let noise = world_noise(a.seed);
         for ox in 0..ow {
             let wcx = a.x0 * CHUNK_CELLS + (ox * sc) as i32;
-            let b = biome_mix_at(&noise, wcx).top;
+            let b = biome_mix_at(&noise, wcx, WorldScale::LIVE).top;
             let cap = BIOMES[b.index()].cap as usize;
-            let l = underground_mix_at(&noise, wcx).top;
+            let l = underground_mix_at(&noise, wcx, WorldScale::LIVE).top;
             let rock = UNDERGROUND_LAYERS[l.index()].rock as usize;
             for (row0, m) in [(0usize, cap), (BAND_H + BAND_GAP, rock)] {
                 for by in 0..BAND_H {

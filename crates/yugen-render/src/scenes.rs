@@ -73,9 +73,17 @@ use bevy::prelude::*;
 /// Which scene the game is currently showing.
 ///
 /// The three the TypeScript's `Scene` enum had, in the same order and with the
-/// same meanings. There is no `Paused` and no `Loading`: the original had
-/// neither, and inventing one here would be a design change wearing a port's
-/// clothes.
+/// same meanings. There is still no `Loading`.
+///
+/// There is now a pause, but it is [`Paused`] — a resource — and NOT a variant
+/// here, for a concrete reason rather than a stylistic one. `glue::start_a_run`
+/// hangs off `OnEnter(Scene::Playing)`. A `Scene::Paused` would have to return
+/// to `Playing` to resume, that transition would re-fire `OnEnter`, and the
+/// hook would regenerate the level and re-grant the starting kit underneath a
+/// live player. That is the same hazard this type's own note about
+/// `NextState::set` describes, reached by a different road. A pause that draws
+/// over the world and stops the systems stepping it needs no scene change at
+/// all.
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Scene {
     /// The title screen. Confirm goes to [`Scene::WorldSelect`].
@@ -104,8 +112,29 @@ pub struct ScenesPlugin;
 
 impl Plugin for ScenesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<Scene>();
+        app.init_state::<Scene>().init_resource::<Paused>();
     }
+}
+
+/// Whether the simulation is stopped while the world stays on screen.
+///
+/// See [`Scene`] for why this is a resource. Systems that STEP the world are
+/// gated on it; systems that DRAW the world are not, so a paused frame is a
+/// live frame that is not advancing rather than a frozen screenshot — the
+/// difference shows the moment a shader or a light pass is still running.
+///
+/// Default is false, and there is no way to start paused. A game that boots
+/// paused is a game whose first frame looks broken.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Paused(pub bool);
+
+/// Run condition: the simulation is advancing.
+///
+/// Named rather than written as a closure at each call site, so that the set of
+/// systems that pause is greppable and a system added later can join it by
+/// copying one recognisable thing.
+pub fn running(paused: Res<Paused>) -> bool {
+    !paused.0
 }
 
 #[cfg(test)]

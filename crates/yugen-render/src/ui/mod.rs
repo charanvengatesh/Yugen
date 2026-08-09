@@ -7,7 +7,7 @@
 //! — and they are one module here for the same reason: they share a coordinate
 //! space, a paint order, and a font.
 //!
-//! # There was no bitmap font to port
+//! # The font is baked, not authored and not loaded
 //!
 //! The font was said to live in these three files. It did not. All three reach
 //! for the platform:
@@ -23,20 +23,30 @@
 //! own header admits what that cost: *"Text still upscales soft — that is the
 //! deal the whole game makes — but the chrome around it is exact."*
 //!
-//! That deal is not available here and should not be. There is no `fillText` in
-//! Bevy, there is no font asset in this repository, and this crate's own
-//! `Cargo.toml` already describes itself as owning a "bitmap font". So the font
-//! below is **authored, not ported**. What IS ported faithfully is everything
-//! the font is in service of: which tier of type each label is drawn at, what it
-//! is measured with, where measurement advances the cursor to, and the exact
-//! pixel geometry of every plate, well, frame, tab and pip around it.
+//! That deal is not available here and should not be. The port answered with an
+//! authored 5x7 face, ninety-three glyphs typed out as binary literals, because
+//! there was no typeface in the repository to use instead. There is now:
+//! **Departure Mono**, in `content/fonts/`, baked to one bit per pixel by
+//! `cargo xtask font` into [`font_table`]. See that xtask for why it is baked
+//! rather than rasterised at runtime, and for the measurement that fixes the
+//! design grid at fifty font units to the pixel.
 //!
-//! The one number that pins the new font to the old one is [`digits_w`]. The
-//! TypeScript refused to call `measureText` for a stack count and hard-coded the
-//! answer — *"the face is a fixed 10px sans, where digits advance at ~6px"*.
-//! [`Face::Regular`] is a 5px cell with a 1px gap: a 6px advance, exactly. So
-//! `TS 10px sans == Regular @ 1`, by construction and not by taste, and
-//! `digits_w(n) == COUNT.measure(&n.to_string())` is a test below.
+//! What that buys over the authored face: 219 glyphs instead of 93, so the whole
+//! of Latin-1 sets rather than tofuing; real descenders, so `g` and `y` are not
+//! sitting on the baseline pretending; box-drawing and block glyphs, which give
+//! panel frames and meters that snap to the text grid for nothing; and
+//! letterforms drawn by somebody who draws letterforms.
+//!
+//! What it costs is the one number that used to pin this font to the original.
+//! The TypeScript refused to call `measureText` for a stack count and hard-coded
+//! the answer — *"the face is a fixed 10px sans, where digits advance at ~6px"*
+//! — and the authored face was built to a 6px advance so that
+//! `TS 10px sans == Regular @ 1` held by construction. Departure Mono advances
+//! at **7**, because that is what its designer drew, and no amount of scaling
+//! makes it 6 without rasterising the face off its own grid. So that equivalence
+//! is gone, deliberately: [`digits_w`] is now anchored to THIS face, and the
+//! test below says so rather than pretending the old number still means
+//! something. Every run of text is a seventh wider than it was.
 //!
 //! # The size ladder
 //!
@@ -47,24 +57,26 @@
 //! | TS px | Here | Cap height |
 //! |---|---|---|
 //! | 8 | [`Face::Small`] @ 1 | 5 px |
-//! | 10, 11, 12, 13, 14 | [`Face::Regular`] @ 1 | 7 px |
-//! | 18 | `Regular` @ 2 | 14 px |
-//! | 52 | `Regular` @ 5 | 35 px |
-//! | 56 | `Regular` @ 6 | 42 px |
+//! | 10, 11, 12, 13, 14 | [`Face::Regular`] @ 1 | 8 px |
+//! | 18 | `Regular` @ 2 | 16 px |
+//! | 52 | `Regular` @ 5 | 40 px |
+//! | 56 | `Regular` @ 6 | 48 px |
 //!
 //! **The 10-to-14 band collapsing to one size is the biggest judgement call in
-//! this file.** The alternative is authoring four more faces one pixel apart,
-//! which at these sizes is four faces that differ by nothing a player can read.
-//! The hierarchy the label row actually depends on survives intact, because the
-//! TypeScript never leant on size to carry it: its own comment says *"Labels
-//! dim, values bright"* — the separation is in ALPHA, and alpha ports exactly.
-//! The one place size was doing real work is the 8px key tab versus the 13px
-//! item name, and that distinction is kept: `Small` is a genuinely different,
-//! genuinely smaller face.
+//! this file.** The alternative is four more faces one pixel apart, which at
+//! these sizes differ by nothing a player can read. The hierarchy the label row
+//! actually depends on survives intact, because the TypeScript never leant on
+//! size to carry it: its own comment says *"Labels dim, values bright"* — the
+//! separation is in ALPHA, and alpha ports exactly. The one place size was doing
+//! real work is the 8px key tab versus the 13px item name, and that distinction
+//! is kept: `Small` is a genuinely different, genuinely smaller face.
 //!
 //! [`Face::Small`] carries digits and two marks and nothing else, because the
 //! 8px tier in all three files draws exactly one thing: a single hotbar key
-//! digit. Anything else asked of it renders as a solid block — see [`Face`].
+//! digit. It stays AUTHORED — Departure Mono's smallest setting is seven pixels
+//! wide, and the whole point of this face is fitting a digit in a corner where
+//! seven pixels do not go. Anything else asked of it renders as a solid block —
+//! see [`Face`].
 //!
 //! # Whole pixels, everywhere, by construction
 //!
@@ -76,10 +88,16 @@
 //!   1. Every field of [`UiPrim`] is an `i32` in buffer pixels. There is no way
 //!      to spell a half-pixel rectangle or a half-pixel glyph run.
 //!   2. Alignment is resolved into a whole-pixel left edge *when the prim is
-//!      built*, by [`UiPrim::text`], not at paint time. Centring is exact and
-//!      not merely rounded: every advance is even (6 or 4 px times a whole
-//!      scale), so a measured run is even, so `measure / 2` has no remainder.
-//!      `a_centred_run_never_lands_a_glyph_on_a_half_pixel` asserts it.
+//!      built*, by [`UiPrim::text`], not at paint time. Note that centring is
+//!      now ROUNDED rather than exact, and that is a real change: the authored
+//!      face advanced at 6 px so every measured run was even and `measure / 2`
+//!      had no remainder, whereas [`Face::Regular`] advances at 7 and an
+//!      odd-length run halves to a `.5`. The division truncates, which moves
+//!      the left edge towards the anchor, so such a run sits half a pixel RIGHT
+//!      of true centre — deterministically, and by less than one pixel, which is
+//!      the most any integer grid can offer. What matters is
+//!      unchanged: the left edge is a whole number before the painter ever sees
+//!      it. `a_centred_run_never_lands_a_glyph_on_a_half_pixel` asserts that.
 //!   3. Vertical alignment goes through [`TextStyle::baseline_from_middle`] and
 //!      [`TextStyle::baseline_from_top`], which return `i32`.
 //!   4. [`quad_centre`] turns a whole-pixel rect into a sprite centre that lands
@@ -217,6 +235,11 @@ use yugen_core::items::registry::{ITEM_ICONS, ItemCode, item_by_code, item_for_b
 use yugen_core::items::{HOTBAR, Inventory};
 use yugen_core::sim::materials::{CellId, mat_by_code};
 
+pub mod font_table;
+pub mod layout;
+pub mod page;
+pub mod theme;
+
 use crate::input::Tool;
 use crate::items::Pack;
 use crate::lowres::{LowResTarget, WORLD_LAYERS, WorldCamera};
@@ -226,32 +249,28 @@ use crate::player::PlayerBody;
 // The font
 // ---------------------------------------------------------------------------
 
-/// Widest a glyph cell gets, in font pixels. [`Face::Regular`]'s width.
+/// Blank rows between one line's cap and the next, in font pixels.
 ///
-/// Five is the narrowest cell that holds a legible `M`, `W` and `%` without them
-/// collapsing into each other, and it is what nearly every pixel font since the
-/// LCD character generator has settled on for the same reason.
-const CELL_W: i32 = 5;
-
-/// Tallest a glyph cell gets, in font pixels. [`Face::Regular`]'s height.
-///
-/// Seven rows is what a 5-wide cell needs to give lowercase a 5-row x-height
-/// with a 2-row ascender. Six would put `b` and `h` at the same height as `o`.
-const CELL_H: i32 = 7;
-
-/// Blank columns between one glyph cell and the next, in font pixels.
-///
-/// One. It is what makes [`Face::Regular`]'s advance 6 px, which is the number
-/// the TypeScript hard-coded for its 10px face in `digitsW` — see the module
-/// header. It is also the minimum: at zero, `ll` and `rn` stop being two glyphs.
-const GLYPH_GAP: i32 = 1;
-
-/// Blank rows between one baseline's cell and the next, in font pixels.
-///
-/// Two, so [`Face::Regular`] lines are 9 px apart. Only used by
-/// [`TextStyle::line_h`]; every multi-line site in the original hard-coded its
-/// own leading, and those numbers are ported as they were.
+/// Two. Only used by [`TextStyle::line_h`]; every multi-line site in the port
+/// carries its own hard-coded leading, and those numbers are unchanged.
 const LINE_GAP: i32 = 2;
+
+/// Blank columns after a [`Face::Small`] cell, in font pixels.
+///
+/// One, which makes that face's advance 4 px. [`Face::Regular`] needs no such
+/// constant: its advance is authored INTO the typeface — Departure Mono is
+/// monospaced and carries its own side bearings — and is read from
+/// [`font_table::ADVANCE`] rather than reconstructed here. A gap added on top
+/// of a designed advance would be a second opinion about spacing the designer
+/// already had.
+const SMALL_GAP: i32 = 1;
+
+/// [`Face::Small`]'s cell width in font pixels.
+const SMALL_W: i32 = 3;
+
+/// [`Face::Small`]'s cell height in font pixels. It has no descenders, so this
+/// is also its cap height and its ascent.
+const SMALL_H: i32 = 5;
 
 /// Which of the two authored faces a run of text is set in.
 ///
@@ -280,45 +299,81 @@ impl Face {
     #[inline]
     pub const fn cell_w(self) -> i32 {
         match self {
-            Face::Small => 3,
-            Face::Regular => CELL_W,
+            Face::Small => SMALL_W,
+            Face::Regular => font_table::CELL_W,
         }
     }
 
-    /// Cell height in font pixels.
+    /// Cell height in font pixels: [`Face::ascent`] plus the descender.
     ///
-    /// Also the cap height: the baseline is the bottom edge of the cell, because
-    /// this font has no descenders.
+    /// No longer the same number as [`Face::cap`]. The authored 5x7 face this
+    /// replaces had no descenders, so its cell, its ascent and its cap height
+    /// were one value and every caller could use whichever it liked. They are
+    /// three values now, and the distinction is load-bearing: the painter needs
+    /// the CELL to size a quad, the baseline arithmetic needs the CAP to centre
+    /// a line, and only the atlas needs the ASCENT.
     #[inline]
     pub const fn cell_h(self) -> i32 {
         match self {
-            Face::Small => 5,
-            Face::Regular => CELL_H,
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::CELL_H,
         }
     }
 
-    /// This face's glyph table: the characters it covers, and their rows.
-    ///
-    /// The two are index-parallel; `a_face_has_one_row_set_per_character` is the
-    /// test that keeps them that way, and it is the only thing standing between
-    /// a mistyped table and every glyph after it being the wrong shape.
+    /// Rows of the cell above the baseline.
     #[inline]
-    const fn table(self) -> (&'static str, &'static [[u8; CELL_H as usize]]) {
+    pub const fn ascent(self) -> i32 {
         match self {
-            Face::Small => (SMALL_CHARS, &SMALL_ROWS),
-            Face::Regular => (REGULAR_CHARS, &REGULAR_ROWS),
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::ASCENT,
+        }
+    }
+
+    /// Baseline to the top of a capital, in font pixels.
+    ///
+    /// What vertical centring is done against — see [`font_table::CAP`].
+    #[inline]
+    pub const fn cap(self) -> i32 {
+        match self {
+            Face::Small => SMALL_H,
+            Face::Regular => font_table::CAP,
+        }
+    }
+
+    /// Pen movement from one glyph's origin to the next, in font pixels.
+    #[inline]
+    pub const fn advance(self) -> i32 {
+        match self {
+            Face::Small => SMALL_W + SMALL_GAP,
+            Face::Regular => font_table::ADVANCE,
+        }
+    }
+
+    /// This face's glyph table: the characters it covers, their rows, and the
+    /// marker drawn for a character it does not cover.
+    ///
+    /// Rows are FLAT — [`Face::cell_h`] entries per glyph, in table order —
+    /// rather than an array of fixed-length arrays. The two faces no longer
+    /// have the same cell height, so there is no one array type that could hold
+    /// both without padding one of them, and the padding was what
+    /// `no_glyph_sets_a_bit_outside_its_own_cell` had to police.
+    #[inline]
+    const fn table(self) -> (&'static str, &'static [u16], &'static [u16]) {
+        match self {
+            Face::Small => (SMALL_CHARS, SMALL_ROWS, &SMALL_TOFU),
+            Face::Regular => (font_table::CHARS, font_table::ROWS, &font_table::TOFU),
         }
     }
 
     /// Index of `ch` in this face's table, or `None` for a character it has no
     /// glyph for.
     ///
-    /// A linear scan, and deliberately: the tables are 92 and 12 entries, this
-    /// runs once per DRAWN glyph and never once per measured one (measurement is
-    /// fixed-advance and needs no lookup at all), and a few hundred glyphs a
-    /// frame against a 92-char scan is not a number worth a hash map, a build
-    /// step, or a `OnceLock` that would have to be threaded through every test
-    /// of the pure layer.
+    /// A linear scan, and still deliberately: this runs once per DRAWN glyph
+    /// and never once per measured one (measurement is fixed-advance and needs
+    /// no lookup at all). The table is longer than the authored face's was —
+    /// 219 entries against 93 — which is still a few hundred pointer bumps a
+    /// frame against a hash map that would have to be built at startup and
+    /// threaded through every test of the pure layer.
     #[inline]
     fn index_of(self, ch: char) -> Option<usize> {
         self.table().0.chars().position(|c| c == ch)
@@ -326,18 +381,16 @@ impl Face {
 
     /// The rows of `ch`, or this face's missing-glyph marker.
     ///
-    /// Never `None`. A character with no glyph must still occupy its advance and
+    /// Never empty. A character with no glyph must still occupy its advance and
     /// still be visible — text that silently shortens itself is a bug that hides
-    /// until someone authors an item name with an accent in it.
+    /// until someone authors an item name this face cannot set.
     #[inline]
-    pub fn rows(self, ch: char) -> [u8; CELL_H as usize] {
-        let (_, rows) = self.table();
+    pub fn rows(self, ch: char) -> &'static [u16] {
+        let (_, rows, tofu) = self.table();
+        let h = self.cell_h() as usize;
         match self.index_of(ch) {
-            Some(i) => rows[i],
-            None => match self {
-                Face::Small => SMALL_TOFU,
-                Face::Regular => REGULAR_TOFU,
-            },
+            Some(i) => &rows[i * h..(i + 1) * h],
+            None => tofu,
         }
     }
 
@@ -350,14 +403,14 @@ impl Face {
     /// How many glyphs this face has, missing-glyph marker excluded.
     #[inline]
     pub fn glyph_count(self) -> usize {
-        self.table().1.len()
+        self.table().0.chars().count()
     }
 
     /// Is font pixel `(col, row)` of `ch` lit?
     ///
     /// Rows are stored with the leftmost column in the HIGH bit of the face's
-    /// own width, so a 3-wide glyph is written `0b111` and a 5-wide one
-    /// `0b11111` — both read as pixel art in the source, which is the entire
+    /// own width, so a 3-wide glyph is written `0b111` and a 7-wide one
+    /// `0b1111111` — both read as pixel art in the source, which is the entire
     /// reason for storing them as bits at all.
     #[inline]
     pub fn lit(self, ch: char, col: i32, row: i32) -> bool {
@@ -407,29 +460,54 @@ impl TextStyle {
     /// Buffer pixels from one glyph's left edge to the next's.
     ///
     /// Always EVEN, for either face at any scale, and the whole-pixel guarantee
-    /// for centred text rests on that — see the module header.
+    /// for centred text rests on that — see the module header. [`Face::Regular`]
+    /// is 7 font px and [`Face::Small`] 4, so this holds for `Small` at every
+    /// scale and for `Regular` at even ones; `centred_text_lands_on_whole_pixels`
+    /// is what checks the sizes actually used.
     #[inline]
     pub const fn advance(self) -> i32 {
-        (self.face.cell_w() + GLYPH_GAP) * self.scale
+        self.face.advance() * self.scale
     }
 
-    /// Cap height in buffer pixels. Also the full height of the glyph cell.
+    /// Cap height in buffer pixels: baseline to the top of a capital.
+    ///
+    /// NOT the height of the glyph cell any more. Departure Mono has room above
+    /// the cap for accents and room below the baseline for descenders, so a
+    /// quad is [`TextStyle::cell_h`] tall while the number every baseline is
+    /// worked out from is this one.
     #[inline]
     pub const fn cap_h(self) -> i32 {
+        self.face.cap() * self.scale
+    }
+
+    /// Full cell height in buffer pixels — what the painter sizes a quad to.
+    #[inline]
+    pub const fn cell_h(self) -> i32 {
         self.face.cell_h() * self.scale
     }
 
+    /// Baseline to the top of the cell, in buffer pixels.
+    #[inline]
+    pub const fn ascent(self) -> i32 {
+        self.face.ascent() * self.scale
+    }
+
     /// Baseline-to-baseline distance in buffer pixels.
+    ///
+    /// Cap plus leading, not cell plus leading: stacking whole cells would put
+    /// two lines a descender and an accent apart, which is a paragraph's worth
+    /// of air between rows of a stat panel.
     #[inline]
     pub const fn line_h(self) -> i32 {
-        (self.face.cell_h() + LINE_GAP) * self.scale
+        (self.face.cap() + LINE_GAP) * self.scale
     }
 
     /// Advance width of `text` in buffer pixels — the port's `measureText`.
     ///
-    /// Counts CHARACTERS, not bytes: `×`, `·`, `—` and the three arrows are all
-    /// multi-byte and all appear in ported strings, and measuring `"×3"` as four
-    /// glyphs would push the whole label row along by two cells.
+    /// Counts CHARACTERS, not bytes: the arrows, the dashes, `x` and the
+    /// accented letters are all multi-byte and all appear in ported strings,
+    /// and measuring `"x3"` as four glyphs would push the whole label row along
+    /// by two cells.
     ///
     /// Includes the trailing gap after the last glyph, which is what a Canvas2D
     /// advance width does too and what makes `measure` compose: the original's
@@ -473,9 +551,12 @@ pub enum Align {
 impl Align {
     /// The left edge of a `width`-wide run anchored at `x`.
     ///
-    /// Exact for all three variants: `width` is always even (see
-    /// [`TextStyle::advance`]) so the `Centre` division has no remainder, and
-    /// there is nothing to round.
+    /// Whole-pixel for all three variants, and exact for two of them. `Centre`
+    /// truncates when `width` is odd, which [`Face::Regular`]'s 7px advance now
+    /// allows: an odd number of glyphs at an odd scale halves to a `.5`, and
+    /// because the division moves the left edge towards `x` the run sits half a
+    /// pixel RIGHT of true centre. That is the most an integer grid can do, it
+    /// is deterministic, and it is under a pixel — see the module header.
     #[inline]
     const fn left_edge(self, x: i32, width: i32) -> i32 {
         match self {
@@ -486,154 +567,42 @@ impl Align {
     }
 }
 
-/// Characters [`Face::Regular`] has glyphs for, in [`REGULAR_ROWS`] order.
-const REGULAR_CHARS: &str = " !\"#%&'()*+,-./0123456789:;<=>?\
-    ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_\
-    abcdefghijklmnopqrstuvwxyz\
-    \u{2190}\u{2191}\u{2192}\u{00b7}\u{00d7}\u{2014}\u{016b}";
-
-/// [`Face::Regular`]'s glyphs: 7 rows of 5 bits, MSB leftmost, top row first.
-///
-/// Index-parallel with [`REGULAR_CHARS`]. Written as binary literals because at
-/// this size the literal IS the pixel art, and any other encoding would have to
-/// be decoded before it could be proofread.
-#[rustfmt::skip]
-const REGULAR_ROWS: [[u8; CELL_H as usize]; 93] = [
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000], // (space)
-    [0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000, 0b00100], // !
-    [0b01010, 0b01010, 0b01010, 0b00000, 0b00000, 0b00000, 0b00000], // "
-    [0b01010, 0b01010, 0b11111, 0b01010, 0b11111, 0b01010, 0b01010], // #
-    [0b11001, 0b11010, 0b00010, 0b00100, 0b01000, 0b01011, 0b10011], // %
-    [0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101], // &
-    [0b00100, 0b00100, 0b01000, 0b00000, 0b00000, 0b00000, 0b00000], // '
-    [0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010], // (
-    [0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000], // )
-    [0b00000, 0b10101, 0b01110, 0b11111, 0b01110, 0b10101, 0b00000], // *
-    [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000], // +
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00110, 0b00110, 0b01100], // ,
-    [0b00000, 0b00000, 0b00000, 0b01110, 0b00000, 0b00000, 0b00000], // -
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100], // .
-    [0b00001, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b10000], // /
-    [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110], // 0
-    [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // 1
-    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111], // 2
-    [0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110], // 3
-    [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010], // 4
-    [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110], // 5
-    [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110], // 6
-    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000], // 7
-    [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110], // 8
-    [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100], // 9
-    [0b00000, 0b01100, 0b01100, 0b00000, 0b01100, 0b01100, 0b00000], // :
-    [0b00000, 0b01100, 0b01100, 0b00000, 0b00110, 0b00110, 0b01100], // ;
-    [0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010], // <
-    [0b00000, 0b00000, 0b11111, 0b00000, 0b11111, 0b00000, 0b00000], // =
-    [0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000], // >
-    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b00000, 0b00100], // ?
-    [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], // A
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110], // B
-    [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110], // C
-    [0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100], // D
-    [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111], // E
-    [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000], // F
-    [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111], // G
-    [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], // H
-    [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // I
-    [0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100], // J
-    [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001], // K
-    [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111], // L
-    [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001], // M
-    [0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001], // N
-    [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // O
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000], // P
-    [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101], // Q
-    [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001], // R
-    [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110], // S
-    [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100], // T
-    [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // U
-    [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100], // V
-    [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001], // W
-    [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001], // X
-    [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100], // Y
-    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111], // Z
-    [0b01110, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01110], // [
-    [0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110], // ]
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111], // _
-    [0b00000, 0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111], // a
-    [0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110], // b
-    [0b00000, 0b00000, 0b01111, 0b10000, 0b10000, 0b10000, 0b01111], // c
-    [0b00001, 0b00001, 0b01111, 0b10001, 0b10001, 0b10001, 0b01111], // d
-    [0b00000, 0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110], // e
-    [0b00110, 0b01001, 0b01000, 0b11100, 0b01000, 0b01000, 0b01000], // f
-    [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b01110], // g
-    [0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001], // h
-    [0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110], // i
-    [0b00010, 0b00000, 0b00110, 0b00010, 0b00010, 0b10010, 0b01100], // j
-    [0b10000, 0b10000, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010], // k
-    [0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // l
-    [0b00000, 0b00000, 0b11010, 0b10101, 0b10101, 0b10101, 0b10101], // m
-    [0b00000, 0b00000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001], // n
-    [0b00000, 0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110], // o
-    [0b00000, 0b00000, 0b11110, 0b10001, 0b11110, 0b10000, 0b10000], // p
-    [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b00001], // q
-    [0b00000, 0b00000, 0b10110, 0b11001, 0b10000, 0b10000, 0b10000], // r
-    [0b00000, 0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110], // s
-    [0b01000, 0b01000, 0b11100, 0b01000, 0b01000, 0b01001, 0b00110], // t
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101], // u
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100], // v
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b10101, 0b10101, 0b01010], // w
-    [0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001], // x
-    [0b00000, 0b00000, 0b10001, 0b10001, 0b01111, 0b00001, 0b01110], // y
-    [0b00000, 0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b11111], // z
-    [0b00000, 0b00100, 0b01000, 0b11111, 0b01000, 0b00100, 0b00000], // U+2190 left arrow
-    [0b00100, 0b01110, 0b10101, 0b00100, 0b00100, 0b00100, 0b00100], // U+2191 up arrow
-    [0b00000, 0b00100, 0b00010, 0b11111, 0b00010, 0b00100, 0b00000], // U+2192 right arrow
-    [0b00000, 0b00000, 0b00000, 0b01100, 0b01100, 0b00000, 0b00000], // U+00B7 middle dot
-    [0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001], // U+00D7 multiply
-    [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000], // U+2014 em dash
-    // U+016B ū — the one non-ASCII letter the game's own name needs. A macron
-    // in row 0 with a gap under it, over the same bowl-and-tail the plain `u`
-    // draws in rows 2-6. It exists because the title card is drawn by THIS
-    // font: the day the game became Yūgen, "Yūgen" had to be spellable in it
-    // or the menu would greet the player with a tofu box.
-    [0b01110, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101], // U+016B ū
-];
-
-/// [`Face::Regular`]'s missing-glyph marker: the conventional hollow box.
-#[rustfmt::skip]
-const REGULAR_TOFU: [u8; CELL_H as usize] =
-    [0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11111];
-
 /// Characters [`Face::Small`] has glyphs for, in [`SMALL_ROWS`] order.
 ///
 /// Ten digits, a space and a hyphen. See [`Face::Small`] on why that is the
 /// whole set.
 const SMALL_CHARS: &str = " -0123456789";
 
-/// [`Face::Small`]'s glyphs: 5 rows of 3 bits, MSB leftmost.
+/// [`Face::Small`]'s glyphs: [`SMALL_H`] rows of [`SMALL_W`] bits each, MSB
+/// leftmost, laid out flat in [`SMALL_CHARS`] order.
 ///
-/// Rows 5 and 6 of each entry are unused padding — the array is one type so that
-/// [`Face::table`] can return either face's rows, and
-/// `no_glyph_sets_a_bit_outside_its_own_cell` asserts the padding stays zero.
+/// Authored, and staying authored. Departure Mono has no 3x5 grid to bake from
+/// — the smallest thing it can set is [`Face::Regular`] at scale 1, which is
+/// seven pixels wide — and this face exists precisely to put a digit in a
+/// hotbar slot's corner where seven pixels do not fit.
 #[rustfmt::skip]
-const SMALL_ROWS: [[u8; CELL_H as usize]; 12] = [
-    [0b000, 0b000, 0b000, 0b000, 0b000, 0, 0], // (space)
-    [0b000, 0b000, 0b111, 0b000, 0b000, 0, 0], // -
-    [0b111, 0b101, 0b101, 0b101, 0b111, 0, 0], // 0
-    [0b010, 0b110, 0b010, 0b010, 0b111, 0, 0], // 1
-    [0b111, 0b001, 0b111, 0b100, 0b111, 0, 0], // 2
-    [0b111, 0b001, 0b111, 0b001, 0b111, 0, 0], // 3
-    [0b101, 0b101, 0b111, 0b001, 0b001, 0, 0], // 4
-    [0b111, 0b100, 0b111, 0b001, 0b111, 0, 0], // 5
-    [0b111, 0b100, 0b111, 0b101, 0b111, 0, 0], // 6
-    [0b111, 0b001, 0b001, 0b010, 0b010, 0, 0], // 7
-    [0b111, 0b101, 0b111, 0b101, 0b111, 0, 0], // 8
-    [0b111, 0b101, 0b111, 0b001, 0b111, 0, 0], // 9
+const SMALL_ROWS: &[u16] = &[
+    0b000, 0b000, 0b000, 0b000, 0b000, // (space)
+    0b000, 0b000, 0b111, 0b000, 0b000, // -
+    0b111, 0b101, 0b101, 0b101, 0b111, // 0
+    0b010, 0b110, 0b010, 0b010, 0b111, // 1
+    0b111, 0b001, 0b111, 0b100, 0b111, // 2
+    0b111, 0b001, 0b111, 0b001, 0b111, // 3
+    0b101, 0b101, 0b111, 0b001, 0b001, // 4
+    0b111, 0b100, 0b111, 0b001, 0b111, // 5
+    0b111, 0b100, 0b111, 0b101, 0b111, // 6
+    0b111, 0b001, 0b001, 0b010, 0b010, // 7
+    0b111, 0b101, 0b111, 0b101, 0b111, // 8
+    0b111, 0b101, 0b111, 0b001, 0b111, // 9
 ];
 
-/// [`Face::Small`]'s missing-glyph marker: a solid block. See [`Face::Small`].
+/// [`Face::Small`]'s missing-glyph marker: a solid block.
+///
+/// Solid, and not the hollow box [`Face::Regular`] uses: a hollow 3x5 box is the
+/// digit zero, and a missing-glyph marker that reads as a valid character is
+/// worse than no marker at all.
 #[rustfmt::skip]
-const SMALL_TOFU: [u8; CELL_H as usize] = [0b111, 0b111, 0b111, 0b111, 0b111, 0, 0];
+const SMALL_TOFU: [u16; SMALL_H as usize] = [0b111, 0b111, 0b111, 0b111, 0b111];
 
 // ---------------------------------------------------------------------------
 // Colour
@@ -854,15 +823,6 @@ const MARGIN: i32 = 16;
 /// the strip, so nothing has to grow to accommodate it.
 const SELECT_LIFT: i32 = 2;
 
-/// Health bar width in buffer px.
-const BAR_W: i32 = 220;
-
-/// Health bar height in buffer px.
-const BAR_H: i32 = 20;
-
-/// Radius of the dash-readiness pip, in buffer px.
-const PIP_R: i32 = 8;
-
 /// Baseline of the toast line, as px UP from the bottom of the buffer.
 ///
 /// 96 clears the 78px the plate occupies (`PANEL_H` plus its 4px bleed and the
@@ -881,6 +841,11 @@ const NOTE_UP: i32 = 122;
 /// seconds and fades over the last one.
 pub const TOAST_LIFE_S: f32 = 3.0;
 
+// The type ladder below is the port's, kept because the hotbar and the crafting
+// card still measure against these names. `theme` carries the ladder going
+// forward — same sizes, named for what they are for rather than for how many
+// CSS pixels the TypeScript asked for — and new UI should use that.
+
 /// The 8px tier: a hotbar slot's key digit, and nothing else.
 const KEY: TextStyle = TextStyle::for_px(8);
 
@@ -896,17 +861,11 @@ const HINT: TextStyle = TextStyle::for_px(12);
 /// The 13px tier: the held item's name, the HP readout, the toast.
 const LABEL: TextStyle = TextStyle::for_px(13);
 
-/// The 14px tier: the menu card's control line.
-const CARD_HINT: TextStyle = TextStyle::for_px(14);
-
 /// The 18px tier: a screen card's subtitle.
 const CARD_BODY: TextStyle = TextStyle::for_px(18);
 
 /// The 52px tier: the game-over card's headline.
 const CARD_DEAD: TextStyle = TextStyle::for_px(52);
-
-/// The 56px tier: the menu card's title.
-const CARD_TITLE: TextStyle = TextStyle::for_px(56);
 
 /// The stack count's own tier, split out because [`digits_w`] pins to it.
 const COUNT: TextStyle = SMALL;
@@ -945,10 +904,17 @@ pub fn icon_scale(cells_w: i32, cells_h: i32) -> i32 {
 ///
 /// The TypeScript kept this to avoid allocating a `TextMetrics` per occupied
 /// slot per frame. That reason is gone — measurement here is a multiplication —
-/// but the function is not, because it is the ANCHOR that pins this font's
-/// advance to the original's: `digits_w(n) == COUNT.measure(&n.to_string())`,
-/// asserted below. If someone retunes [`GLYPH_GAP`] or [`CELL_W`], that test is
-/// what tells them the 10px equivalence they inherited is gone.
+/// but the function is not, because it is the ANCHOR that keeps a stack count's
+/// reserved width and its drawn width the same number:
+/// `digits_w(n) == COUNT.measure(&n.to_string())`, asserted below.
+///
+/// It used to anchor something else as well, and no longer can. The original
+/// hard-coded ~6px per digit for its 10px sans, and the authored face was built
+/// to match; Departure Mono advances at 7. The equivalence is gone and the
+/// module header explains why it had to be. What this still catches is the
+/// failure that actually bites: a change to the face that moves the advance
+/// without moving the reservation, so every hotbar count starts overlapping the
+/// swatch beside it.
 pub fn digits_w(n: u32) -> i32 {
     let digits = if n >= 100 {
         3
@@ -1066,7 +1032,7 @@ fn shadowed(
 /// module header on why that does not survive a nearest-neighbour upscale. The
 /// centre is a pixel CORNER, not a pixel centre, which is why the sample point
 /// for row `py` is `py + 0.5` — that is where the pixel actually is.
-fn disc(out: &mut Vec<UiPrim>, cx: i32, cy: i32, r: i32, color: Color) {
+pub fn disc(out: &mut Vec<UiPrim>, cx: i32, cy: i32, r: i32, color: Color) {
     for py in (cy - r)..(cy + r) {
         let dy = py as f32 + 0.5 - cy as f32;
         let inside = (r * r) as f32 - dy * dy;
@@ -1110,137 +1076,284 @@ fn js_num(v: f32) -> String {
 // Hud.ts
 // ---------------------------------------------------------------------------
 
-/// The health bar, the dash pip and the control hints.
+/// The playing HUD: [`vitals_at`] and [`hints_at`] together.
 ///
-/// `drawHud` in `src/ui/Hud.ts`, drawn after the world in screen space.
+/// Kept as one call because that is what the port's `drawHud` was and what the
+/// pure tests below exercise. `compose` no longer uses it — the two halves are
+/// separate [`page::Layer`]s now, because the hints fade out and the vitals do
+/// not.
 pub fn hud(health: f32, dash_ready: bool, view: View) -> Vec<UiPrim> {
     hud_with(health, dash_ready, 0.0, 0, view)
 }
 
 /// [`hud`], plus the two numbers that had nowhere to be shown.
-///
-/// `armour` is what a hit is reduced by and `xp` is what `MobSystem` has banked.
-/// Both were real and invisible: the XP counter has been incremented on every
-/// kill since M6 and read by nothing, which is the `HANDOFF.md` §7.1 shape —
-/// a value that is written, plausible, and never looked at.
-///
-/// Zero of either draws nothing. A player with no armour should not carry a
-/// "0" telling them so, and the HUD's whole design is that a row appears when
-/// it has something to say.
 pub fn hud_with(health: f32, dash_ready: bool, armour: f32, xp: i32, view: View) -> Vec<UiPrim> {
+    let chrome = layout::Chrome::of(view);
+    let dash = if dash_ready { 1.0 } else { 0.0 };
+    let mut out = vitals_at(health, dash, 0.0, armour, xp, None, chrome);
+    out.extend(hints_at(1.0, chrome));
+    out
+}
+
+/// Health, dash charge, and the stat row under them.
+///
+/// # What changed, and why it is smaller
+///
+/// The port's bar was 220 x 20 px on a 228 x 28 plate: a fifth of the buffer's
+/// width, carrying one number that was also printed on it in words. It was the
+/// loudest thing on a screen whose subject is the world — see [`theme`] on the
+/// overlay receding. This is 118 x 7 on a 196 x 32 plate, and it says strictly
+/// more:
+///
+/// - **The dash is a bar, not a pip.** `dash_charge` is a fraction and always
+///   was; the HUD was being handed one bit of it. A player who has just dashed
+///   could see THAT they could not dash and never how long they had to wait.
+/// - **Damage flashes.** `flash` is 1.0 on the frame health drops and decays;
+///   the bar washes toward white over its own colour. A number that changes is
+///   a number nobody sees change while they are looking at what hit them.
+/// - **Depth and biome are the player's now.** Both were computed every frame
+///   and shown only to F3. "How deep am I" is a question about the game, not
+///   about the build.
+///
+/// `armour`, `xp` and `place` all draw nothing when they have nothing to say.
+/// A player with no armour should not carry a "0" telling them so.
+pub fn vitals_at(
+    health: f32,
+    dash: f32,
+    flash: f32,
+    armour: f32,
+    xp: i32,
+    place: Option<(&str, f32)>,
+    chrome: layout::Chrome,
+) -> Vec<UiPrim> {
     let mut out = Vec::new();
-    let (x, y) = (MARGIN, MARGIN);
+    let plate = chrome.vitals;
+    let c = plate.inset(PLATE_PAD);
+    if c.w <= 0 || c.h <= 0 {
+        return out;
+    }
     let frac = (health / MAX_HEALTH).clamp(0.0, 1.0);
 
     out.push(UiPrim::rect(
-        x - 4,
-        y - 4,
-        BAR_W + 8,
-        BAR_H + 8,
-        rgba(0, 0, 0, 0.6),
+        plate.x,
+        plate.y,
+        plate.w,
+        plate.h,
+        theme::PLATE,
     ));
-    out.push(UiPrim::rect(x, y, BAR_W, BAR_H, rgb(0x3c, 0x3c, 0x3c)));
 
-    // Green -> red as health drops.
-    let r = js_round(220.0 - 130.0 * frac) as u8;
-    let g = js_round(60.0 + 140.0 * frac) as u8;
+    // Row one: the reading, then the bar. The number leads because it is the
+    // precise answer and the bar is the glanceable one.
+    let hp = format!("HP {}", js_round(health));
+    out.push(UiPrim::text(
+        hp,
+        c.x,
+        theme::BODY.baseline_from_top(c.y),
+        Align::Left,
+        theme::BODY,
+        theme::INK,
+    ));
+    let bar_x = c.x + GUTTER;
+    let bar_w = c.right() - bar_x;
+    let bar_y = c.y + (theme::BODY.cap_h() - BAR_H) / 2;
+    out.push(UiPrim::rect(bar_x, bar_y, bar_w, BAR_H, theme::WELL));
     // The one place the original let a fractional rect through and leant on
     // canvas antialiasing. Rounded, because the blit does not smooth.
     out.push(UiPrim::rect(
-        x,
-        y,
-        js_round(BAR_W as f32 * frac),
+        bar_x,
+        bar_y,
+        js_round(bar_w as f32 * frac),
         BAR_H,
-        rgb(r, g, 60),
+        flashed(theme::vitality(frac), flash),
     ));
 
-    out.push(UiPrim::text(
-        format!("HP {}", js_round(health)),
-        x + 8,
-        LABEL.baseline_from_middle(y + BAR_H / 2 + 1),
-        Align::Left,
-        LABEL,
-        rgb(0xff, 0xff, 0xff),
-    ));
-
-    // Armour and XP, on the row under the bar. Left-aligned with it rather than
-    // beside the dash pip, because they are STATS and the pip is a state — a
-    // player scanning for "how tough am I" reads down from the health bar.
-    let mut stat_x = MARGIN;
-    let stat_y = MARGIN + BAR_H + 12;
-    if armour > 0.0 {
-        let text = format!("ARM {}", js_round(armour));
-        out.push(UiPrim::text(
-            text.clone(),
-            stat_x,
-            stat_y,
-            Align::Left,
-            SMALL,
-            rgb(0x96, 0xc8, 0xff),
-        ));
-        stat_x += SMALL.measure(&text) + 14;
-    }
-    if xp > 0 {
-        out.push(UiPrim::text(
-            format!("XP {xp}"),
-            stat_x,
-            stat_y,
-            Align::Left,
-            SMALL,
-            rgb(0xd2, 0xc8, 0x8c),
-        ));
-    }
-
-    // Dash readiness pip.
-    let pip_x = x + BAR_W + 28;
-    let pip_y = y + BAR_H / 2;
-    disc(
-        &mut out,
-        pip_x,
-        pip_y,
-        PIP_R,
-        if dash_ready {
-            rgb(0x78, 0xc8, 0xff)
-        } else {
-            rgb(0x46, 0x50, 0x5a)
-        },
-    );
+    // Row two: the dash, on the same left edge and the same gutter, so the two
+    // bars stack rather than merely both being present.
+    let row2 = c.y + ROW_PITCH;
     out.push(UiPrim::text(
         "DASH",
-        pip_x + 14,
-        MINOR.baseline_from_middle(pip_y + 1),
+        c.x,
+        theme::CAPTION.baseline_from_top(row2),
         Align::Left,
-        MINOR,
-        if dash_ready {
-            rgba(255, 255, 255, 0.86)
+        theme::CAPTION,
+        if dash >= 1.0 {
+            theme::INK_FAINT
         } else {
-            rgba(255, 255, 255, 0.35)
+            theme::INK_MUTED
+        },
+    ));
+    let dash_y = row2 + (theme::CAPTION.cap_h() - DASH_H) / 2;
+    out.push(UiPrim::rect(bar_x, dash_y, DASH_W, DASH_H, theme::WELL));
+    out.push(UiPrim::rect(
+        bar_x,
+        dash_y,
+        js_round(DASH_W as f32 * dash.clamp(0.0, 1.0)),
+        DASH_H,
+        if dash >= 1.0 {
+            theme::ACCENT
+        } else {
+            theme::ACCENT_SPENT
         },
     ));
 
-    let right = view.w - MARGIN;
+    // The stat row, under the plate: things that are true rather than things
+    // that are changing.
+    //
+    // On a plate of its own, sized to what it actually says. The first version
+    // let it sit on the world and the capture settled it — `Tundra 30%` in
+    // INK_DIM over a snowfield is not a readout, it is a rumour. A plate that
+    // hugs its text costs three pixels either side and works over anything.
+    //
+    // All one colour. The port gave armour a blue and XP a gold, which `theme`
+    // retires: a colour means something or it is absent, and neither of those
+    // had a meaning either of them could have named.
+    let mut stats: Vec<String> = Vec::new();
+    if armour > 0.0 {
+        stats.push(format!("ARM {}", js_round(armour)));
+    }
+    if xp > 0 {
+        stats.push(format!("XP {xp}"));
+    }
+    if let Some((biome, depth)) = place {
+        // Depth as a percentage of the range rather than a raw 0..1: "62%" is a
+        // reading and "0.618" is a debug value that wandered onto the HUD.
+        stats.push(format!("{biome} {}%", js_round(depth * 100.0)));
+    }
+    if !stats.is_empty() {
+        let line = stats.join("   ");
+        let w = theme::CAPTION.measure(&line);
+        let row = chrome.stats;
+        out.push(UiPrim::rect(
+            row.x,
+            row.y,
+            w + 2 * STAT_PAD,
+            theme::CAPTION.cap_h() + 2 * STAT_PAD,
+            theme::PLATE,
+        ));
+        out.push(UiPrim::text(
+            line,
+            row.x + STAT_PAD,
+            theme::CAPTION.baseline_from_top(row.y + STAT_PAD),
+            Align::Left,
+            theme::CAPTION,
+            theme::INK_DIM,
+        ));
+    }
+    out
+}
+
+/// Inset from the stat plate's edge to its text.
+///
+/// Tighter than [`PLATE_PAD`]: this plate exists only to put a background
+/// behind one short line, and any more air would make it read as a panel.
+const STAT_PAD: i32 = 3;
+
+/// Inset from the vitals plate's edge to its content.
+const PLATE_PAD: i32 = 5;
+
+/// Left edge of both bars, measured from the content's left edge.
+///
+/// Wide enough for `HP 100` at [`theme::BODY`] — six glyphs at a 7px advance —
+/// plus a gap. The dash bar shares it so the two stack on one column.
+const GUTTER: i32 = 50;
+
+/// Baseline-to-baseline of the vitals plate's two rows.
+const ROW_PITCH: i32 = 11;
+
+/// Height of the health bar, in buffer px.
+const BAR_H: i32 = 7;
+
+/// Width of the dash bar.
+///
+/// Shorter than the health bar on purpose: it is a timer measured in half a
+/// second, and giving it the same length as a resource the player spends the
+/// whole game managing would say they were the same kind of thing.
+const DASH_W: i32 = 56;
+
+/// Height of the dash bar. Thinner than the health bar, for the same reason.
+const DASH_H: i32 = 3;
+
+/// Seconds the damage flash takes to decay.
+///
+/// Short. It has to survive a frame the player was not looking at the bar
+/// during, and outstay its welcome in none of them.
+pub const FLASH_S: f32 = 0.35;
+
+/// `color` washed toward white by `flash`, `0.0..=1.0`.
+///
+/// Toward white and not toward red: the bar is already red when it matters, and
+/// a red flash on a red bar is a flash nobody sees. Alpha is left alone so the
+/// wash cannot make a translucent thing opaque.
+fn flashed(color: Color, flash: f32) -> Color {
+    let k = flash.clamp(0.0, 1.0);
+    if k <= 0.0 {
+        return color;
+    }
+    let s = color.to_srgba();
+    Color::srgba(
+        s.red + (1.0 - s.red) * k,
+        s.green + (1.0 - s.green) * k,
+        s.blue + (1.0 - s.blue) * k,
+        s.alpha,
+    )
+}
+
+/// Seconds the control hints stay at full strength at the start of a run.
+///
+/// Long enough to read all three lines twice without hurrying, which is the
+/// only thing the number has to be. They come back on the pause card, so this
+/// is a fade rather than a deletion — see [`pause_at`].
+const HINTS_HOLD_S: f32 = 25.0;
+
+/// Seconds the hints take to fade out once [`HINTS_HOLD_S`] is up.
+///
+/// Slow enough not to read as a glitch. A hint stack that vanishes between two
+/// frames looks like a bug in the overlay; one that dissolves over four seconds
+/// looks like it is getting out of the way.
+const HINTS_FADE_S: f32 = 4.0;
+
+/// The control hints, top right, at `alpha`.
+///
+/// The port drew these permanently. They are the first thing a player stops
+/// reading and the last thing they stop seeing, which makes them the clearest
+/// candidate for the one thing this HUD was missing: the ability to shut up.
+pub fn hints_at(alpha: f32, chrome: layout::Chrome) -> Vec<UiPrim> {
+    let mut out = Vec::new();
+    if alpha <= 0.0 {
+        return out;
+    }
+    let right = chrome.hints.right();
+    let fade = |c: Color| -> Color {
+        let s = c.to_srgba();
+        Color::srgba(s.red, s.green, s.blue, s.alpha * alpha)
+    };
     out.push(UiPrim::text(
         "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
         right,
-        HINT.baseline_from_top(18),
+        theme::HINT.baseline_from_top(chrome.hints.y),
         Align::Right,
-        HINT,
-        rgba(255, 255, 255, 0.6),
+        theme::HINT,
+        fade(theme::INK_FAINT),
     ));
-    for (line, top) in [
-        ("LMB dig   RMB place   1-0 / wheel hotbar", 36),
-        ("F use   C craft   G creative   Alt wall", 50),
+    for (line, row) in [
+        ("LMB dig   RMB place   1-0 / wheel hotbar", 1),
+        ("F use   C craft   G creative   Alt wall", 2),
     ] {
         out.push(UiPrim::text(
             line,
             right,
-            MINOR.baseline_from_top(top),
+            theme::MINOR.baseline_from_top(chrome.hints.y + row * 14),
             Align::Right,
-            MINOR,
-            rgba(255, 255, 255, 0.42),
+            theme::MINOR,
+            fade(theme::INK_MUTED),
         ));
     }
     out
+}
+
+/// How opaque the hints are at `age` seconds into a run.
+pub fn hints_alpha(age: f32) -> f32 {
+    ((HINTS_HOLD_S + HINTS_FADE_S - age) / HINTS_FADE_S).clamp(0.0, 1.0)
 }
 
 /// One transient line above the hotbar: what you just crafted, drank, or failed
@@ -1283,33 +1396,166 @@ fn overlay(out: &mut Vec<UiPrim>, view: View) {
 
 /// The title card. `drawMenu` in `src/ui/Screens.ts`.
 pub fn menu(view: View) -> Vec<UiPrim> {
+    menu_at(MenuCursor::default(), view)
+}
+
+/// What the title card offers, in the order it lists them.
+///
+/// Two, and deliberately not four. "Continue" belongs on the world list, which
+/// already knows which saves exist and which one was last played; putting it
+/// here would mean the menu reading the saves directory to decide whether to
+/// grey a row out, which is the world list's whole job. "Settings" would be a
+/// screen with nothing on it.
+pub const MENU_ITEMS: [&str; 2] = ["Play", "Quit"];
+
+/// Which title-card row is under the cursor.
+///
+/// A resource rather than a field on a screen struct, because the menu has no
+/// other state and inventing one to hold a single `usize` would be the kind of
+/// ceremony `worldselect`'s `WorldPicker` earns and this does not.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuCursor(pub usize);
+
+impl MenuCursor {
+    /// Move by `delta`, wrapping at both ends.
+    ///
+    /// Wrapping rather than clamping, on two items: pressing down twice to get
+    /// back to the top is what every list in this game does, and a two-row list
+    /// that stopped at the bottom would feel broken rather than bounded.
+    pub fn step(&mut self, delta: i32) {
+        let n = MENU_ITEMS.len() as i32;
+        self.0 = (((self.0 as i32 + delta) % n + n) % n) as usize;
+    }
+
+    /// The row under the cursor, clamped so a stale index cannot index past the
+    /// list if [`MENU_ITEMS`] ever shrinks.
+    pub fn item(self) -> &'static str {
+        MENU_ITEMS[self.0.min(MENU_ITEMS.len() - 1)]
+    }
+}
+
+/// The title card. `drawMenu` in `src/ui/Screens.ts`, grown a cursor.
+///
+/// The port's menu was one line of prose — *"Press Enter or Space to start"* —
+/// which is what the TypeScript had and is a promise with exactly one thing
+/// behind it. A list is what lets a second thing exist without the card having
+/// to be redesigned around it, and `stack` already makes adding one cheap.
+pub fn menu_at(cursor: MenuCursor, view: View) -> Vec<UiPrim> {
     let mut out = Vec::new();
     overlay(&mut out, view);
     let (cx, cy) = (view.w / 2, view.h / 2);
+
     out.push(UiPrim::text(
         "Yūgen",
         cx,
-        CARD_TITLE.baseline_from_middle(cy - 60),
+        theme::CARD_TITLE.baseline_from_middle(cy - 84),
         Align::Centre,
-        CARD_TITLE,
-        rgb(0xff, 0xff, 0xff),
+        theme::CARD_TITLE,
+        theme::INK,
+    ));
+    // A hairline under the title, drawn from the em-width block glyph rather
+    // than a rect, so it sits on the same grid the type does.
+    out.push(UiPrim::rect(cx - 60, cy - 40, 120, 1, theme::EDGE));
+
+    for (i, label) in MENU_ITEMS.iter().enumerate() {
+        let picked = i == cursor.0;
+        let row_y = cy + 4 + i as i32 * 26;
+        if picked {
+            // The selection is a plate and a mark, not a colour: the same
+            // reasoning `build_hud`'s selected slot uses, that a signal carried
+            // only by hue is a signal lost against a bright world.
+            let w = theme::CARD_BODY.measure(label) + 48;
+            out.push(UiPrim::rect(cx - w / 2, row_y - 11, w, 24, theme::PLATE));
+        }
+        out.push(UiPrim::text(
+            if picked {
+                format!("\u{00bb} {label}")
+            } else {
+                (*label).to_string()
+            },
+            cx,
+            theme::CARD_BODY.baseline_from_middle(row_y),
+            Align::Centre,
+            theme::CARD_BODY,
+            if picked { theme::INK } else { theme::INK_MUTED },
+        ));
+    }
+
+    out.push(UiPrim::text(
+        "\u{2191}/\u{2193} choose   Enter select",
+        cx,
+        theme::CARD_HINT.baseline_from_middle(cy + 76),
+        Align::Centre,
+        theme::CARD_HINT,
+        theme::INK_DIM,
+    ));
+    out
+}
+
+/// The pause card, over a live world.
+///
+/// # Why this is a card and not a screen
+///
+/// `scenes::Scene` deliberately had no `Paused`, and its comment said why:
+/// *"the original had neither, and inventing one here would be a design change
+/// wearing a port's clothes."* This IS that design change, made on purpose, and
+/// the comment has been rewritten to say so. But it is still not a `Scene`:
+/// `start_a_run` hangs off `OnEnter(Scene::Playing)`, so leaving a `Scene::Paused`
+/// back to `Playing` would re-fire that hook and rebuild the world under the
+/// live player — the exact hazard `Scene`'s own docs warn about. Pause is a
+/// resource and a layer drawn OVER the HUD, which is also what makes it honest:
+/// the world is still there, and the player can still see it.
+///
+/// # What it shows
+///
+/// The controls, which is where the HUD's fading hint stack went. A player who
+/// has forgotten which key crafts is a player who has stopped playing for a
+/// moment, and this is where they already are.
+pub fn pause_at(chrome: layout::Chrome, view: View) -> Vec<UiPrim> {
+    let mut out = Vec::new();
+    // A lighter scrim than the title card's: the world underneath is the thing
+    // the player is coming back to, and dimming it to the same degree as a menu
+    // would say the run had ended.
+    out.push(UiPrim::rect(0, 0, view.w, view.h, theme::PLATE));
+
+    let cx = view.w / 2;
+    let cy = view.h / 2;
+    out.push(UiPrim::text(
+        "Paused",
+        cx,
+        theme::CARD_BODY.baseline_from_middle(cy - 48),
+        Align::Centre,
+        theme::CARD_BODY,
+        theme::INK,
     ));
     out.push(UiPrim::text(
-        "Press Enter or Space to start",
+        "Esc to resume",
         cx,
-        CARD_BODY.baseline_from_middle(cy + 10),
+        theme::CARD_HINT.baseline_from_middle(cy - 24),
         Align::Centre,
-        CARD_BODY,
-        rgb(0xc8, 0xc8, 0xc8),
+        theme::CARD_HINT,
+        theme::INK_DIM,
     ));
-    out.push(UiPrim::text(
-        "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash   L-click dig   R-click place",
-        cx,
-        CARD_HINT.baseline_from_middle(cy + 50),
-        Align::Centre,
-        CARD_HINT,
-        rgb(0x96, 0x96, 0x96),
-    ));
+
+    // The hint stack the HUD fades out, at rest and centred.
+    for (row, line) in [
+        "\u{2190}/\u{2192} move   \u{2191} jump   Shift dash",
+        "LMB dig   RMB place   1-0 / wheel hotbar",
+        "F use   C craft   G creative   Alt wall",
+    ]
+    .iter()
+    .enumerate()
+    {
+        out.push(UiPrim::text(
+            *line,
+            cx,
+            theme::MINOR.baseline_from_middle(cy + 12 + row as i32 * 16),
+            Align::Centre,
+            theme::MINOR,
+            theme::INK_FAINT,
+        ));
+    }
+    let _ = chrome;
     out
 }
 
@@ -1335,6 +1581,49 @@ pub fn game_over(view: View) -> Vec<UiPrim> {
         rgb(0xdc, 0xdc, 0xdc),
     ));
     out
+}
+
+// ---------------------------------------------------------------------------
+// Layer entry points
+// ---------------------------------------------------------------------------
+//
+// Thin adapters from `page::PageCx` to the pure functions above. They exist so
+// that the pure functions keep taking exactly what they need — which is what
+// lets them be tested with no world, no app and no resources — while
+// `page::Layer::layout` still has one uniform signature to dispatch through.
+
+/// [`vitals_at`], reading from the frame's context.
+pub(crate) fn vitals(cx: &page::PageCx) -> Vec<UiPrim> {
+    match cx.body {
+        Some(body) => vitals_at(
+            body.0.health,
+            body.0.dash_charge(),
+            cx.flash,
+            body.0.armour,
+            cx.xp,
+            // Biome and depth come off the debug readout, which is not a layer
+            // violation: `DebugReadout` is a per-frame summary of the world,
+            // gathered in `PreUpdate` from the mood `ambience` published and the
+            // depth `light` solved. Re-deriving either here would be a second
+            // opinion about the same frame, which `debug`'s own header is
+            // explicit about not wanting.
+            cx.debug.live.then_some((cx.debug.biome.0, cx.debug.depth)),
+            cx.chrome,
+        ),
+        // No body yet. The bar would be a lie and an empty plate is worse than
+        // nothing, so this draws nothing at all.
+        None => Vec::new(),
+    }
+}
+
+/// [`hints_at`], faded by how long this run has been going.
+pub(crate) fn hints(cx: &page::PageCx) -> Vec<UiPrim> {
+    hints_at(hints_alpha(cx.run_age_s), cx.chrome)
+}
+
+/// [`pause_at`], reading from the frame's context.
+pub(crate) fn pause(cx: &page::PageCx) -> Vec<UiPrim> {
+    pause_at(cx.chrome, cx.view)
 }
 
 // ---------------------------------------------------------------------------
@@ -1920,6 +2209,62 @@ impl Icons {
     }
 }
 
+/// How recently the player was hurt, and what they were on when it happened.
+///
+/// A resource because the HUD is a pure function of the frame and "health went
+/// down since last frame" is not a property of one frame. Kept here rather than
+/// on the body: the body's health is the model, and how loudly to say it
+/// changed is the overlay's business.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct DamageFlash {
+    /// Health as of the previous frame, for the comparison.
+    last: f32,
+    /// Seconds of flash remaining.
+    t: f32,
+}
+
+impl DamageFlash {
+    /// How bright the wash is right now, `0.0..=1.0`.
+    pub fn alpha(&self) -> f32 {
+        (self.t / FLASH_S).clamp(0.0, 1.0)
+    }
+}
+
+/// Watch the body's health and fire [`DamageFlash`] when it drops.
+///
+/// Only on a DROP. A heal is good news and the number going up says so on its
+/// own; flashing for both would make the signal mean "health changed", which
+/// the player can already see.
+fn watch_health(
+    time: Res<Time<Real>>,
+    body: Option<Res<PlayerBody>>,
+    mut flash: ResMut<DamageFlash>,
+) {
+    flash.t = (flash.t - time.delta_secs()).max(0.0);
+    let Some(body) = body else {
+        return;
+    };
+    let now = body.0.health;
+    if now < flash.last {
+        flash.t = FLASH_S;
+    }
+    flash.last = now;
+}
+
+/// Seconds since the current run began.
+///
+/// Reset by `glue::start_a_run`, ticked here. It exists for one caller — the
+/// control hints, which hold and then fade — but it is a resource rather than a
+/// field on the hint layer because "how long has this run been going" is a
+/// question a tutorial prompt, a difficulty ramp or an achievement would all
+/// ask, and none of them should have to reach into the HUD to get it.
+///
+/// Real seconds, not simulated: this measures how long the PLAYER has been
+/// looking at the screen, so it must keep counting while the game is paused
+/// under a card telling them what the controls are.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct RunAge(pub f32);
+
 /// This frame's display list, rebuilt from scratch every frame.
 ///
 /// Rebuilt rather than diffed because it is a few hundred `i32`s into a `Vec`
@@ -1942,18 +2287,24 @@ pub struct FontAtlas {
 impl FontAtlas {
     /// Source rect for glyph `index` of `face`, in texture pixels.
     ///
-    /// Both faces stride by [`CELL_W`] even though `Small` is 3 wide, so that a
-    /// glyph index maps to an x with no per-face table. The two unused columns
-    /// are never sampled.
+    /// Both faces stride by [`ATLAS_STRIDE`] even though `Small` is 3 wide, so
+    /// that a glyph index maps to an x with no per-face table. The unused
+    /// columns are never sampled.
     fn rect(face: Face, index: usize) -> Rect {
-        let x = index as f32 * CELL_W as f32;
+        let x = index as f32 * ATLAS_STRIDE as f32;
         let top = match face {
             Face::Regular => 0.0,
-            Face::Small => CELL_H as f32,
+            Face::Small => font_table::CELL_H as f32,
         };
         Rect::new(x, top, x + face.cell_w() as f32, top + face.cell_h() as f32)
     }
 }
+
+/// Columns one glyph's atlas cell occupies, whichever face it belongs to.
+///
+/// The wider of the two faces, so a glyph index is an x multiplied by a
+/// constant and nothing has to know which face it came from.
+const ATLAS_STRIDE: i32 = font_table::CELL_W;
 
 /// The pooled quads every prim is painted with.
 ///
@@ -1965,6 +2316,17 @@ impl FontAtlas {
 #[derive(Resource, Default)]
 pub struct UiQuads {
     pool: Vec<Entity>,
+}
+
+impl UiQuads {
+    /// How many quads have ever been needed at once.
+    ///
+    /// The pool never shrinks, so this is a high-water mark rather than a live
+    /// count — which is the useful number, and the one the F3 panel reports
+    /// beside the live prim count so the gap between them is visible.
+    pub fn pool_len(&self) -> usize {
+        self.pool.len()
+    }
 }
 
 /// Marks a pooled overlay quad.
@@ -2028,6 +2390,14 @@ struct HudSources<'w> {
     creatures: Option<Res<'w, crate::mobs::Creatures>>,
     /// Whether the F3 panel is up.
     debug_shown: Res<'w, crate::debug::DebugOverlay>,
+    /// Whether the world is stopped under a pause card.
+    paused: Res<'w, crate::scenes::Paused>,
+    /// How long this run has been going, for chrome that fades out.
+    run_age: Res<'w, RunAge>,
+    /// Which title-card row is under the cursor.
+    menu: Res<'w, MenuCursor>,
+    /// How recently the player was hurt.
+    flash: Res<'w, DamageFlash>,
     /// What it would say. Gathered in `PreUpdate`, so this is THIS frame's.
     debug: Res<'w, crate::debug::DebugReadout>,
 }
@@ -2051,14 +2421,23 @@ struct Painter<'w, 's> {
 
 /// The overlay: the bitmap font, the HUD, the build panel and the screen cards.
 ///
-/// Deliberately NOT in [`crate::YugenRenderPlugin`] — the group's order is the
-/// binary's business, and this has to go last, after the light composite.
+/// Added to [`crate::YugenRenderPlugin`] second to last, after the light
+/// composite and before [`crate::glue::GluePlugin`] — the overlay is not in the
+/// world and must not be dimmed by the world's darkness.
+///
+/// This comment used to say the plugin was "deliberately NOT in
+/// `YugenRenderPlugin`". It has been in that group since the group existed; the
+/// note survived the change that put it there and was describing a build nobody
+/// had shipped.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiScreen>()
             .init_resource::<Toast>()
+            .init_resource::<RunAge>()
+            .init_resource::<MenuCursor>()
+            .init_resource::<DamageFlash>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
             .init_resource::<UiQuads>()
@@ -2067,6 +2446,7 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     tick_toast,
+                    watch_health,
                     compose.run_if(resource_exists::<Tool>.and_then(resource_exists::<Pack>)),
                     paint.run_if(resource_exists::<FontAtlas>),
                 )
@@ -2084,21 +2464,20 @@ impl Plugin for UiPlugin {
 /// should not depend on a setting made somewhere else.
 fn bake_font(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let cells = Face::Regular.glyph_count().max(Face::Small.glyph_count());
-    let w = cells as i32 * CELL_W;
+    let w = cells as i32 * ATLAS_STRIDE;
     let h = Face::Regular.cell_h() + Face::Small.cell_h();
     let mut data = vec![0u8; (w * h) as usize * 4];
-
-    for (face, row_top) in [(Face::Regular, 0), (Face::Small, CELL_H)] {
+    for (face, row_top) in [(Face::Regular, 0), (Face::Small, font_table::CELL_H)] {
         for (index, ch) in face.chars().enumerate() {
             for row in 0..face.cell_h() {
                 for col in 0..face.cell_w() {
                     if !face.lit(ch, col, row) {
                         continue;
                     }
-                    let px = index as i32 * CELL_W + col;
+                    let px = index as i32 * ATLAS_STRIDE + col;
                     let py = row_top + row;
-                    let o = ((py * w + px) * 4) as usize;
-                    data[o..o + 4].copy_from_slice(&[255, 255, 255, 255]);
+                    let at = ((py * w + px) * 4) as usize;
+                    data[at..at + 4].copy_from_slice(&[255, 255, 255, 255]);
                 }
             }
         }
@@ -2123,57 +2502,56 @@ fn bake_font(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 }
 
 /// Count the toast down.
-fn tick_toast(time: Res<Time>, mut toast: ResMut<Toast>) {
+fn tick_toast(time: Res<Time<Real>>, mut toast: ResMut<Toast>, mut age: ResMut<RunAge>) {
+    // `Time<Real>` rather than `Time`: both of these are about what the player
+    // has had time to read, and neither should stop while the world is paused
+    // or run at a synthetic rate under `--script`'s manual clock.
     toast.tick(time.delta_secs());
+    age.0 += time.delta_secs();
 }
 
 /// Build this frame's display list.
 ///
 /// The whole of the port's layout runs here, and none of it touches an entity.
-fn compose(sources: HudSources, target: Res<LowResTarget>, mut frame: ResMut<UiFrame>) {
+fn compose(
+    sources: HudSources,
+    target: Res<LowResTarget>,
+    mut frame: ResMut<UiFrame>,
+    mut order: Local<Vec<page::Layer>>,
+) {
     let view = target.view;
     let prims = &mut frame.prims;
     prims.clear();
 
-    match *sources.screen {
-        UiScreen::Menu => prims.extend(menu(view)),
-        UiScreen::WorldSelect => {
-            prims.extend(crate::worldselect::screen(&sources.picker, view));
-        }
-        UiScreen::GameOver => prims.extend(game_over(view)),
-        UiScreen::Playing => {
-            if let Some(body) = &sources.body {
-                prims.extend(hud_with(
-                    body.0.health,
-                    body.0.dash_ready(),
-                    body.0.armour,
-                    sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
-                    view,
-                ));
-            }
-            prims.extend(build_hud(
-                &sources.tool.0,
-                &sources.pack,
-                sources.icons.get(),
-                view,
-            ));
-            if let Some((text, alpha)) = sources.toast.showing() {
-                prims.extend(toast(text, alpha, view));
-            }
-            // Over the HUD, because it is a card the player opened and the
-            // hotbar underneath it is not what they are looking at.
-            if sources.crafting.open {
-                prims.extend(crate::craftscreen::screen(&sources.crafting, view));
-            }
-        }
-    }
+    let cx = page::PageCx {
+        view,
+        chrome: layout::Chrome::of(view),
+        body: sources.body.as_deref(),
+        tool: &sources.tool.0,
+        pack: &sources.pack,
+        icons: sources.icons.get(),
+        toast: sources.toast.showing(),
+        crafting: &sources.crafting,
+        picker: &sources.picker,
+        xp: sources.creatures.as_ref().map_or(0, |c| c.0.xp_banked()),
+        menu: *sources.menu,
+        flash: sources.flash.alpha(),
+        run_age_s: sources.run_age.0,
+        debug: &sources.debug,
+    };
 
-    // Last, and outside the `match`, because the panel is an instrument rather
-    // than part of any screen: it is as useful over the death card as over the
-    // world, and the one thing it must never do is be hidden by the state you
-    // were trying to diagnose.
-    if sources.debug_shown.0 {
-        prims.extend(crate::debug::overlay(&sources.debug, view));
+    let on = page::Overlays {
+        crafting: sources.crafting.open,
+        paused: sources.paused.0,
+        debug: sources.debug_shown.0,
+        hints: hints_alpha(cx.run_age_s) > 0.0,
+    };
+
+    // `Local` so the order buffer is reused rather than allocated every frame,
+    // on the same terms as `UiQuads`'s pool.
+    page::stack(*sources.screen, on, &mut order);
+    for layer in order.iter() {
+        prims.extend(layer.layout(&cx));
     }
 }
 
@@ -2270,7 +2648,10 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
             color,
             text,
         } => {
-            let top = baseline - style.cap_h();
+            // The CELL's top, not the cap's: the quad carries the whole glyph
+            // box, accents and descender included, and the baseline sits
+            // `ascent` rows down inside it.
+            let top = baseline - style.ascent();
             for (i, ch) in text.chars().enumerate() {
                 // A space has no lit pixels; skipping it here rather than
                 // emitting a transparent quad is worth roughly a fifth of the
@@ -2284,7 +2665,7 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
                         x: gx,
                         y: top,
                         w: style.face.cell_w() * style.scale,
-                        h: style.cap_h(),
+                        h: style.cell_h(),
                         color: *color,
                         art: Some(Sprite {
                             image: font.clone(),
@@ -2328,6 +2709,9 @@ fn expand(prim: &UiPrim, font: &Handle<Image>, icons: &dyn IconAtlas, out: &mut 
 fn tofu(x: i32, y: i32, style: TextStyle, color: Color, out: &mut Vec<Quad>) {
     let w = style.face.cell_w() * style.scale;
     let h = style.cap_h();
+    // `y` is the top of the CELL; the box is drawn where a capital would be, so
+    // it sits on the baseline rather than floating in the accent space above it.
+    let y = y + style.ascent() - h;
     let t = style.scale;
     for (qx, qy, qw, qh) in [
         (x, y, w, t),
@@ -2481,16 +2865,157 @@ mod tests {
         view.h - NOTE_UP + 13
     }
 
+    /// Every character a layout function actually sets must have a glyph.
+    ///
+    /// Written after `menu_at` was given a `\u{203a}` SINGLE RIGHT-POINTING
+    /// ANGLE QUOTATION MARK as its cursor mark, which is not in the baked set
+    /// and would have shipped a tofu box beside the selected row. Nothing
+    /// caught it: it compiled, the layout was correct, and the prim carried the
+    /// right string. The face's coverage is only checkable against the text
+    /// that is really set, so this walks the screens and asks.
+    #[test]
+    fn no_screen_sets_a_character_the_face_cannot_draw() {
+        let v = view();
+        let chrome = layout::Chrome::of(v);
+        let mut prims = Vec::new();
+        prims.extend(menu_at(MenuCursor(0), v));
+        prims.extend(menu_at(MenuCursor(1), v));
+        prims.extend(pause_at(chrome, v));
+        prims.extend(game_over(v));
+        prims.extend(hud(50.0, true, v));
+        prims.extend(hud_with(50.0, false, 12.0, 340, v));
+        prims.extend(toast("crafted a Traveler Sword", 1.0, v));
+
+        for prim in &prims {
+            let UiPrim::Text { text, style, .. } = prim else {
+                continue;
+            };
+            for ch in text.chars() {
+                assert!(
+                    style.face.chars().any(|c| c == ch),
+                    "{:?} sets {ch:?} (U+{:04X}), which {:?} has no glyph for",
+                    text,
+                    ch as u32,
+                    style.face
+                );
+            }
+        }
+    }
+
+    // --- Vitals -------------------------------------------------------------
+
+    /// The bar under the `HP` reading, whichever prim index it lands at.
+    fn health_fill(prims: &[UiPrim]) -> (i32, Color) {
+        // Plate, HP text, track, fill: the fill is the second `Rect` after the
+        // track, found by position rather than by index so this survives a
+        // prim being added in front of it.
+        let rects: Vec<_> = prims
+            .iter()
+            .filter_map(|p| match p {
+                UiPrim::Rect { w, color, .. } => Some((*w, *color)),
+                _ => None,
+            })
+            .collect();
+        rects[2]
+    }
+
+    #[test]
+    fn the_dash_bar_reads_the_whole_cooldown_and_not_just_its_end() {
+        // The pip this replaces was one bit. A bar that only moved at 0 and 1
+        // would be that pip with extra steps.
+        let chrome = layout::Chrome::of(view());
+        let widths: Vec<i32> = [0.0, 0.25, 0.5, 0.75, 1.0]
+            .iter()
+            .map(|d| {
+                let prims = vitals_at(100.0, *d, 0.0, 0.0, 0, None, chrome);
+                let rects: Vec<i32> = prims
+                    .iter()
+                    .filter_map(|p| match p {
+                        UiPrim::Rect { w, .. } => Some(*w),
+                        _ => None,
+                    })
+                    .collect();
+                // Plate, health track, health fill, dash track, dash fill.
+                rects[4]
+            })
+            .collect();
+        for pair in widths.windows(2) {
+            assert!(pair[1] > pair[0], "the dash bar does not fill: {widths:?}");
+        }
+        assert_eq!(widths[0], 0, "a spent dash still shows a bar");
+        assert_eq!(widths[4], DASH_W, "a ready dash is not full");
+    }
+
+    #[test]
+    fn the_damage_flash_washes_the_bar_towards_white_and_decays_to_nothing() {
+        let chrome = layout::Chrome::of(view());
+        let (_, calm) = health_fill(&vitals_at(60.0, 1.0, 0.0, 0.0, 0, None, chrome));
+        let (_, hit) = health_fill(&vitals_at(60.0, 1.0, 1.0, 0.0, 0, None, chrome));
+        assert!(
+            hit.to_srgba().red > calm.to_srgba().red,
+            "the flash did not brighten the bar"
+        );
+        // Toward white, not toward red: a red flash on a red bar is invisible
+        // exactly when the bar is red, which is when it matters.
+        assert!(hit.to_srgba().blue > calm.to_srgba().blue);
+        // And it must not change how transparent the bar is.
+        assert_eq!(hit.to_srgba().alpha, calm.to_srgba().alpha);
+    }
+
+    #[test]
+    fn the_flash_is_a_no_op_at_zero() {
+        assert_eq!(flashed(theme::VITAL_FULL, 0.0), theme::VITAL_FULL);
+        assert_eq!(flashed(theme::VITAL_FULL, -1.0), theme::VITAL_FULL);
+    }
+
+    #[test]
+    fn a_stat_says_nothing_when_it_has_nothing_to_say() {
+        let chrome = layout::Chrome::of(view());
+        let bare = texts(&vitals_at(100.0, 1.0, 0.0, 0.0, 0, None, chrome)).len();
+        let prims = vitals_at(100.0, 1.0, 0.0, 12.0, 340, Some(("Tundra", 0.62)), chrome);
+        let full = texts(&prims);
+        assert_eq!(full.len(), bare + 1, "{full:?}");
+        let joined = full
+            .iter()
+            .map(|(t, ..)| t.to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(joined.contains("ARM 12"), "{joined}");
+        assert!(joined.contains("XP 340"), "{joined}");
+        // Depth as a reading, not as the raw 0..1 that F3 prints.
+        assert!(joined.contains("Tundra 62%"), "{joined}");
+    }
+
+    #[test]
+    fn the_vitals_plate_is_smaller_than_the_one_it_replaces() {
+        // The port's plate was 228 x 28 for a 220 x 20 bar. This is the record
+        // that it did not creep back.
+        const { assert!(layout::VITALS_W <= 200, "the plate grew again") };
+        const { assert!(layout::VITALS_H <= 32, "the plate grew again") };
+        let chrome = layout::Chrome::of(view());
+        for prim in vitals_at(50.0, 0.5, 0.0, 1.0, 1, Some(("Caverns", 0.5)), chrome) {
+            if let UiPrim::Rect { x, y, w, h, .. } = prim {
+                assert!(x >= 0 && y >= 0, "vitals drew off the left/top");
+                assert!(x + w <= view().w && y + h <= view().h, "vitals overran");
+            }
+        }
+    }
+
     // --- The font -----------------------------------------------------------
 
     #[test]
     fn a_face_has_one_row_set_per_character() {
         for face in [Face::Small, Face::Regular] {
-            let (chars, rows) = face.table();
+            let (chars, rows, tofu) = face.table();
             assert_eq!(
-                chars.chars().count(),
+                chars.chars().count() * face.cell_h() as usize,
                 rows.len(),
                 "{face:?}'s character list and row table have drifted apart"
+            );
+            assert_eq!(
+                tofu.len(),
+                face.cell_h() as usize,
+                "{face:?}'s missing-glyph marker is not one cell tall"
             );
         }
     }
@@ -2621,11 +3146,14 @@ mod tests {
     }
 
     #[test]
-    fn the_regular_face_is_the_typescripts_ten_pixel_face() {
-        // The one measurable equivalence between the authored font and the
-        // browser one it replaces. See the module header.
+    fn a_stack_count_reserves_exactly_the_width_it_draws() {
+        // This used to assert `COUNT.advance() == 6`, pinning the authored face
+        // to the TypeScript's 10px sans. Departure Mono advances at 7 and that
+        // equivalence is retired — see the module header. What is worth keeping
+        // is the property the hotbar actually depends on: the width reserved
+        // for a count and the width drawn for it are one number.
         assert_eq!(TextStyle::for_px(10), COUNT);
-        assert_eq!(COUNT.advance(), 6);
+        assert_eq!(COUNT.advance(), font_table::ADVANCE);
         for n in [0u32, 1, 9, 10, 42, 99, 100, 999] {
             assert_eq!(
                 digits_w(n),
@@ -2663,7 +3191,7 @@ mod tests {
 
     #[test]
     fn measuring_the_empty_string_is_zero_under_every_alignment() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, theme::CARD_TITLE] {
             assert_eq!(style.measure(""), 0);
             assert!(style.line_h() > style.cap_h(), "{style:?} has leading");
         }
@@ -2686,33 +3214,54 @@ mod tests {
 
     #[test]
     fn a_glyph_always_lands_on_a_whole_pixel() {
-        // Every advance is even, at every scale, for both faces — which is what
-        // makes centring exact rather than rounded.
+        // Every metric is a whole number of buffer pixels at every scale. This
+        // is the property the nearest-sampler upscale needs; it is NOT the
+        // stronger "every advance is even" the authored face happened to have,
+        // which `Face::Regular`'s 7px advance retires. See `Align::left_edge`.
         for face in [Face::Small, Face::Regular] {
             for scale in 1..=8 {
                 let style = TextStyle { face, scale };
-                assert_eq!(style.advance() % 2, 0, "{face:?} @ {scale}");
-                assert_eq!(style.cap_h(), face.cell_h() * scale);
+                assert_eq!(style.advance(), face.advance() * scale);
+                assert_eq!(style.cap_h(), face.cap() * scale);
+                assert_eq!(style.cell_h(), face.cell_h() * scale);
+                // The cap is what a baseline is measured from, and it has to sit
+                // inside the cell it is drawn in — with room above for accents
+                // and below for descenders.
+                assert!(
+                    style.cap_h() <= style.ascent(),
+                    "{face:?} @ {scale}: the cap pokes out of the cell"
+                );
+                assert!(style.ascent() <= style.cell_h(), "{face:?} @ {scale}");
             }
         }
     }
 
     #[test]
     fn a_centred_run_never_lands_a_glyph_on_a_half_pixel() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_BODY, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_BODY, theme::CARD_TITLE] {
             for n in 0..40 {
                 let text = "M".repeat(n);
                 let w = style.measure(&text);
-                assert_eq!(w % 2, 0, "{n} glyphs measured odd");
-                // The left edge is exact: `w / 2` has no remainder to round.
-                assert_eq!(Align::Centre.left_edge(321, w) * 2, 321 * 2 - w);
+                // The left edge is a whole buffer pixel — that is what the
+                // nearest-sampler upscale needs, and it holds by construction
+                // because every one of these is an `i32`.
+                let left = Align::Centre.left_edge(321, w);
+                // An odd-width run cannot be centred exactly on an integer
+                // grid. `w / 2` truncates, which moves the left edge TOWARDS
+                // `x`, so such a run sits half a pixel right of true centre and
+                // never left of it.
+                let err = 321 * 2 - w - left * 2;
+                assert!(
+                    err == 0 || err == -1,
+                    "{n} glyphs at {style:?} centre {err} half-pixels off"
+                );
             }
         }
     }
 
     #[test]
     fn vertical_alignment_resolves_to_a_baseline_inside_the_line_it_names() {
-        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_DEAD, CARD_TITLE] {
+        for style in [KEY, SMALL, MINOR, HINT, LABEL, CARD_DEAD, theme::CARD_TITLE] {
             let middle = style.baseline_from_middle(100);
             assert!(middle > 100 && middle - style.cap_h() < 100, "{style:?}");
             assert_eq!(style.baseline_from_top(100) - style.cap_h(), 100);
@@ -3123,7 +3672,10 @@ mod tests {
         for hp in 0..=100 {
             // The fill is the third rect: plate, track, fill.
             match hud(hp as f32, true, view())[2] {
-                UiPrim::Rect { w, .. } => assert!((0..=BAR_W).contains(&w), "{hp} hp filled {w}px"),
+                UiPrim::Rect { w, .. } => assert!(
+                    (0..=layout::Chrome::of(view()).vitals.w).contains(&w),
+                    "{hp} hp filled {w}px"
+                ),
                 ref other => panic!("{other:?}"),
             }
         }
@@ -3133,7 +3685,10 @@ mod tests {
     fn health_outside_its_range_clamps_rather_than_overflowing_the_track() {
         for hp in [-50.0f32, 0.0, MAX_HEALTH, MAX_HEALTH * 2.0] {
             match hud(hp, false, view())[2] {
-                UiPrim::Rect { w, .. } => assert!((0..=BAR_W).contains(&w), "{hp} hp"),
+                UiPrim::Rect { w, .. } => assert!(
+                    (0..=layout::Chrome::of(view()).vitals.w).contains(&w),
+                    "{hp} hp"
+                ),
                 ref other => panic!("{other:?}"),
             }
         }
@@ -3142,15 +3697,16 @@ mod tests {
     #[test]
     fn the_dash_pip_is_a_symmetric_disc_of_whole_pixel_spans() {
         let mut out = Vec::new();
-        disc(&mut out, 100, 50, PIP_R, Color::WHITE);
-        assert_eq!(out.len(), (PIP_R * 2) as usize, "one span per scanline");
+        const R: i32 = 8;
+        disc(&mut out, 100, 50, R, Color::WHITE);
+        assert_eq!(out.len(), (R * 2) as usize, "one span per scanline");
         let mut widths = Vec::new();
         for prim in &out {
             match prim {
                 UiPrim::Rect { y, w, h, .. } => {
                     assert_eq!(*h, 1);
-                    assert!(*w > 0 && *w <= PIP_R * 2, "span {w}px wide");
-                    assert!((50 - PIP_R..50 + PIP_R).contains(y));
+                    assert!(*w > 0 && *w <= R * 2, "span {w}px wide");
+                    assert!((50 - R..50 + R).contains(y));
                     widths.push(*w);
                 }
                 other => panic!("{other:?}"),
@@ -3205,7 +3761,7 @@ mod tests {
         }
         // The title itself, at scale 6, is the thing most likely to run off.
         assert!(
-            CARD_TITLE.measure("Yūgen") < v.w,
+            theme::CARD_TITLE.measure("Yūgen") < v.w,
             "the title does not fit a 480px buffer"
         );
     }
@@ -3281,8 +3837,10 @@ mod tests {
         // The space contributes no quad.
         assert_eq!(out.len(), 3);
         for (i, quad) in out.iter().enumerate() {
-            assert_eq!(quad.h, LABEL.cap_h());
-            assert_eq!(quad.y, 30 - LABEL.cap_h());
+            // The quad is the whole glyph CELL — accent space above the cap and
+            // descender below the baseline — not just the cap.
+            assert_eq!(quad.h, LABEL.cell_h());
+            assert_eq!(quad.y, 30 - LABEL.ascent());
             let art = quad.art.as_ref().expect("glyph {i} has no art");
             assert!(art.rect.is_some(), "glyph {i} has no atlas cell");
         }
@@ -3365,7 +3923,7 @@ mod tests {
     #[test]
     fn the_font_atlas_gives_every_glyph_a_distinct_cell_inside_the_texture() {
         let cells = Face::Regular.glyph_count().max(Face::Small.glyph_count());
-        let w = cells as f32 * CELL_W as f32;
+        let w = cells as f32 * ATLAS_STRIDE as f32;
         let h = (Face::Regular.cell_h() + Face::Small.cell_h()) as f32;
         let mut seen: Vec<(u32, u32)> = Vec::new();
         for face in [Face::Regular, Face::Small] {

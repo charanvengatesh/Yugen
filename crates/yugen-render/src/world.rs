@@ -49,6 +49,7 @@ use bevy::prelude::*;
 use crate::daynight::{DayNight, WorldClock};
 use crate::items::Pack;
 use crate::player::PlayerBody;
+use yugen_core::config::WorldScale;
 use yugen_core::config::{MAX_STEPS_PER_FRAME, SEED, STEP_DT, cell_at};
 use yugen_core::items::inventory::SLOT_COUNT;
 use yugen_core::sim::automata::Automata;
@@ -141,8 +142,13 @@ impl Plugin for WorldSimPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    // Streaming keeps running while paused: the free camera
+                    // can still move, and a paused frame that showed unstreamed
+                    // world would be a pause card over a hole.
                     stream_window.in_set(SimSet::Stream),
-                    simulate.in_set(SimSet::Simulate),
+                    simulate
+                        .in_set(SimSet::Simulate)
+                        .run_if(crate::scenes::running),
                 )
                     .run_if(resource_exists::<SimWorld>),
             )
@@ -408,7 +414,7 @@ pub fn build_world_saved(seed: u32, save: Option<&std::path::Path>) -> SimWorld 
     // so a canopy is a wall, and a third of seeds measured put the body inside
     // one — two of the first twenty-four with nothing clear on either side. The
     // body could not move at all. See `walkable_spawn`.
-    let spawn = walkable_spawn(seed, SPAWN_COL);
+    let spawn = walkable_spawn(seed, SPAWN_COL, WorldScale::LIVE);
 
     let (cols, rows) = window_size();
     let mut grid = CellGrid::new(cols, rows);
