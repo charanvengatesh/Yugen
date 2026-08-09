@@ -1030,35 +1030,40 @@ only the exported surface is held to the rule.
 | `CORNERS` (private) | `4` | Vertices in one quad, and the length of one `corners`/`uv` array. | 71 |
 | `INDICES_PER_QUAD` (private) | `6` | Indices one quad contributes: two triangles. | 74 |
 
-### `crates/yugen-render/src/sky.rs`
+### `crates/yugen-render/src/sky/mod.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SKY_PIXEL_PX` (private) | `CELL_SIZE` | The side of one backdrop pixel, in view px. | 164 |
-| `SKY_DITHER` (private) | `1.0` | How much of a block's own height the ordered dither is allowed to move the sample by. | 181 |
-| `BAYER_N` (private) | `4` | Side of [`BAYER`]. | 194 |
-| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 223 |
-| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 226 |
-| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 248 |
-| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 254 |
-| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 258 |
-| `STAR_COUNT` | `90` | How many stars the field holds. | 261 |
-| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 268 |
-| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 274 |
-| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 277 |
-| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 280 |
-| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 283 |
-| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 286 |
-| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 289 |
-| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 307 |
-| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 322 |
-| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 355 |
-| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 358 |
-| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 370 |
-| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 1051 |
-| `STARS_Z` | `-99.0` | Stars, over the gradient. | 1054 |
-| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 1057 |
-| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 1060 |
+| `GRADIENT_Z` | `-100.0` | Where the base gradient sits: behind everything, the weather included. | 150 |
+| `STARS_Z` | `-99.0` | Stars, over the gradient. | 153 |
+| `DISCS_Z` | `-98.0` | Sun and moon, over the stars. | 156 |
+| `RIDGES_Z` | `-97.0` | The hill silhouettes, over everything else in the backdrop. | 159 |
+
+### `crates/yugen-render/src/sky/model.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SKY_PIXEL_PX` (private) | `CELL_SIZE` | The side of one backdrop pixel, in view px. | 52 |
+| `SKY_DITHER` (private) | `1.0` | How much of a block's own height the ordered dither is allowed to move the sample by. | 69 |
+| `BAYER_N` (private) | `4` | Side of [`BAYER`]. | 82 |
+| `GLOW_CUTOFF` (private) | `0.02` | Below this the twilight band is skipped entirely. | 111 |
+| `STAR_CUTOFF` (private) | `0.01` | Below this the starfield is skipped. | 114 |
+| `BAND_HORIZON_BASE` (private) | `0.52` | Where the band's bottom sits, as a view fraction, when the sun is at the top of its arc. | 136 |
+| `BAND_HORIZON_TRACK` (private) | `0.30` | How far the band's bottom tracks down the view as the sun sinks. | 142 |
+| `BAND_SPAN` (private) | `0.42` | The band's height as a view fraction. | 146 |
+| `STAR_COUNT` | `90` | How many stars the field holds. | 149 |
+| `STAR_FIELD_H` (private) | `0.7` | Fraction of the view height the star seeds are spread over. | 156 |
+| `STAR_TWINKLE_RATE` (private) | `1.6` | Twinkle rate, radians per second. | 162 |
+| `STAR_TWINKLE_BASE` (private) | `0.78` | Twinkle floor: the fraction of its own brightness a star never dips below. | 165 |
+| `STAR_TWINKLE_SWING` (private) | `0.22` | Twinkle swing either side of [`STAR_TWINKLE_BASE`]. | 168 |
+| `STAR_PARALLAX` (private) | `0.1` | How much of the camera's motion the starfield takes. | 171 |
+| `SUN_R` (private) | `46.0` | The sun's radius in view px. | 174 |
+| `MOON_R` (private) | `34.0` | The moon's radius in view px. | 177 |
+| `MOON_DIM` (private) | `0.9` | How much of its own visibility the moon is drawn at. | 195 |
+| `DISC_CUTOFF` (private) | `0.01` | Below this a disc is not drawn at all. | 210 |
+| `RIDGE_SHADE_FLOOR` (private) | `0.4` | Ridge brightness floor: what is left of a ridge's colour at midnight. | 243 |
+| `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 246 |
+| `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 258 |
 
 ### `crates/yugen-render/src/sprite.rs`
 

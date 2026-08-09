@@ -1,138 +1,26 @@
-//! The parallax backdrop: gradient sky, twilight band, starfield, sun and moon,
-//! and two hill ridges.
+//! The backdrop as arithmetic: the gradient, the glow, the stars, the ridges,
+//! the discs, and the block grid they are all quantised onto.
 //!
-//! Ported from `src/render/sky.ts`.
+//! **No Bevy in this file, and that is the point of the boundary.** Everything
+//! here is a function of the world clock, the camera's depth and the biome's
+//! atmosphere, returning colours and positions. It is the half of [`super`] that
+//! can be reasoned about — and tested — without a renderer, a window or an
+//! `App`, which is why almost every test in the module lives here and asserts on
+//! real numbers rather than on a captured frame.
 //!
-//! Everything here is drawn in VIEW space — the TypeScript's screen space, with
-//! the origin at the view's top-left and +y DOWN — and sits behind the world so
-//! everything else paints over it. Star and hill positions are derived
-//! deterministically from their index, so the layout is stable frame to frame and
-//! costs nothing to keep.
-//!
-//! # Where the daytime palette comes from
-//!
-//! [`BiomeAtmosphere`](yugen_core::sim::biomes::BiomeAtmosphere) declares
-//! NIGHT-side colours only, and that file belongs to the sim. So the daytime sky
-//! is DERIVED from each biome's own horizon hue — `sky_bottom` is the brightest,
-//! most saturated colour a biome declares — pushed toward a neutral daylight
-//! target. Desert therefore stays warm and Glacier stays cold at noon without a
-//! second palette existing anywhere, and because the input is
-//! [`resolve_atmosphere`]'s already-blended weight set, crossing a biome boundary
-//! crossfades at every hour of the day.
-//!
-//! # How it is drawn here
-//!
-//! The TypeScript had one `CanvasRenderingContext2D` and did five passes into it.
-//! There is no immediate-mode context here, so each pass is one long-lived entity
-//! parented to the world camera, sorted by z in the order the canvas painted them:
-//!
-//! | z | Entity | Canvas pass |
-//! |---|---|---|
-//! | [`GRADIENT_Z`] | a `cols x rows` image on a stretched sprite | the base gradient AND the twilight band |
-//! | [`STARS_Z`] | one vertex-coloured mesh, 90 quads | the starfield |
-//! | [`DISCS_Z`] | one vertex-coloured mesh, two block grids | sun and moon |
-//! | [`RIDGES_Z`] | one vertex-coloured mesh, two block strips | the hill silhouettes |
-//!
-//! Parenting to the camera rather than following it in a system is what makes the
-//! backdrop screen-locked with no ordering rule to get wrong: transform
-//! propagation runs after every writer of the camera's transform, so the sky can
-//! never be a frame behind the view it is meant to fill. It also inherits the
-//! camera's pixel snap for free, which is what keeps a 1px star from shimmering.
-//!
-//! # The backdrop is drawn on the world's own pixel grid
-//!
-//! THIS IS A DELIBERATE DEPARTURE FROM THE ORIGINAL AND IT IS NOT A BUG. The
-//! TypeScript drew this backdrop the way Canvas2D wants to be drawn: a
-//! `createLinearGradient` ramp, `arc()` discs with a `createRadialGradient` falloff,
-//! and a `lineTo` polyline for the hills. All three are SMOOTH — the gradient
-//! resolves to one colour per device row, the discs are round with a continuous
-//! radial falloff, and the hills are straight lines at whatever slope the sines
-//! ask for.
-//!
-//! The world in front of them is not. Cells rasterise at
-//! [`CELL_SIZE`] into a 640x400 buffer that is then upscaled with NEAREST, so
-//! everything the player looks at has a hard 5px feature size. A smooth ramp
-//! directly behind blocky terrain does not read as the same material; it reads as
-//! a photograph someone pasted a sprite onto. So every backdrop element here is
-//! rasterised onto [`SKY_PIXEL_PX`] blocks, which is [`CELL_SIZE`]: the gradient
-//! becomes a grid of flat blocks rather than a ramp, the discs become block
-//! circles rather than ring fans, and the ridges become block columns rather than
-//! a polyline.
-//!
-//! The stars needed none of this. They were already rounding to a whole view pixel
-//! — see [`place_stars`] — for precisely the reason everything else now does, and
-//! they stay 1px, because a star is a point of light and a 5px star is a planet.
-//!
-//! Setting [`SKY_PIXEL_PX`] to 1 restores the smooth original almost exactly,
-//! which is the intended way to look at what this bought.
-//!
-//! # What the port changed
-//!
-//! **The base gradient and the twilight band are one image.** The canvas painted
-//! a two-stop vertical gradient and then a second, `lighter`-composited gradient
-//! over the whole rect. Both are functions of y ALONE, so the two composite
-//! exactly into one colour per row — [`sky_texel`] — and the row set is a small
-//! texture stretched across the view. The arithmetic is identical to the canvas's
-//! because it is done in sRGB, on the same premultiplied stops; only the SAMPLE
-//! POSITIONS changed, from one per view row to one per [`SKY_PIXEL_PX`] block,
-//! ordered-dithered within the block by [`BAYER`].
-//!
-//! **The discs are geometry, not a baked sprite.** `Sky.disc` prebaked a soft
-//! radial sprite into an offscreen canvas and blitted it. A canvas radial gradient
-//! IS a piecewise-linear ramp between its stops — see [`DISC_STOPS`] — so here
-//! that ramp is evaluated on the CPU, once per block, by [`ring_at`]. It removes
-//! the bake, the two offscreen canvases, and the blit's `x`/`y` culling test. It
-//! also puts the ramp's interpolation back in sRGB where the canvas did it: the
-//! ring fan this replaced handed the stops to the GPU as vertex colours and got
-//! LINEAR-light interpolation between them, which moved the middle of a soft glow
-//! by about a value step.
-//!
-//! **Additive is a blend state, not a composite op.** `globalCompositeOperation =
-//! "lighter"` has no equivalent in Bevy's 2D materials — [`AlphaMode2d`] offers
-//! opaque, mask and blend and nothing else. [`AdditiveMaterial`] is that missing
-//! mode: an empty material on the default mesh2d shader whose only job is to
-//! override the blend state in [`Material2d::specialize`]. `SrcAlpha, One, Add` is
-//! exactly what `lighter` does. It carries no bindings and no shader of its own,
-//! which is why it can be a dozen lines rather than a WGSL file.
-//!
-//! **The clock is ticked here.** [`DayNight`] has no plugin of its own and the sky
-//! is its first and main consumer, so [`SkyPlugin`] owns the tick. If a day/night
-//! plugin ever lands, this system moves to it — two clocks ticking one resource
-//! would run the world at double speed, so there must only ever be one.
-//!
-//! # What the port dropped on the way in
-//!
-//! - **The frame scratch.** `TOP`/`BOT` were module-level arrays recomputed in
-//!   place so the draw never allocated. A [`Gradient`] is six floats returned by
-//!   value; there is nothing to reuse.
-//! - **`performance.now()`.** Two passes read the wall clock directly and scaled
-//!   milliseconds. Both now take [`Time::elapsed_secs`], which is the same number
-//!   in seconds and, unlike a wall clock, stops when the app does.
-//! - **The disc culling test.** `x < -r*2 || x > VIEW_W + r*2` skipped a blit that
-//!   would land off-screen. Geometry off the edge of a viewport costs a clipped
-//!   triangle, so the test would buy nothing back.
+//! The three sections [`super`] named are kept in order: **Tuning**, which is
+//! every authored number and the argument for it; **The model**, which turns
+//! those into a [`Gradient`], a [`HorizonGlow`], a [`StarField`], a [`Ridge`] or
+//! a [`Disc`]; and **The pixel grid**, which is the quantisation that makes the
+//! backdrop read as part of a pixel game rather than as a smooth gradient
+//! sitting behind one.
 
-use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::NoFrustumCulling;
-use bevy::ecs::system::SystemParam;
-use bevy::image::ImageSampler;
-use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
-use bevy::prelude::*;
-use bevy::render::render_resource::{
-    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, Extent3d,
-    RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureDimension, TextureFormat,
-};
-use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
+use bevy::math::Vec2;
 
-use yugen_core::config::{CELL_SIZE, SEED, SURFACE_ANCHOR_Y, View};
-use yugen_core::sim::biomes::{ResolvedAtmosphere, resolve_atmosphere};
-use yugen_core::sim::noise::Noise;
-use yugen_core::sim::worldgen::world_noise;
+use yugen_core::config::{CELL_SIZE, SURFACE_ANCHOR_Y, View};
+use yugen_core::sim::biomes::ResolvedAtmosphere;
 
-use crate::daynight::{DayPhase, WorldClock};
-use crate::lowres::{LowResTarget, WORLD_LAYERS, WorldCamera};
-use crate::world::WorldFocus;
-use yugen_core::config::WorldScale;
+use crate::daynight::DayPhase;
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -161,7 +49,7 @@ use yugen_core::config::WorldScale;
 /// intended before/after, and it is a LOOKING setting rather than a shipping one
 /// — every element here costs `(1/n)^2` of its geometry, so the sun alone goes
 /// from about 280 quads to about 8500.
-const SKY_PIXEL_PX: i32 = CELL_SIZE;
+pub(super) const SKY_PIXEL_PX: i32 = CELL_SIZE;
 
 /// How much of a block's own height the ordered dither is allowed to move the
 /// sample by. 0 disables dithering; 1 spreads it over the full block.
@@ -178,7 +66,7 @@ const SKY_PIXEL_PX: i32 = CELL_SIZE;
 /// resolution, it only decides WHERE INSIDE ITS OWN BLOCK a block samples the
 /// smooth function underneath. The blocks stay exactly [`SKY_PIXEL_PX`] and stay
 /// flat; the boundary between two bands stops being a straight line.
-const SKY_DITHER: f32 = 1.0;
+pub(super) const SKY_DITHER: f32 = 1.0;
 
 /// The ordered-dither threshold matrix, in `0..N*N`.
 ///
@@ -187,11 +75,11 @@ const SKY_DITHER: f32 = 1.0;
 /// small enough not to read as a second pattern in the sky. An 8x8 would grade
 /// more finely and tile at 40px; it is a drop-in replacement if the 4x4's texture
 /// ever shows.
-const BAYER: [[u8; BAYER_N]; BAYER_N] =
+pub(super) const BAYER: [[u8; BAYER_N]; BAYER_N] =
     [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
 
 /// Side of [`BAYER`].
-const BAYER_N: usize = 4;
+pub(super) const BAYER_N: usize = 4;
 
 /// A backdrop colour, 0..255 per channel.
 ///
@@ -204,26 +92,26 @@ pub type Rgb = [f32; 3];
 ///
 /// A mid blue. Mixed at 0.45 against 1.25 of the biome's own horizon hue, so the
 /// biome wins the tint and this only supplies the "it is daytime" lift.
-const DAY_TOP: Rgb = [96.0, 140.0, 205.0];
+pub(super) const DAY_TOP: Rgb = [96.0, 140.0, 205.0];
 
 /// Neutral daylight target for the horizon: near-white haze.
-const DAY_BOT: Rgb = [200.0, 220.0, 240.0];
+pub(super) const DAY_BOT: Rgb = [200.0, 220.0, 240.0];
 
 /// Sunrise/sunset zenith — a cool violet, because the sky opposite a low sun is
 /// the one part of a real sunset that does NOT go warm.
-const DUSK_TOP: Rgb = [64.0, 52.0, 96.0];
+pub(super) const DUSK_TOP: Rgb = [64.0, 52.0, 96.0];
 
 /// Sunrise/sunset horizon: hot orange.
-const DUSK_BOT: Rgb = [242.0, 138.0, 74.0];
+pub(super) const DUSK_BOT: Rgb = [242.0, 138.0, 74.0];
 
 /// Below this the twilight band is skipped entirely.
 ///
 /// The band is a full-view composite, so it is worth a compare not to run it for
 /// the two thirds of the cycle where it would add less than a value step.
-const GLOW_CUTOFF: f32 = 0.02;
+pub(super) const GLOW_CUTOFF: f32 = 0.02;
 
 /// Below this the starfield is skipped.
-const STAR_CUTOFF: f32 = 0.01;
+pub(super) const STAR_CUTOFF: f32 = 0.01;
 
 /// The twilight band's stops: `(offset, colour, alpha weight)`.
 ///
@@ -237,7 +125,7 @@ const STAR_CUTOFF: f32 = 0.01;
 /// a canvas gradient clamps, which is deliberate and load-bearing: the horizon
 /// wash floods everything under the horizon line, not just the strip the stops
 /// span.
-const BAND_STOPS: [(f32, Rgb, f32); 3] = [
+pub(super) const BAND_STOPS: [(f32, Rgb, f32); 3] = [
     (0.00, [240.0, 120.0, 60.0], 0.00),
     (0.55, [244.0, 132.0, 66.0], 0.30),
     (1.00, [255.0, 186.0, 110.0], 0.62),
@@ -245,17 +133,17 @@ const BAND_STOPS: [(f32, Rgb, f32); 3] = [
 
 /// Where the band's bottom sits, as a view fraction, when the sun is at the top of
 /// its arc.
-const BAND_HORIZON_BASE: f32 = 0.52;
+pub(super) const BAND_HORIZON_BASE: f32 = 0.52;
 
 /// How far the band's bottom tracks down the view as the sun sinks.
 ///
 /// The glow is centred on the sun's own height so it follows the sun across the
 /// horizon instead of sitting at a fixed line.
-const BAND_HORIZON_TRACK: f32 = 0.30;
+pub(super) const BAND_HORIZON_TRACK: f32 = 0.30;
 
 /// The band's height as a view fraction. Just under half the view: high enough to
 /// read as sky, low enough to leave the zenith alone.
-const BAND_SPAN: f32 = 0.42;
+pub(super) const BAND_SPAN: f32 = 0.42;
 
 /// How many stars the field holds.
 pub const STAR_COUNT: usize = 90;
@@ -265,53 +153,53 @@ pub const STAR_COUNT: usize = 90;
 /// The upper 70% only — stars are seeded away from the horizon so the field does
 /// not fight the hills. It is a seeding bias and not a hard ceiling: the parallax
 /// wrap in [`StarField::star`] can carry any star anywhere.
-const STAR_FIELD_H: f32 = 0.7;
+pub(super) const STAR_FIELD_H: f32 = 0.7;
 
 /// Twinkle rate, radians per second.
 ///
 /// The TypeScript wrote this as `performance.now() * 0.0016` — milliseconds, so
 /// 1.6 rad/s, which is what this is.
-const STAR_TWINKLE_RATE: f32 = 1.6;
+pub(super) const STAR_TWINKLE_RATE: f32 = 1.6;
 
 /// Twinkle floor: the fraction of its own brightness a star never dips below.
-const STAR_TWINKLE_BASE: f32 = 0.78;
+pub(super) const STAR_TWINKLE_BASE: f32 = 0.78;
 
 /// Twinkle swing either side of [`STAR_TWINKLE_BASE`].
-const STAR_TWINKLE_SWING: f32 = 0.22;
+pub(super) const STAR_TWINKLE_SWING: f32 = 0.22;
 
 /// How much of the camera's motion the starfield takes. Distant, so almost none.
-const STAR_PARALLAX: f32 = 0.1;
+pub(super) const STAR_PARALLAX: f32 = 0.1;
 
 /// The sun's radius in view px.
-const SUN_R: f32 = 46.0;
+pub(super) const SUN_R: f32 = 46.0;
 
 /// The moon's radius in view px. Smaller and cooler than the sun.
-const MOON_R: f32 = 34.0;
+pub(super) const MOON_R: f32 = 34.0;
 
 /// The sun's hot white centre.
-const SUN_CORE: Rgb = [255.0, 244.0, 214.0];
+pub(super) const SUN_CORE: Rgb = [255.0, 244.0, 214.0];
 
 /// The sun's halo, which is where its warmth actually lives.
-const SUN_HALO: Rgb = [255.0, 176.0, 92.0];
+pub(super) const SUN_HALO: Rgb = [255.0, 176.0, 92.0];
 
 /// The moon's cold white centre.
-const MOON_CORE: Rgb = [244.0, 248.0, 255.0];
+pub(super) const MOON_CORE: Rgb = [244.0, 248.0, 255.0];
 
 /// The moon's halo: blue, the whole reason it does not read as a second sun.
-const MOON_HALO: Rgb = [150.0, 170.0, 210.0];
+pub(super) const MOON_HALO: Rgb = [150.0, 170.0, 210.0];
 
 /// How much of its own visibility the moon is drawn at.
 ///
 /// The moon is the same soft disc as the sun and would read as a second sun at
 /// full strength. Held back a tenth so it stays the dimmer of the two.
-const MOON_DIM: f32 = 0.9;
+pub(super) const MOON_DIM: f32 = 0.9;
 
 /// Radial stops of a celestial disc: `(radius fraction, is-halo, alpha)`.
 ///
 /// A hot core that holds most of its alpha to a third of the radius, a fast
 /// hand-off to the tinted halo, then a long fade to nothing. `false` reads the
 /// disc's core colour, `true` its halo.
-const DISC_STOPS: [(f32, bool, f32); 4] = [
+pub(super) const DISC_STOPS: [(f32, bool, f32); 4] = [
     (0.00, false, 0.95),
     (0.32, false, 0.70),
     (0.42, true, 0.28),
@@ -319,7 +207,7 @@ const DISC_STOPS: [(f32, bool, f32); 4] = [
 ];
 
 /// Below this a disc is not drawn at all.
-const DISC_CUTOFF: f32 = 0.01;
+pub(super) const DISC_CUTOFF: f32 = 0.01;
 
 /// The two hill ridges, far first.
 ///
@@ -327,7 +215,7 @@ const DISC_CUTOFF: f32 = 0.01;
 /// repeating wave without being a heightmap. The far ridge sits higher, moves
 /// slower and catches more of the sky's light; the near one is lower, faster and
 /// nearly black, and the difference between the two IS the depth cue.
-const RIDGES: [Ridge; 2] = [
+pub(super) const RIDGES: [Ridge; 2] = [
     Ridge {
         parallax: 0.30,
         base: 0.70,
@@ -352,10 +240,10 @@ const RIDGES: [Ridge; 2] = [
 ///
 /// Both ridges sink toward black at night so the horizon reads as a silhouette
 /// rather than as two grey bands.
-const RIDGE_SHADE_FLOOR: f32 = 0.4;
+pub(super) const RIDGE_SHADE_FLOOR: f32 = 0.4;
 
 /// How much of a ridge's colour daylight adds back on top of the floor.
-const RIDGE_SHADE_DAY: f32 = 0.6;
+pub(super) const RIDGE_SHADE_DAY: f32 = 0.6;
 
 /// Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully
 /// underground.
@@ -367,7 +255,7 @@ const RIDGE_SHADE_DAY: f32 = 0.6;
 /// A module constant, not a `config` export: it describes ONE mapping, the one
 /// from the camera's row to this module's `depth` parameter. In the TypeScript it
 /// was an unnamed literal in `Game.ts` that existed only to feed this file.
-const DEPTH_SPAN_CELLS: f32 = 300.0;
+pub(super) const DEPTH_SPAN_CELLS: f32 = 300.0;
 
 // ---------------------------------------------------------------------------
 // The model
@@ -762,13 +650,13 @@ pub(crate) fn wrap(v: f32, m: f32) -> f32 {
 /// literals, so the panic that function is guarding against cannot happen, and
 /// `clamp` propagates a NaN input exactly as the chain does.
 #[inline]
-fn clamp01(v: f32) -> f32 {
+pub(super) fn clamp01(v: f32) -> f32 {
     v.clamp(0.0, 1.0)
 }
 
 /// Clamp into a channel's `[0, 255]`.
 #[inline]
-fn clamp255(v: f32) -> f32 {
+pub(super) fn clamp255(v: f32) -> f32 {
     v.clamp(0.0, 255.0)
 }
 
@@ -782,7 +670,7 @@ fn clamp255(v: f32) -> f32 {
 /// rather than a division by zero, and it is the only place the constant is read
 /// as a length.
 #[inline]
-fn block_px() -> f32 {
+pub(super) fn block_px() -> f32 {
     SKY_PIXEL_PX.max(1) as f32
 }
 
@@ -803,7 +691,7 @@ fn block_px() -> f32 {
 /// `rem_euclid` rather than `%` because block indices are signed: the disc's
 /// lattice is built outward from its own centre and half its columns are
 /// negative.
-fn block_sample(bx: i32, by: i32) -> f32 {
+pub(super) fn block_sample(bx: i32, by: i32) -> f32 {
     let n = BAYER_N as i32;
     let m = f32::from(BAYER[by.rem_euclid(n) as usize][bx.rem_euclid(n) as usize]);
     let t = (m + 0.5) / (BAYER_N * BAYER_N) as f32;
@@ -812,7 +700,7 @@ fn block_sample(bx: i32, by: i32) -> f32 {
 
 /// A view coordinate snapped to the nearest block edge.
 #[inline]
-fn snap_to_block(v: f32) -> f32 {
+pub(super) fn snap_to_block(v: f32) -> f32 {
     (v / block_px()).round() * block_px()
 }
 
@@ -827,7 +715,7 @@ fn snap_to_block(v: f32) -> f32 {
 /// `None` past the rim AND at zero alpha: an additive draw at alpha zero adds
 /// nothing at all, so the caller can drop the block instead of emitting a quad
 /// that rasterises to a no-op. That is most of the bounding square of a disc.
-fn ring_at(rings: &[(f32, Rgb, f32)], r: f32) -> Option<(Rgb, f32)> {
+pub(super) fn ring_at(rings: &[(f32, Rgb, f32)], r: f32) -> Option<(Rgb, f32)> {
     let last = rings.last()?;
     if r >= last.0 {
         return None;
@@ -855,774 +743,11 @@ fn ring_at(rings: &[(f32, Rgb, f32)], r: f32) -> Option<(Rgb, f32)> {
     None
 }
 
-// ---------------------------------------------------------------------------
-// Drawing primitives
-// ---------------------------------------------------------------------------
-
-/// A 0..255 colour and an alpha, as the linear RGBA a vertex attribute wants.
-///
-/// Vertex colours reach the shader untouched and the render target does the
-/// linear-to-sRGB conversion on write, so a colour authored in sRGB has to be
-/// converted here or the whole backdrop comes out washed out.
-pub(crate) fn linear(rgb: Rgb, alpha: f32) -> [f32; 4] {
-    Color::srgb(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
-        .with_alpha(alpha)
-        .to_linear()
-        .to_f32_array()
-}
-
-/// View space — origin at the view's top-left, +y DOWN — into the backdrop's local
-/// space, whose origin is the view CENTRE and whose +y is UP.
-///
-/// THIS IS THE ONE PLACE THE BACKDROP FLIPS. Every model function above works in
-/// the TypeScript's screen space and every vertex below goes through here, so
-/// there is exactly one sign to get wrong and it is on this line.
-pub(crate) fn view_to_local(x: f32, y: f32, view: View) -> Vec2 {
-    Vec2::new(x - view.w as f32 * 0.5, view.h as f32 * 0.5 - y)
-}
-
-/// Triangles under construction, reused across frames.
-///
-/// A `Local<VertexBuf>` per drawing system, so a per-frame rebuild allocates only
-/// while the geometry is still growing — the same discipline the TypeScript's
-/// preallocated typed arrays kept, in the one place this port still needs it.
-#[derive(Default)]
-pub(crate) struct VertexBuf {
-    position: Vec<[f32; 3]>,
-    uv: Vec<[f32; 2]>,
-    color: Vec<[f32; 4]>,
-    index: Vec<u32>,
-}
-
-impl VertexBuf {
-    /// Drop last frame's triangles, keeping the allocation.
-    pub(crate) fn clear(&mut self) {
-        self.position.clear();
-        self.uv.clear();
-        self.color.clear();
-        self.index.clear();
-    }
-
-    /// Push a vertex in LOCAL space and return its index.
-    pub(crate) fn vertex(&mut self, p: Vec2, color: [f32; 4]) -> u32 {
-        let i = self.position.len() as u32;
-        self.position.push([p.x, p.y, 0.0]);
-        // Zero, and never read. `ColorMaterial`'s shader reads `mesh.uv`
-        // unconditionally and that field only exists when the mesh declares the
-        // attribute, so this is here to make the pipeline build, not to sample
-        // anything.
-        self.uv.push([0.0, 0.0]);
-        self.color.push(color);
-        i
-    }
-
-    /// Push a triangle from three existing vertices.
-    pub(crate) fn tri(&mut self, a: u32, b: u32, c: u32) {
-        self.index.extend_from_slice(&[a, b, c]);
-    }
-
-    /// Push a quad from four corners in local space, wound in order.
-    pub(crate) fn quad(&mut self, corners: [Vec2; 4], colors: [[f32; 4]; 4]) {
-        let a = self.vertex(corners[0], colors[0]);
-        let b = self.vertex(corners[1], colors[1]);
-        let c = self.vertex(corners[2], colors[2]);
-        let d = self.vertex(corners[3], colors[3]);
-        self.tri(a, b, c);
-        self.tri(a, c, d);
-    }
-
-    /// Push a flat-coloured rectangle given in VIEW space.
-    ///
-    /// This is `fillRect`: `(x, y)` is the TOP-LEFT and `w`/`h` extend right and
-    /// DOWN, exactly as the canvas took them.
-    pub(crate) fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, view: View, color: [f32; 4]) {
-        self.quad(
-            [
-                view_to_local(x, y, view),
-                view_to_local(x + w, y, view),
-                view_to_local(x + w, y + h, view),
-                view_to_local(x, y + h, view),
-            ],
-            [color; 4],
-        );
-    }
-
-    /// Replace a mesh's geometry with what has been built.
-    ///
-    /// Takes the buffers rather than cloning them: every system here rebuilds from
-    /// empty, and this is what keeps a full backdrop rebuild allocation-free once
-    /// the vectors have reached their steady size.
-    pub(crate) fn write(&mut self, mesh: &mut Mesh) {
-        // A mesh with no vertices is not a mesh that draws nothing — it is a mesh
-        // the renderer cannot allocate a slab for, and `bevy_render`'s mesh
-        // allocator then reports
-        // "Use-after-free: attempted to copy element data for an unallocated key"
-        // once per empty mesh per frame. It is noisy rather than fatal, but it is
-        // a real invariant being violated and it buried every other log line.
-        //
-        // Every buffer here legitimately empties: the stars are cut off in
-        // daylight, the discs are both below the horizon twice a cycle, and a
-        // weather layer is empty in a biome that has no dust. So instead of
-        // asking four call sites to remember, one degenerate triangle stands in —
-        // three coincident points at the origin at zero alpha. It allocates, it
-        // rasterises no fragments, and it costs one triangle.
-        if self.position.is_empty() {
-            self.position.extend_from_slice(&[[0.0; 3]; 3]);
-            self.uv.extend_from_slice(&[[0.0; 2]; 3]);
-            self.color.extend_from_slice(&[[0.0; 4]; 3]);
-            self.index.extend_from_slice(&[0, 1, 2]);
-        }
-
-        mesh.insert_attribute(
-            Mesh::ATTRIBUTE_POSITION,
-            core::mem::take(&mut self.position),
-        );
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, core::mem::take(&mut self.uv));
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, core::mem::take(&mut self.color));
-        mesh.insert_indices(Indices::U32(core::mem::take(&mut self.index)));
-    }
-}
-
-/// A vertex-coloured triangle mesh, ready to be rewritten every frame.
-///
-/// It starts as the same degenerate triangle [`VertexBuf::write`] falls back to,
-/// and for the same reason: these are spawned in `PostStartup` and the first
-/// `place_*` does not run until the next frame, so an empty one here is an
-/// unallocatable mesh for one frame at every launch.
-pub(crate) fn dynamic_mesh() -> Mesh {
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 3])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 3])
-    .with_inserted_indices(Indices::U32(vec![0, 1, 2]))
-}
-
-/// The material the canvas's `lighter` composite became.
-///
-/// Empty on purpose: it binds nothing, ships no shader, and rides the default
-/// mesh2d pass, which returns the interpolated vertex colour and nothing else. The
-/// whole material is [`Material2d::specialize`] — see the module header.
-#[derive(Asset, TypePath, AsBindGroup, Clone, Copy, Debug, Default)]
-pub struct AdditiveMaterial {}
-
-impl Material2d for AdditiveMaterial {
-    fn alpha_mode(&self) -> AlphaMode2d {
-        // Blend, so the mesh is queued into the transparent phase and sorted by z
-        // against the rest of the backdrop. The blend STATE that mode picks is
-        // then replaced below; what is borrowed here is the sorting.
-        AlphaMode2d::Blend
-    }
-
-    fn specialize(
-        descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
-        _key: Material2dKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        if let Some(fragment) = descriptor.fragment.as_mut()
-            && let Some(Some(target)) = fragment.targets.first_mut()
-        {
-            target.blend = Some(BlendState {
-                // `dst + src * srcAlpha`, which is canvas `lighter` exactly.
-                color: BlendComponent {
-                    src_factor: BlendFactor::SrcAlpha,
-                    dst_factor: BlendFactor::One,
-                    operation: BlendOperation::Add,
-                },
-                // The destination is the opaque backdrop; leave its alpha alone.
-                alpha: BlendComponent {
-                    src_factor: BlendFactor::Zero,
-                    dst_factor: BlendFactor::One,
-                    operation: BlendOperation::Add,
-                },
-            });
-        }
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// The plugin
-// ---------------------------------------------------------------------------
-
-/// Where the base gradient sits: behind everything, the weather included.
-pub const GRADIENT_Z: f32 = -100.0;
-
-/// Stars, over the gradient.
-pub const STARS_Z: f32 = -99.0;
-
-/// Sun and moon, over the stars.
-pub const DISCS_Z: f32 = -98.0;
-
-/// The hill silhouettes, over everything else in the backdrop.
-pub const RIDGES_Z: f32 = -97.0;
-
-/// The world's noise field, built once.
-///
-/// [`resolve_atmosphere`] needs it every frame and building one is not free; the
-/// TypeScript called `worldNoise(SEED)` inside its draw and relied on that
-/// function memoising.
-#[derive(Resource)]
-pub struct SkyNoise(Noise);
-
-/// The blended atmosphere at the camera, and how deep the camera is.
-///
-/// Published as a resource because it is a per-frame value with two consumers —
-/// this module and [`crate::weather`] — and `Game.ts` resolved it once and handed
-/// the same struct to both for the same reason. Sampling it twice would mean
-/// running the biome mix twice a frame for one answer.
-#[derive(Resource, Clone, Copy, Debug)]
-pub struct Atmosphere {
-    /// Backdrop colours, blended across the biome boundary at the camera.
-    pub resolved: ResolvedAtmosphere,
-    /// 0 at the surface, 1 fully underground. See [`depth_at`].
-    pub depth: f32,
-}
-
-/// The star seeds and the gradient's texture.
-#[derive(Resource)]
-pub struct Backdrop {
-    /// sRGB, one texel per [`SKY_PIXEL_PX`] block, stretched over the view with a
-    /// nearest sampler so one texel is exactly one block.
-    pub gradient: Handle<Image>,
-    /// The fixed star set.
-    pub stars: StarField,
-}
-
-/// The sprite the base gradient is stretched over.
-#[derive(Component)]
-pub struct SkyGradient;
-
-/// The mesh every star is a quad in.
-#[derive(Component)]
-pub struct SkyStars;
-
-/// The mesh the sun and the moon are ring fans in.
-#[derive(Component)]
-pub struct SkyDiscs;
-
-/// The mesh both hill ridges are strips in.
-#[derive(Component)]
-pub struct SkyRidges;
-
-/// Everything a backdrop pass reads.
-///
-/// One [`SystemParam`] rather than five parameters on each of four systems: past
-/// seven arguments a system stops being readable, and every pass here wants the
-/// same five reads.
-#[derive(SystemParam)]
-pub struct Frame<'w> {
-    /// The blended atmosphere and the camera's depth.
-    pub atmo: Res<'w, Atmosphere>,
-    /// The world clock.
-    pub clock: Res<'w, WorldClock>,
-    /// The low-res buffer, for its [`View`].
-    pub target: Res<'w, LowResTarget>,
-    /// The view centre in world px, +y DOWN.
-    pub focus: Res<'w, WorldFocus>,
-    /// The animation clock.
-    pub time: Res<'w, Time>,
-}
-
-impl Frame<'_> {
-    /// The logical buffer this frame is drawn into.
-    pub fn view(&self) -> View {
-        self.target.view
-    }
-
-    /// The world clock, sampled.
-    pub fn phase(&self) -> DayPhase {
-        self.clock.0.phase()
-    }
-
-    /// The view's TOP-LEFT in world px — the TypeScript's `camX, camY`.
-    ///
-    /// [`WorldFocus`] is the view CENTRE, so this is where the two conventions
-    /// meet. Every parallax term in the backdrop is a fraction of this, and
-    /// passing the centre instead would slide the whole thing by half a view's
-    /// worth of parallax.
-    pub fn cam(&self) -> Vec2 {
-        let view = self.view();
-        Vec2::new(
-            self.focus.x - view.w as f32 * 0.5,
-            self.focus.y - view.h as f32 * 0.5,
-        )
-    }
-
-    /// Seconds since startup, for the twinkle and the drift.
-    pub fn seconds(&self) -> f32 {
-        self.time.elapsed_secs()
-    }
-}
-
-/// The backdrop: the clock that drives it, the atmosphere it reads, and the four
-/// passes that put it on screen.
-pub struct SkyPlugin;
-
-impl Plugin for SkyPlugin {
-    fn build(&self, app: &mut App) {
-        // [`crate::weather`] draws into the same layer with the same material and
-        // either plugin may be added without the other, so whichever gets here
-        // first registers it. Adding a plugin twice is a panic, not a no-op.
-        if !app.is_plugin_added::<Material2dPlugin<AdditiveMaterial>>() {
-            app.add_plugins(Material2dPlugin::<AdditiveMaterial>::default());
-        }
-
-        let noise = world_noise(SEED);
-        let resolved = resolve_atmosphere(&noise, 0, WorldScale::LIVE);
-
-        app.insert_resource(SkyNoise(noise))
-            .insert_resource(Atmosphere {
-                resolved,
-                depth: 0.0,
-            })
-            // After every `Startup`, so the world camera this parents itself to
-            // already exists: `LowResPlugin` spawns it there, and there is no
-            // ordering label between two plugins' startup systems to hang this on.
-            .add_systems(PostStartup, setup)
-            .add_systems(
-                Update,
-                (
-                    sample_atmosphere,
-                    (paint_gradient, place_stars, place_discs, build_ridges),
-                )
-                    .chain()
-                    .run_if(resource_exists::<Backdrop>),
-            );
-    }
-}
-
-/// Spawn the four backdrop passes as children of the world camera.
-fn setup(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut blend: ResMut<Assets<ColorMaterial>>,
-    mut additive: ResMut<Assets<AdditiveMaterial>>,
-    camera: Single<Entity, With<WorldCamera>>,
-) {
-    let camera = *camera;
-    let gradient = images.add(gradient_image(1, 1));
-
-    commands.spawn((
-        Sprite {
-            image: gradient.clone(),
-            // Resized to the view on the first paint; this only avoids one frame
-            // of a one-pixel sky.
-            custom_size: Some(Vec2::ONE),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, GRADIENT_Z),
-        SkyGradient,
-        ChildOf(camera),
-        WORLD_LAYERS,
-    ));
-
-    // White and fully blending: all the colour is on the vertices, so one handle
-    // serves every source-over pass in the backdrop and never has to be written.
-    let source_over = blend.add(ColorMaterial {
-        color: Color::WHITE,
-        alpha_mode: AlphaMode2d::Blend,
-        ..default()
-    });
-
-    commands.spawn((
-        Mesh2d(meshes.add(dynamic_mesh())),
-        MeshMaterial2d(source_over.clone()),
-        Transform::from_xyz(0.0, 0.0, STARS_Z),
-        SkyStars,
-        // The geometry is rewritten in place every frame, so the bounding box Bevy
-        // computed when it first saw the handle is stale from the second frame on.
-        // Culling against it would blink the backdrop out.
-        NoFrustumCulling,
-        ChildOf(camera),
-        WORLD_LAYERS,
-    ));
-
-    commands.spawn((
-        Mesh2d(meshes.add(dynamic_mesh())),
-        MeshMaterial2d(additive.add(AdditiveMaterial {})),
-        Transform::from_xyz(0.0, 0.0, DISCS_Z),
-        SkyDiscs,
-        NoFrustumCulling,
-        ChildOf(camera),
-        WORLD_LAYERS,
-    ));
-
-    commands.spawn((
-        Mesh2d(meshes.add(dynamic_mesh())),
-        MeshMaterial2d(source_over),
-        Transform::from_xyz(0.0, 0.0, RIDGES_Z),
-        SkyRidges,
-        NoFrustumCulling,
-        ChildOf(camera),
-        WORLD_LAYERS,
-    ));
-
-    commands.insert_resource(Backdrop {
-        gradient,
-        stars: StarField::new(),
-    });
-}
-
-/// A `cols x rows` sRGB image: one texel per [`SKY_PIXEL_PX`] block of sky.
-///
-/// The sampler is pinned to nearest here rather than inherited from
-/// `ImagePlugin::default_nearest()`. The binary does set that default, but this
-/// texture is the one place in the backdrop where a linear sampler would not look
-/// like a bug — it would look like the smooth gradient this file used to draw,
-/// silently undoing the whole point of [`SKY_PIXEL_PX`]. Say it out loud instead.
-fn gradient_image(cols: u32, rows: u32) -> Image {
-    let mut image = Image::new_fill(
-        Extent3d {
-            width: cols.max(1),
-            height: rows.max(1),
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    );
-    image.sampler = ImageSampler::nearest();
-    image
-}
-
-/// Resolve the biome atmosphere and the camera's depth for this frame.
-fn sample_atmosphere(focus: Res<WorldFocus>, noise: Res<SkyNoise>, mut atmo: ResMut<Atmosphere>) {
-    let column = (focus.x / CELL_SIZE as f32).floor() as i32;
-    atmo.resolved = resolve_atmosphere(&noise.0, column, WorldScale::LIVE);
-    atmo.depth = depth_at(focus.y);
-}
-
-/// Rewrite the gradient's block grid and stretch it over the view.
-///
-/// The texture is one texel per block and the sprite is sized to a WHOLE number
-/// of blocks, which is what makes every block exactly [`SKY_PIXEL_PX`] across
-/// under the nearest sampler. Sizing it to the view instead would divide `view.w`
-/// by a column count that does not divide it and scatter 4px and 6px blocks
-/// through the sky. The overhang — under one block on each axis — falls outside
-/// the view and is clipped.
-fn paint_gradient(
-    frame: Frame,
-    backdrop: Res<Backdrop>,
-    mut images: ResMut<Assets<Image>>,
-    mut sprite: Single<&mut Sprite, With<SkyGradient>>,
-) {
-    let view = frame.view();
-    let block = block_px();
-    let cols = (view.w.max(1) as u32).div_ceil(block as u32) as usize;
-    let rows = (view.h.max(1) as u32).div_ceil(block as u32) as usize;
-    sprite.custom_size = Some(Vec2::new(cols as f32 * block, rows as f32 * block));
-
-    let Some(mut image) = images.get_mut(&backdrop.gradient) else {
-        return;
-    };
-    let size = image.texture_descriptor.size;
-    if size.width as usize != cols || size.height as usize != rows {
-        image.resize(Extent3d {
-            width: cols as u32,
-            height: rows as u32,
-            depth_or_array_layers: 1,
-        });
-    }
-    let Some(data) = image.data.as_mut() else {
-        return;
-    };
-
-    let phase = frame.phase();
-    let gradient = gradient(&frame.atmo.resolved, frame.atmo.depth, phase);
-    let glow = horizon_glow(phase, frame.atmo.depth, view.h as f32);
-    for row in 0..rows {
-        // Every colour in a block row is a function of the dither phase alone, and
-        // [`BAYER`] has only `BAYER_N` of those. So the ramp is evaluated four
-        // times a row and the row is filled by repeating them, which keeps this at
-        // roughly the `view.h` gradient evaluations a frame it cost when it was a
-        // one-texel-wide strip rather than the `cols * rows` the grid implies.
-        let mut phases = [[0u8; 4]; BAYER_N];
-        for (bx, texel) in phases.iter_mut().enumerate() {
-            let y = (row as f32 + block_sample(bx as i32, row as i32)) * block;
-            *texel = sky_texel(&gradient, glow.as_ref(), y, view.h as f32);
-        }
-        for col in 0..cols {
-            let at = (row * cols + col) * 4;
-            data[at..at + 4].copy_from_slice(&phases[col % BAYER_N]);
-        }
-    }
-}
-
-/// Rebuild the starfield.
-fn place_stars(
-    frame: Frame,
-    backdrop: Res<Backdrop>,
-    mesh: Single<&Mesh2d, With<SkyStars>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut buf: Local<VertexBuf>,
-) {
-    let Some(mut mesh) = meshes.get_mut(&mesh.0) else {
-        return;
-    };
-    buf.clear();
-
-    let visibility = StarField::visibility(frame.phase(), frame.atmo.depth);
-    if visibility > STAR_CUTOFF {
-        let view = frame.view();
-        let cam = frame.cam();
-        let seconds = frame.seconds();
-        let color = rgb32(frame.atmo.resolved.star);
-        for i in 0..STAR_COUNT {
-            let star = backdrop.stars.star(i, cam, view, seconds, visibility);
-            // Rounded to a whole view pixel: a canvas `fillRect` at a fractional
-            // coordinate antialiases a 1px star across two, which at this buffer
-            // size is a smear rather than a star.
-            //
-            // This one line is the oldest thing in the file and it is the argument
-            // the rest of the backdrop now follows — see the module header. It is
-            // also the one element that stays at 1px rather than moving to
-            // `SKY_PIXEL_PX`: a star is a point of light, and a 5px one is a
-            // planet.
-            buf.rect(
-                star.x.round(),
-                star.y.round(),
-                1.0,
-                1.0,
-                view,
-                linear(color, star.alpha),
-            );
-        }
-    }
-
-    buf.write(&mut mesh);
-}
-
-/// Rebuild the sun and the moon.
-fn place_discs(
-    frame: Frame,
-    mesh: Single<&Mesh2d, With<SkyDiscs>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut buf: Local<VertexBuf>,
-) {
-    let Some(mut mesh) = meshes.get_mut(&mesh.0) else {
-        return;
-    };
-    buf.clear();
-
-    let view = frame.view();
-    let phase = frame.phase();
-    let open = 1.0 - frame.atmo.depth;
-    for (disc, fx, fy, alpha) in [
-        (SUN, phase.sun_x, phase.sun_y, phase.sun_a * open),
-        (
-            MOON,
-            phase.moon_x,
-            phase.moon_y,
-            phase.moon_a * open * MOON_DIM,
-        ),
-    ] {
-        if alpha <= DISC_CUTOFF {
-            continue;
-        }
-        let centre = Vec2::new(fx * view.w as f32, fy * view.h as f32);
-        push_disc(&mut buf, &disc, centre, alpha, view);
-    }
-
-    buf.write(&mut mesh);
-}
-
-/// One disc as a square block grid, centre outward.
-///
-/// A block circle, not a polygon. The disc used to be a 24-segment ring fan with
-/// the stop colours on its vertices, which is round to within half a view pixel
-/// and has a smooth radial falloff — a genuinely circular circle in a world made
-/// of squares. Here each [`SKY_PIXEL_PX`] block inside the radius is one flat
-/// quad whose colour is [`ring_at`] read at the block's own distance from the
-/// centre, so the rim staircases and the halo falls off in visible steps, exactly
-/// like the terrain does.
-///
-/// # The two snaps, and why they are different
-///
-/// The centre is snapped to a whole VIEW pixel and the lattice is then built out
-/// from it, rather than the disc being pinned to the same global block grid the
-/// gradient uses. Both were tried on paper and the global grid loses: a sun
-/// pinned to a 5px grid crosses the view in 128 discrete hops over a 300-second
-/// day, which is one visible jolt every two and a half seconds, and a jolting sun
-/// is a worse artefact than a sun whose blocks are half a block out of phase with
-/// the sky's. Nobody can see the phase. Everybody can see the jolt.
-///
-/// What the centre snap DOES buy is that every block edge lands on an integer
-/// view pixel, so the blocks are all exactly [`SKY_PIXEL_PX`] wide and none of
-/// them shimmers as the disc drifts. It is the same reasoning, and the same
-/// `round`, that [`place_stars`] has always applied to a 1px star.
-fn push_disc(buf: &mut VertexBuf, disc: &Disc, centre: Vec2, alpha: f32, view: View) {
-    let rings = disc.rings(alpha);
-    let block = block_px();
-    let cx = centre.x.round();
-    let cy = centre.y.round();
-    // Indices run `-n..n`, so the centre is a block CORNER and the disc comes out
-    // symmetric about it on both axes. Centring a block on the centre instead
-    // would make the diameter an odd number of blocks and give the circle a spine.
-    let n = (disc.radius / block).ceil() as i32;
-
-    for row in -n..n {
-        for col in -n..n {
-            let dx = (col as f32 + 0.5) * block;
-            let dy = (row as f32 + 0.5) * block;
-            // The same dither as the gradient, on the radius instead of on y. The
-            // halo's alpha falls by about a twentieth per block, which without
-            // this reads as five concentric rings rather than one glow.
-            let r = dx.hypot(dy) + block * (block_sample(col, row) - 0.5);
-            let Some((color, a)) = ring_at(&rings, r) else {
-                continue;
-            };
-            buf.rect(
-                cx + col as f32 * block,
-                cy + row as f32 * block,
-                block,
-                block,
-                view,
-                linear(color, a),
-            );
-        }
-    }
-}
-
-/// Rebuild both hill ridges as columns of blocks.
-///
-/// The canvas walked the silhouette with `lineTo` every 20px and let the fill
-/// draw whatever slope fell out, so a ridge was a polyline with smooth diagonal
-/// edges. Here it is a run of [`SKY_PIXEL_PX`]-wide columns whose tops are
-/// snapped to the same lattice — a staircase, which is what a hill drawn out of
-/// cells looks like.
-///
-/// # The lattice lives in the ridge's space, not the screen's
-///
-/// This is the part that is easy to get wrong and looks terrible when you do.
-/// Sampling at fixed SCREEN columns and snapping the height there means each
-/// column's height creeps with the camera and pops to the next lattice step at
-/// its own moment: the silhouette boils. So the columns are laid out in the
-/// RIDGE's own space, where the height of column `j` is a constant, and the whole
-/// strip is then translated onto the screen by a whole number of view px. The
-/// silhouette is rigid and slides; no column ever changes height.
-///
-/// That is also why the parallax offset is rounded and `height_at` is called with
-/// a camera of zero: the rounded offset IS the parallax, and passing it twice
-/// would apply it twice.
-fn build_ridges(
-    frame: Frame,
-    mesh: Single<&Mesh2d, With<SkyRidges>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut buf: Local<VertexBuf>,
-) {
-    let Some(mut mesh) = meshes.get_mut(&mesh.0) else {
-        return;
-    };
-    buf.clear();
-
-    let view = frame.view();
-    let w = view.w as f32;
-    let h = view.h as f32;
-    let day = frame.phase().day;
-    let cam_x = frame.cam().x;
-    let hill = rgb32(frame.atmo.resolved.hill);
-
-    let block = block_px();
-    for ridge in &RIDGES {
-        let color = linear(ridge.tint(hill, day), 1.0);
-        let shift = ridge.scroll(cam_x);
-        // One column past each edge, so the partial column a shift that is not a
-        // whole number of blocks leaves at the left never opens a gap.
-        let first = (shift / block).floor() as i32;
-        let last = ((shift + w) / block).ceil() as i32;
-        for j in first..last {
-            let ridge_x = j as f32 * block;
-            let top = ridge.column_top(ridge_x, h);
-            if top >= h {
-                continue;
-            }
-            buf.rect(ridge_x - shift, top, block, h - top, view, color);
-        }
-    }
-
-    buf.write(&mut mesh);
-}
-
-/// A sim-side colour as this module's.
-///
-/// `yugen-core` carries backdrop colours as `f64` because the biome blend that
-/// produces them shares its arithmetic with the world generator, which is `f64`
-/// throughout for parity. Nothing downstream of here needs that precision.
-pub(crate) fn rgb32(c: yugen_core::sim::biomes::Rgb) -> Rgb {
-    [c[0] as f32, c[1] as f32, c[2] as f32]
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::rgb32;
     use super::*;
     use yugen_core::sim::biomes::Biome;
-
-    /// A mesh handed to the renderer must never have zero vertices.
-    ///
-    /// This is a regression test for a real bug, and the bug is worth restating
-    /// because nothing about it was visible from the game: five meshes here and
-    /// in `crate::weather` are rewritten every frame, all five legitimately empty
-    /// (no stars in daylight, both discs down, a biome with no dust), and an
-    /// empty mesh made `bevy_render`'s allocator log
-    /// "Use-after-free: attempted to copy element data for an unallocated key"
-    /// **1612 times in a twelve-second run**. The frame still drew. Only the log
-    /// said anything was wrong.
-    #[test]
-    fn an_empty_buffer_still_writes_an_allocatable_mesh() {
-        let mut mesh = dynamic_mesh();
-        assert_eq!(
-            mesh.count_vertices(),
-            3,
-            "a freshly spawned mesh is empty for the frame before the first \
-             place_* runs, so it has to carry the stand-in too"
-        );
-
-        // The buffer never had a single triangle pushed into it — the daylight
-        // starfield case.
-        let mut buf = VertexBuf::default();
-        buf.clear();
-        buf.write(&mut mesh);
-
-        assert_eq!(
-            mesh.count_vertices(),
-            3,
-            "an empty buffer must still leave something allocatable behind"
-        );
-        assert!(
-            mesh.indices().is_some_and(|i| i.len() == 3),
-            "and the indices have to match, or the draw call is malformed"
-        );
-
-        // It must also be invisible: this stands in for nothing, so it may not
-        // put a pixel on screen.
-        let Some(bevy::render::mesh::VertexAttributeValues::Float32x4(colors)) =
-            mesh.attribute(Mesh::ATTRIBUTE_COLOR)
-        else {
-            panic!("the stand-in lost its vertex colours");
-        };
-        assert!(
-            colors.iter().all(|c| c[3] == 0.0),
-            "the stand-in triangle must be fully transparent, got {colors:?}"
-        );
-    }
-
-    /// And a buffer with real geometry is not disturbed by the fallback.
-    #[test]
-    fn a_buffer_with_triangles_writes_exactly_those_triangles() {
-        let mut mesh = dynamic_mesh();
-        let mut buf = VertexBuf::default();
-        buf.clear();
-        buf.rect(0.0, 0.0, 2.0, 2.0, View::for_screen(1280, 800), [1.0; 4]);
-        let want = buf.position.len();
-        buf.write(&mut mesh);
-        assert!(want > 0, "the fixture should have produced geometry");
-        assert_eq!(mesh.count_vertices(), want, "the fallback must not fire");
-    }
 
     const MIDNIGHT: f32 = 0.0;
     const SUNRISE: f32 = 0.25;
@@ -2230,79 +1355,5 @@ mod tests {
         assert_eq!(depth_at(1.0e9), 1.0, "and it stops at fully buried");
         let half = depth_at(anchor + DEPTH_SPAN_CELLS * 0.5 * CELL_SIZE as f32);
         assert!((half - 0.5).abs() < 1.0e-4, "was {half}");
-    }
-
-    #[test]
-    fn the_view_flip_is_the_only_thing_that_moves_a_point_between_the_two_spaces() {
-        let view = View::for_screen(1440, 900);
-        let w = view.w as f32;
-        let h = view.h as f32;
-        // The view's corners, in the TypeScript's screen space.
-        assert_eq!(view_to_local(0.0, 0.0, view), Vec2::new(-w / 2.0, h / 2.0));
-        assert_eq!(view_to_local(w, h, view), Vec2::new(w / 2.0, -h / 2.0));
-        // And its centre, which is where the camera is.
-        assert_eq!(view_to_local(w / 2.0, h / 2.0, view), Vec2::ZERO);
-    }
-
-    #[test]
-    fn a_filled_rect_is_placed_from_its_top_left_with_y_running_down() {
-        // `VertexBuf::rect` is the canvas `fillRect` this whole port is built on.
-        // Getting its corner or its sign wrong would put the backdrop upside down
-        // in a way no colour test would catch.
-        let view = View::for_screen(1440, 900);
-        let h = view.h as f32;
-        let mut buf = VertexBuf::default();
-        buf.rect(0.0, 0.0, 4.0, 2.0, view, [0.0; 4]);
-        let top = buf.position[0][1];
-        let bottom = buf.position[3][1];
-        assert_eq!(top, h / 2.0, "the rect starts at the top of the view");
-        assert!(bottom < top, "and extends downward");
-        assert_eq!(top - bottom, 2.0, "by its height");
-    }
-
-    #[test]
-    fn a_rebuilt_mesh_carries_every_attribute_the_pass_needs() {
-        // `ColorMaterial`'s shader reads `mesh.uv` unconditionally and the default
-        // mesh2d fragment returns magenta without vertex colours, so a mesh missing
-        // either attribute fails at pipeline build time — a long way from here.
-        let view = View::for_screen(1440, 900);
-        let mut buf = VertexBuf::default();
-        buf.rect(3.0, 4.0, 2.0, 2.0, view, [1.0, 1.0, 1.0, 1.0]);
-        let mut mesh = dynamic_mesh();
-        buf.write(&mut mesh);
-
-        assert!(mesh.attribute(Mesh::ATTRIBUTE_POSITION).is_some());
-        assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some());
-        assert!(mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_some());
-        assert_eq!(mesh.count_vertices(), 4);
-        assert_eq!(mesh.indices().map(Indices::len), Some(6));
-    }
-
-    #[test]
-    fn a_vertex_buffer_is_emptied_by_a_write_and_reused_by_the_next_frame() {
-        let view = View::for_screen(1440, 900);
-        let mut buf = VertexBuf::default();
-        let mut mesh = dynamic_mesh();
-        buf.rect(0.0, 0.0, 1.0, 1.0, view, [1.0; 4]);
-        buf.write(&mut mesh);
-        assert_eq!(mesh.count_vertices(), 4);
-
-        // A second frame that draws nothing must not leave LAST frame's geometry
-        // behind. The systems clear before they build for exactly this reason,
-        // and `write` taking the buffers is what makes the clear cheap.
-        //
-        // What it leaves is the stand-in triangle rather than literally nothing —
-        // see `an_empty_buffer_still_writes_an_allocatable_mesh`. This test
-        // originally asserted zero here, and zero is precisely what made the mesh
-        // allocator log a use-after-free every frame. The invariant it is really
-        // defending is "the square is gone", so that is what it checks.
-        buf.clear();
-        buf.write(&mut mesh);
-        assert_eq!(
-            mesh.count_vertices(),
-            3,
-            "the four-vertex square must be gone, replaced by the stand-in"
-        );
-        assert_eq!(mesh.indices().map(Indices::len), Some(3));
     }
 }
