@@ -1065,12 +1065,12 @@ only the exported surface is held to the rule.
 | `RIDGE_SHADE_DAY` (private) | `0.6` | How much of a ridge's colour daylight adds back on top of the floor. | 246 |
 | `DEPTH_SPAN_CELLS` (private) | `300.0` | Cells below [`SURFACE_ANCHOR_Y`] over which the sky darkens to fully underground. | 258 |
 
-### `crates/yugen-render/src/sprite.rs`
+### `crates/yugen-render/src/sprite/vocab.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VARIANT_COUNT` | `VARIANT_TINT.len()` | Ceiling for [`SpriteArt::variants`]. | 127 |
-| `POSE_COUNT` (private) | `14` | How many [`Pose`] variants there are — the width of a sprite's id table. | 167 |
+| `VARIANT_COUNT` | `VARIANT_TINT.len()` | Ceiling for [`SpriteArt::variants`]. | 36 |
+| `POSE_COUNT` (private) | `14` | How many [`Pose`] variants there are — the width of a sprite's id table. | 76 |
 
 ### `crates/yugen-render/src/ui/font_table.rs`
 
