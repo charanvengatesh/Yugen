@@ -237,18 +237,19 @@ all.
 
 ### 3. Save cadence
 
-**Policy; not yet implemented.** `docs/DEATH.md` raises the question and this is
-the answer: **death is the most durable moment in the game, and there is exactly
+`docs/DEATH.md` raises the question and this is the answer: **death is the most durable moment in the game, and there is exactly
 one Quit.**
 
 - One code path saves — `crates/yugen-render/src/world.rs::autosave` — and it
-  stays that way. A `SaveNow` trigger extends its early-return rather than
-  adding a second writer.
-- Death raises `SaveNow` *before* the `GameOver` transition and *after* the
-  corpse bag is spawned and the pack cleared, so what reaches disk is the
-  post-death state.
-- Also on entering pause, on any exit from `Scene::Playing`, and on leaving a
-  world.
+  stays that way. `SaveNow` extends its early return rather than adding a second
+  writer. A flag, not a message: two systems raising it in one frame produce one
+  save, and it does not survive into the next.
+- Death raises `SaveNow` *before* the `GameOver` transition, so what reaches
+  disk is the world as the death left it. When `docs/DEATH.md` lands the corpse
+  bag is spawned and the pack cleared ahead of that point, and the request needs
+  no change.
+- Entering pause raises it too — the moment before an alt-F4.
+- Still to do: leaving a world from the world-select screen.
 - **No "quit without saving" is ever offered.** The affordance is removed rather
   than policed. This is deliberate and is why the menu has one Quit.
 - Permadeath belongs in `world.meta` flags, **not** `options.txt`: it changes

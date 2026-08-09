@@ -138,6 +138,7 @@ impl Plugin for WorldSimPlugin {
             .init_resource::<WorldSave>()
             .init_resource::<FixedStep>()
             .init_resource::<AutosaveEvery>()
+            .init_resource::<SaveNow>()
             .add_systems(Startup, (clamp_catch_up, spawn_world).chain())
             .configure_sets(FixedUpdate, (SimSet::Stream, SimSet::Simulate).chain())
             .add_systems(
@@ -183,9 +184,16 @@ fn autosave(
     mut since: Local<f32>,
     exiting: MessageReader<AppExit>,
     every: Res<AutosaveEvery>,
+    mut now: ResMut<SaveNow>,
 ) {
     *since += time.delta_secs();
-    if exiting.is_empty() && *since < every.0 {
+    // One code path saves, and this is it. `SaveNow` extends the early return
+    // rather than adding a second writer, because two places that write a run
+    // file are two places to get the ordering wrong — and the moments that raise
+    // it are exactly the moments where what reaches disk has to be the state
+    // AFTER something irreversible, not before.
+    let asked = now.take();
+    if exiting.is_empty() && !asked && *since < every.0 {
         return;
     }
     *since = 0.0;
@@ -330,6 +338,33 @@ fn clamp_catch_up(mut virt: ResMut<Time<Virtual>>) {
 /// getting this wrong is asymmetric: a save that is thirty seconds stale after a
 /// crash is a annoyance, and one that never happened is the run.
 pub const AUTOSAVE_EVERY_S: f32 = 30.0;
+
+/// Raise this to make the next frame save, whatever the clock says.
+///
+/// The commit points are the moments a player would be most upset to lose:
+/// dying, pausing, leaving a world, and leaving `Playing` at all. Death is the
+/// sharpest of them — `docs/SAVE.md` states the rule as *death is the most
+/// durable moment in the game, and there is exactly one Quit*, because the
+/// alternative is a player who learns they can rewind a death by killing the
+/// process. The affordance is removed rather than policed.
+///
+/// A flag rather than a message: two systems raising it in one frame should
+/// produce one save, and a reader that has to be drained exactly once is a
+/// reader somebody will forget to drain.
+#[derive(Resource, Default, Debug)]
+pub struct SaveNow(bool);
+
+impl SaveNow {
+    /// Ask for a save on the next `autosave` run.
+    pub fn request(&mut self) {
+        self.0 = true;
+    }
+
+    /// Consume the request. `true` if one was pending.
+    fn take(&mut self) -> bool {
+        std::mem::take(&mut self.0)
+    }
+}
 
 /// Seconds between autosaves, as the player has set them.
 ///
@@ -499,6 +534,20 @@ fn simulate(mut world: ResMut<SimWorld>, mut step: ResMut<FixedStep>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_save_request_is_consumed_once_and_collapses_repeats() {
+        // A flag rather than a message, and this is why: two systems raising it
+        // in one frame must produce one save, and the request must not survive
+        // into the next frame and cause a second.
+        let mut now = SaveNow::default();
+        assert!(!now.take(), "a fresh flag asks for nothing");
+
+        now.request();
+        now.request();
+        assert!(now.take(), "the request was not seen");
+        assert!(!now.take(), "the request outlived the save it asked for");
+    }
+
     use super::*;
     use yugen_core::config::SIM_HZ;
 

@@ -1178,7 +1178,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTOSAVE_EVERY_S` | `30.0` | Seconds between autosaves while a world with a save directory is running. | 332 |
+| `AUTOSAVE_EVERY_S` | `30.0` | Seconds between autosaves while a world with a save directory is running. | 340 |
 
 ### `crates/yugen-render/src/worldselect.rs`
 

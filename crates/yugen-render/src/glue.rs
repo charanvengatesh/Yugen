@@ -36,7 +36,9 @@ use crate::sprite::SpriteAtlases;
 use crate::ui::layout::Region;
 use crate::ui::menu::{self, Action, Control, Nav, Slide};
 use crate::ui::{IconAtlas, Icons, RunAge, UiScreen};
-use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
+use crate::world::{
+    SaveNow, SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run,
+};
 use crate::worldselect::{AUTO_NAME, WorldPicker, fresh_seed};
 use yugen_core::config::View;
 use yugen_core::sim::save::{create_world, delete_world};
@@ -286,11 +288,23 @@ fn death_ends_the_run(
     body: Option<Res<PlayerBody>>,
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
+    mut save: ResMut<SaveNow>,
 ) {
     if *scene.get() != Scene::Playing {
         return;
     }
     if body.is_some_and(|b| b.dead()) {
+        // Ask for a save BEFORE the transition, so what reaches disk is the
+        // world as the death left it. `docs/SAVE.md` states the rule: death is
+        // the most durable moment in the game, and there is exactly one Quit.
+        // Without this a player learns they can rewind a death by killing the
+        // process, and once that is learnable it is the correct play — so the
+        // affordance is removed rather than policed.
+        //
+        // When `docs/DEATH.md` lands, the corpse bag is spawned and the pack
+        // cleared before this point, and the request needs no change: it will
+        // already be writing the post-death state.
+        save.request();
         next.set(Scene::GameOver);
     }
 }
@@ -788,6 +802,7 @@ fn escape_key(
     scene: Res<State<Scene>>,
     mut paused: ResMut<Paused>,
     mut nav: ResMut<Nav>,
+    mut save: ResMut<SaveNow>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.pause) {
         return;
@@ -796,6 +811,9 @@ fn escape_key(
         Scene::Playing => {
             if !paused.0 {
                 paused.0 = true;
+                // The moment before an alt-F4. Pausing is the closest thing to
+                // a player saying "I am stopping now", and it costs one write.
+                save.request();
                 // Rooted here rather than left wherever the last menu was, so
                 // Escape always opens ON the pause card.
                 nav.reset(menu::Page::Pause);
