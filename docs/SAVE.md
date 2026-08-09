@@ -1,6 +1,6 @@
 # The save format
 
-Normative. `crates/yugen-core/src/sim/save.rs` is the implementation; this is the
+Normative. `crates/yugen-core/src/sim/save/` is the implementation; this is the
 thing it has to agree with.
 
 Two halves, and they are marked. **What it is** describes the format as it
@@ -48,20 +48,40 @@ costs one chunk of edits rather than the world.
 - **Writes are atomic** — write `.tmp`, rename into place. A half-written run
   file would load as no run at all.
 
-### `<x>_<y>.chunk` — `GGCH`, version 1, exactly 8208 bytes
+### `<x>_<y>.chunk` — `GGCH`, version 2, a plane table
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | magic `GGCH` |
-| 4 | 2 | version = 1 |
+| 4 | 2 | version = 2 |
 | 6 | 2 | `CHUNK_CELLS` (32) |
 | 8 | 4 | `chunk_x`, i32 |
 | 12 | 4 | `chunk_y`, i32 |
-| 16 | 2048 | `material`, u16 × 1024 |
-| 2064 | 1024 | `flags`, u8 × 1024 |
-| 3088 | 2048 | `aux`, u16 × 1024 |
-| 5136 | 1024 | `temp`, u8 × 1024 |
-| 6160 | 2048 | `back`, u16 × 1024 |
+| 16 | 1 | plane count |
+| 17 | 2×n | the table: `(tag u8, element width u8)` per plane |
+| … | | the planes, in table order, `width × 1024` bytes each |
+
+| Tag | Plane | Width | Absent means |
+|---|---|---|---|
+| 1 | `material` | 2 | all `0` |
+| 2 | `flags` | 1 | all empty |
+| 3 | `aux` | 2 | all `0` |
+| 4 | `temp` | 1 | all `0` |
+| 5 | `back` | 2 | all `0` |
+
+Tags are assigned once and never reused. A removed plane burns its tag rather
+than freeing it, because an old file still has that tag in it.
+
+A plane this build does not know is **stepped over by the width the table gives
+it** — it does not need to know what tag 6 means to know that width 2 is 2048
+bytes to skip. A plane at a width this build does not read it at is **refused**:
+that is a disagreement about what the tag means, and reading two bytes of a
+four-byte material would be reinterpreting a payload. A repeated plane is
+refused too. Planes are written in tag order, so one snapshot has exactly one
+encoding.
+
+The total length is still exact — but it is now a length the file's own table
+declares rather than one this build assumes.
 
 The cell count is checked rather than assumed: a save written when
 `CHUNK_CELLS` was a different number would otherwise read as this one's planes
@@ -69,6 +89,9 @@ at the wrong stride, which is garbage that parses. The coordinate in the file is
 cross-checked against the one in the filename. `flags` uses
 `CellFlags::from_bits_truncate`, so an unknown bit from a newer build is dropped
 and the cell keeps its material.
+
+**Version 1 is migrated, not refused** — `save/legacy.rs::decode_chunk_v1`. It
+was the same five planes at fixed offsets with no table, exactly 8208 bytes.
 
 ### `run.save` — `GGRN`, version 3, sectioned
 
@@ -145,8 +168,8 @@ put something of their own.
 
 ### 1. Versioning has three levels
 
-**`run.save` implements all three as of version 3. `<x>_<y>.chunk` and
-`world.meta` do not yet — both are still a version equality and a refusal.**
+**`run.save` (v3) and `<x>_<y>.chunk` (v2) implement all three. `world.meta`
+does not yet — it is still a version equality and a refusal.**
 
 1. **The envelope version.** Bumping it is a hard event and the only thing that
    may ever cost a player a world. Old envelopes are read by *retired readers*
@@ -169,12 +192,13 @@ equality that was five bumps, each discarding the player's position and pack.
 Under v3 it is five sections and no bump at all — which is the whole return on
 having done this before writing them rather than after.
 
-The chunk format has not had its turn yet, and it is the more dangerous of the
-two. Its version comment says to bump on any layout change *including adding a
-plane*, and a refused chunk regenerates — so adding one plane would silently
-discard **every edit in every world**, because a pristine chunk is exactly what
-worldgen produces and nothing distinguishes it from a chunk whose file was
-thrown away.
+The chunk format was the more dangerous of the two and has now had its turn. Its
+version comment used to say to bump on any layout change *including adding a
+plane*, and a refused chunk regenerates — so adding one plane would have
+silently discarded **every edit in every world**, because a pristine chunk is
+exactly what worldgen produces and nothing distinguishes it from a chunk whose
+file was thrown away. The plane table means adding one is no longer a bump at
+all.
 
 ### 2. What a save owns
 

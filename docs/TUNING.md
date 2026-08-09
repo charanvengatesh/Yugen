@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 277 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 646 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 650 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -516,10 +516,14 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `VERSION` (private) | `1` | Format version. | 28 |
-| `HEADER` (private) | `4 + 2 + 2 + 4 + 4` | Header bytes before the planes: magic, version, cell count, coordinates. | 31 |
-| `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 34 |
-| `ENCODED` (private) | `HEADER + CELLS * (2 + 1 + 2 + 1 + 2)` | Bytes one encoded chunk occupies: header plus `u16`, `u8`, `u16`, `u8`, `u16` planes. | 38 |
+| `VERSION` (private) | `2` | Format version. | 48 |
+| `HEADER` (private) | `4 + 2 + 2 + 4 + 4 + 1` | Header bytes before the plane table: magic, version, cell count, coordinates, plane count. | 52 |
+| `CELLS` (private) | `(CHUNK_CELLS * CHUNK_CELLS) as usize` | Cells in one chunk's plane. | 55 |
+| `MATERIAL` | `1` |  | 69 |
+| `FLAGS` | `2` |  | 70 |
+| `AUX` | `3` |  | 71 |
+| `TEMP` | `4` |  | 72 |
+| `BACK` | `5` |  | 73 |
 
 ### `crates/yugen-core/src/sim/save/meta.rs`
 

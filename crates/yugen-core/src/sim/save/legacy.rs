@@ -33,7 +33,74 @@
 //! evidence about the past and become a copy of the present.
 
 use super::bytes::Reader;
+use super::chunk::CELLS;
 use super::run::{BodyState, RunState};
+use crate::config::CHUNK_CELLS;
+use crate::sim::chunk::ChunkSnapshot;
+use crate::sim::grid::CellFlags;
+use crate::sim::materials::CellId;
+
+/// Read a version-1 chunk file.
+///
+/// Five planes at fixed offsets, in a fixed order, with no table in front of
+/// them: magic, version, cell count, `chunk_x`, `chunk_y`, then `material`
+/// (u16), `flags` (u8), `aux` (u16), `temp` (u8) and `back` (u16), each
+/// `CELLS` long. Exactly `16 + CELLS * 8` bytes, always.
+///
+/// Version 2 put a table in front so a plane could be added without a bump. The
+/// five planes themselves are byte-identical either side of that change, so this
+/// reader is the old offsets and nothing else.
+///
+/// The cell-count check matters here as much as it does in the live reader: a
+/// file written when `CHUNK_CELLS` was a different number would otherwise be
+/// read at the wrong stride, which is garbage that parses rather than a refusal.
+pub fn decode_chunk_v1(bytes: &[u8]) -> Option<ChunkSnapshot> {
+    const HEADER_V1: usize = 4 + 2 + 2 + 4 + 4;
+    const ENCODED_V1: usize = HEADER_V1 + CELLS * (2 + 1 + 2 + 1 + 2);
+
+    if bytes.len() != ENCODED_V1 || bytes[..4] != *b"GGCH" {
+        return None;
+    }
+    if u16::from_le_bytes([bytes[4], bytes[5]]) != 1 {
+        return None;
+    }
+    if u16::from_le_bytes([bytes[6], bytes[7]]) != CHUNK_CELLS as u16 {
+        return None;
+    }
+
+    let chunk_x = i32::from_le_bytes(bytes[8..12].try_into().ok()?);
+    let chunk_y = i32::from_le_bytes(bytes[12..16].try_into().ok()?);
+
+    let mut at = HEADER_V1;
+    let u16s = |at: &mut usize| -> Vec<u16> {
+        let v = bytes[*at..*at + CELLS * 2]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        *at += CELLS * 2;
+        v
+    };
+    let material: Vec<CellId> = u16s(&mut at);
+    let flags: Vec<CellFlags> = bytes[at..at + CELLS]
+        .iter()
+        .map(|b| CellFlags::from_bits_truncate(*b))
+        .collect();
+    at += CELLS;
+    let aux = u16s(&mut at);
+    let temp = bytes[at..at + CELLS].to_vec();
+    at += CELLS;
+    let back: Vec<CellId> = u16s(&mut at);
+
+    Some(ChunkSnapshot {
+        chunk_x,
+        chunk_y,
+        material,
+        flags,
+        aux,
+        temp,
+        back,
+    })
+}
 
 /// Read a version-2 run file.
 ///
@@ -154,6 +221,74 @@ mod tests {
             super::super::run::decode_run(&re).expect("round trip"),
             migrated
         );
+    }
+
+    /// A version-1 chunk, byte for byte: header then five planes at fixed
+    /// offsets, no table. Written out here for the same reason `v2_bytes` is —
+    /// the bytes are the specification.
+    fn v1_chunk_bytes() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGCH");
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&(CHUNK_CELLS as u16).to_le_bytes());
+        b.extend_from_slice(&(-7i32).to_le_bytes());
+        b.extend_from_slice(&12i32.to_le_bytes());
+        for i in 0..CELLS {
+            b.extend_from_slice(&((i % 53) as u16).to_le_bytes()); // material
+        }
+        b.extend(std::iter::repeat_n(1u8, CELLS)); // flags
+        for i in 0..CELLS {
+            b.extend_from_slice(&((i % 7) as u16).to_le_bytes()); // aux
+        }
+        b.extend((0..CELLS).map(|i| (i % 251) as u8)); // temp
+        for i in 0..CELLS {
+            b.extend_from_slice(&((i % 11) as u16).to_le_bytes()); // back
+        }
+        b
+    }
+
+    #[test]
+    fn a_version_one_chunk_still_loads_every_plane_it_held() {
+        let snap = decode_chunk_v1(&v1_chunk_bytes()).expect("a valid v1 chunk");
+        assert_eq!((snap.chunk_x, snap.chunk_y), (-7, 12));
+        assert_eq!(snap.material[52], 52);
+        assert_eq!(snap.aux[6], 6);
+        assert_eq!(snap.temp[250], 250);
+        assert_eq!(snap.back[10], 10);
+        assert!(snap.flags.iter().all(|f| f.bits() == 1));
+    }
+
+    #[test]
+    fn the_live_reader_migrates_a_version_one_chunk_rather_than_refusing_it() {
+        // The bug this closes is the quietest one in the tree. A refused chunk
+        // regenerates, and a regenerated chunk is indistinguishable from one
+        // nobody ever dug — so under version equality, adding a sixth plane
+        // would have erased every edit in every world with no error anywhere.
+        let bytes = v1_chunk_bytes();
+        let migrated = super::super::chunk::decode_chunk(&bytes).expect("v1 migrates");
+        assert_eq!(migrated, decode_chunk_v1(&bytes).expect("same file"));
+
+        // And it comes back out as an ordinary v2 chunk, table and all.
+        let re = super::super::chunk::encode_chunk(&migrated);
+        assert_eq!(&re[4..6], &2u16.to_le_bytes(), "re-encoded at v2");
+        assert_eq!(
+            super::super::chunk::decode_chunk(&re).expect("round trip"),
+            migrated
+        );
+    }
+
+    #[test]
+    fn no_truncation_of_a_version_one_chunk_decodes_to_something() {
+        let full = v1_chunk_bytes();
+        // Every 97th prefix rather than all 8208: the length check is a single
+        // equality, so the property is uniform and sampling it keeps the suite
+        // fast enough that nobody is tempted to delete it.
+        for n in (0..full.len()).step_by(97) {
+            assert!(
+                decode_chunk_v1(&full[..n]).is_none(),
+                "a {n}-byte prefix decoded to a chunk"
+            );
+        }
     }
 
     #[test]
