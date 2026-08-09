@@ -8,13 +8,15 @@
 //! names a system that reads it, and `settings::apply` is where they are read.
 //!
 //! This paragraph used to say there were no volume sliders because there was no
-//! audio. There is now — see [`crate::sound`] — and there is still no slider,
-//! which makes this the one place the rule is currently owed something rather
-//! than being satisfied. [`crate::sound::SoundVolume`] holds the number and
-//! defaults sensibly; persisting it is a field here and a row in
-//! [`crate::ui::menu`], and until that lands a player cannot turn the sound
-//! down. Recorded rather than quietly left out, because a missing setting is
-//! exactly the kind of thing this header exists to make visible.
+//! audio. There is now — see [`crate::sound`] — and `volume` below is a real
+//! setting: it persists, it clamps, and `apply` pushes it into
+//! [`crate::sound::SoundVolume`], where zero means no audio entities are
+//! spawned at all rather than muted ones being spawned.
+//!
+//! What it does not yet have is a ROW in [`crate::ui::menu`], so it is reachable
+//! by editing `options.txt` and not from inside the game. That is a gap in the
+//! menu rather than in this file, and it is named here because a setting a
+//! player cannot find is close enough to furniture to be worth saying out loud.
 //!
 //! # Why a line file and not TOML
 //!
@@ -149,6 +151,14 @@ pub struct Settings {
     /// like digging, and the honest low setting is fewer of them rather than
     /// none.
     pub particles: f32,
+    /// Sound volume, `0.0..=1.0`. Zero is silence, and a real one — see
+    /// [`crate::sound::SoundVolume`], which spawns nothing rather than spawning
+    /// muted entities.
+    ///
+    /// Default is below 1.0 on purpose: the per-sound `gain` in
+    /// `content/sounds/` is authored against a master that leaves headroom, so
+    /// three sounds landing on the same frame do not sum past full scale.
+    pub volume: f32,
     /// Screenshake magnitude, `0.0..=1.0`. Zero is off.
     ///
     /// Present because camera shake is the single most common accessibility
@@ -175,6 +185,7 @@ impl Default for Settings {
             vsync: true,
             scale: RenderScale::Auto,
             particles: 1.0,
+            volume: 0.6,
             shake: 1.0,
             hints: HintMode::Fade,
             debug_overlay: false,
@@ -204,6 +215,7 @@ impl Settings {
     /// Pull every value back inside its range.
     pub fn clamp(&mut self) {
         self.particles = self.particles.clamp(0.0, 1.0);
+        self.volume = self.volume.clamp(0.0, 1.0);
         self.shake = self.shake.clamp(0.0, 1.0);
         self.day_minutes = self
             .day_minutes
@@ -228,6 +240,7 @@ impl Settings {
             }
         );
         let _ = writeln!(s, "particles={:.2}", self.particles);
+        let _ = writeln!(s, "volume={:.2}", self.volume);
         let _ = writeln!(s, "shake={:.2}", self.shake);
         let _ = writeln!(s, "hints={}", self.hints.key());
         let _ = writeln!(s, "debug_overlay={}", self.debug_overlay);
@@ -274,6 +287,11 @@ impl Settings {
                 "particles" => {
                     if let Ok(v) = value.parse() {
                         out.particles = v;
+                    }
+                }
+                "volume" => {
+                    if let Ok(v) = value.parse() {
+                        out.volume = v;
                     }
                 }
                 "shake" => {
@@ -381,7 +399,9 @@ fn apply(settings: Res<Settings>, mut into: Applied) {
         particles,
         clock,
         overlay,
+        volume,
     } = &mut into;
+    volume.0 = settings.volume;
     for mut window in &mut *windows {
         let want = if settings.fullscreen {
             // Borderless on the current monitor, which is the fullscreen mode
@@ -442,6 +462,7 @@ struct Applied<'w, 's> {
     autosave: ResMut<'w, crate::world::AutosaveEvery>,
     overlay: ResMut<'w, crate::debug::DebugOverlay>,
     shake: Option<ResMut<'w, crate::effects::Screenshake>>,
+    volume: ResMut<'w, crate::sound::SoundVolume>,
     particles: Option<ResMut<'w, crate::particles::ParticleSystem>>,
     clock: Option<ResMut<'w, crate::daynight::WorldClock>>,
 }
@@ -499,6 +520,7 @@ mod tests {
             vsync: false,
             scale: RenderScale::Fixed(3),
             particles: 0.25,
+            volume: 0.33,
             shake: 0.0,
             hints: HintMode::Never,
             debug_overlay: true,

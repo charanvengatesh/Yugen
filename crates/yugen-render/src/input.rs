@@ -45,6 +45,9 @@ use yugen_core::items::crafting::Reach;
 use yugen_core::items::registry::{ItemCategory, ItemEffect};
 use yugen_core::items::{HOTBAR, Inventory, craft, item_by_code, next_craftable, recipes};
 use yugen_core::sim::edits::{EditMode, apply_brush};
+use yugen_data::sounds::sound as snd;
+
+use crate::sound::SoundQueue;
 
 use crate::cellmap::upload_dirty_chunks;
 use crate::items::Pack;
@@ -676,6 +679,15 @@ struct Swinger<'w> {
     /// the write went through the lock, which is precisely the kind of hidden
     /// mutation that let Bevy schedule a writer alongside four readers.
     pack: ResMut<'w, Pack>,
+    /// Where a stroke's sound goes. Part of the actor because a stroke IS the
+    /// actor doing something, and because the alternative is an eighth argument.
+    ///
+    /// Optional for the reason `crate::debug`'s sources are: a host may run the
+    /// input plugin without `SoundPlugin`, and several tests in this file do
+    /// exactly that. A missing queue means there is no audio in this app, not
+    /// that something failed — and a required one turns "no sound" into four
+    /// panicking tests.
+    sound: Option<ResMut<'w, SoundQueue>>,
 }
 
 /// Ask the tool for this frame's stroke and stamp it.
@@ -688,7 +700,12 @@ fn swing_brush(
     mut tool: ResMut<Tool>,
     mut world: ResMut<SimWorld>,
 ) {
-    let Swinger { focus, body, pack } = &mut actor;
+    let Swinger {
+        focus,
+        body,
+        pack,
+        sound,
+    } = &mut actor;
     let Some(at) = cursor.0 else {
         return;
     };
@@ -736,6 +753,21 @@ fn swing_brush(
         act.r,
         act.mat,
     );
+
+    // One sound per stroke, and the stroke is already rate-limited by the tool's
+    // own `dig_timer`/`place_timer` — so this fires at the tool's cadence rather
+    // than per frame, which is why `dig` can be as quiet as it is without
+    // becoming a rattle.
+    //
+    // The background modes are the same act on the wall plane and get the same
+    // sound. A separate pair would be four sounds distinguishable only by which
+    // modifier was held, which is not information anybody needs by ear.
+    if let Some(sound) = sound.as_mut() {
+        match act.mode {
+            EditMode::Dig | EditMode::DigBack => sound.play(snd::DIG),
+            EditMode::Place | EditMode::PlaceBack => sound.play(snd::PLACE),
+        }
+    }
 
     // Pay for it. The tool sized the disc to what the stack could cover and
     // published the count rather than spending it itself — see `BuildTool::place`

@@ -106,16 +106,15 @@ use bevy::shader::Shader;
 use bevy::sprite_render::{AlphaMode2d, Material2dPlugin};
 
 use yugen_core::config::{CELL_SIZE, STEP_DT, View};
-use yugen_core::entities::mobs::{MAX_MOBS, MobDef, MobEvent, MobSystem, TELL_TIME};
+use yugen_core::entities::mobs::{MAX_MOBS, MobDef, MobEvent, MobEventKind, MobSystem, TELL_TIME};
 use yugen_core::entities::projectiles::{MAX_SHOTS as MAX_ARROWS, style_glow, style_rgb};
 
-use crate::effects::Feedback;
 use crate::lowres::{LowResTarget, WORLD_LAYERS};
-use crate::particles::ParticleSystem;
-use crate::player::{ArrowPool, PlayerBody, PlayerSet};
+use crate::player::{ArrowPool, Juice, PlayerBody, PlayerSet};
 use crate::sky::{AdditiveMaterial, VertexBuf, dynamic_mesh, linear};
 use crate::sprite::world_translation;
 use crate::world::{SimSet, SimWorld};
+use yugen_data::sounds::sound as snd;
 
 use art::{art_origin, bake_mob_art, clock_of};
 use material::{MOB_GLOW_SHADER, MOB_GLOW_WGSL};
@@ -466,8 +465,11 @@ pub(crate) fn step_creatures(
     world: Res<SimWorld>,
     mut body: ResMut<PlayerBody>,
     day: Res<Daylight>,
-    mut particles: ResMut<ParticleSystem>,
-    mut feedback: Feedback,
+    // The same three the player's own events are spent into — see
+    // `crate::player::Juice`. Bundled rather than listed because they always
+    // travel together, and because clippy's argument limit is a fair proxy for
+    // "this system now has more collaborators than it can explain".
+    mut juice: Juice,
     mut drained: Local<Vec<MobEvent>>,
 ) {
     creatures.update(STEP_DT, &world.level.grid, &mut **body, day.0);
@@ -490,8 +492,18 @@ pub(crate) fn step_creatures(
     for &e in drained.iter() {
         // Every event carries its own position and the creature's blood tone, so
         // neither of these has to learn what a creature is.
-        particles.mob_event(e);
-        feedback.mob_event(e.kind);
+        juice.particles.mob_event(e);
+        juice.feedback.mob_event(e.kind);
+        // Exhaustive rather than a lookup, because `PlayerChill` genuinely has
+        // no sound and that has to be a decision somebody wrote down rather
+        // than a gap in a table. It is a status with a duration, not a moment —
+        // a sound for it would fire on a frame the player cannot connect it to.
+        match e.kind {
+            MobEventKind::MobHurt => juice.sound.play(snd::MOB_HURT),
+            MobEventKind::MobDie => juice.sound.play(snd::MOB_DIE),
+            MobEventKind::PlayerHit => juice.sound.play(snd::PLAYER_HIT),
+            MobEventKind::PlayerChill => {}
+        }
     }
 }
 

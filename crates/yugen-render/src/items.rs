@@ -56,7 +56,9 @@ use crate::input::Tool;
 use crate::lowres::WORLD_LAYERS;
 use crate::mobs::Creatures;
 use crate::player::{PlayerBody, PlayerSet};
+use crate::sound::SoundQueue;
 use crate::world::{SimSet, SimWorld};
+use yugen_data::sounds::sound as snd;
 
 /// Where a dropped stack sits in z: over the terrain, under everything alive.
 ///
@@ -215,8 +217,23 @@ fn magnetise(
     body: Res<PlayerBody>,
     mut pack: ResMut<Pack>,
     mut ground: ResMut<GroundItems>,
+    mut sound: ResMut<SoundQueue>,
 ) {
+    // The pack's revision is the pickup signal. `WorldItems::update` returns
+    // nothing and the only thing it does to an inventory is add to it, so a
+    // revision that moved across the call means at least one stack was
+    // collected.
+    //
+    // Reading the side effect rather than changing the signature, deliberately:
+    // a `-> usize` on `update` would be a `yugen-core` change made for the
+    // benefit of a sound, and the count is not wanted anyway. One sound per
+    // frame in which anything was picked up is the right granularity — walking
+    // over six drops at once is one event to a player, not six.
+    let before = pack.revision();
     ground.update(STEP_DT, &world.level.grid, body.x, body.y, &mut pack);
+    if pack.revision() != before {
+        sound.play(snd::PICKUP);
+    }
 }
 
 /// Put every drop placeholder on its stack, or hide its slot.

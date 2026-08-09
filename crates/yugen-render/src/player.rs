@@ -384,12 +384,12 @@ pub(crate) fn spend_step_events(
 /// [`Feedback`] is itself a `SystemParam`, which is what lets this nest.
 #[derive(SystemParam)]
 pub(crate) struct Juice<'w> {
-    particles: ResMut<'w, ParticleSystem>,
-    feedback: Feedback<'w>,
+    pub(crate) particles: ResMut<'w, ParticleSystem>,
+    pub(crate) feedback: Feedback<'w>,
     /// Codes for `crate::sound` to play. A queue rather than a call, so this
     /// bundle does not have to hold `Commands` and an asset store to make a
     /// noise — see `sound::play`.
-    sound: ResMut<'w, SoundQueue>,
+    pub(crate) sound: ResMut<'w, SoundQueue>,
 }
 
 /// The two things the juice remembers between steps.
