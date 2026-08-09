@@ -12,6 +12,38 @@
 
 #![allow(clippy::all)]
 
+/// Which placement lattice offers this template a site.
+/// `surface`/`shore`/`floating` are scanned as COLUMNS (the row is derived
+/// from the ground line); the rest are scanned on a 2D lattice and gated on
+/// depth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum StructPlace {
+    Surface,
+    Shore,
+    Floating,
+    Underground,
+    Cavern,
+    Underworld,
+}
+
+impl StructPlace {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<StructPlace> {
+        Some(match code {
+            0 => StructPlace::Surface,
+            1 => StructPlace::Shore,
+            2 => StructPlace::Floating,
+            3 => StructPlace::Underground,
+            4 => StructPlace::Cavern,
+            5 => StructPlace::Underworld,
+            _ => return None,
+        })
+    }
+}
+
 /// Depth bands this may appear in. Absent = whatever `place` implies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -34,6 +66,33 @@ impl StructBands {
             2 => StructBands::Cavern,
             3 => StructBands::Deep,
             4 => StructBands::Underworld,
+            _ => return None,
+        })
+    }
+}
+
+/// Which template cell the placement origin names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum StructAnchor {
+    BottomCenter,
+    BottomLeft,
+    Center,
+    TopCenter,
+    TopLeft,
+}
+
+impl StructAnchor {
+    /// The variant a compiled code stands for, or `None` if this
+    /// build has no such variant.
+    #[inline]
+    pub const fn from_code(code: u8) -> Option<StructAnchor> {
+        Some(match code {
+            0 => StructAnchor::BottomCenter,
+            1 => StructAnchor::BottomLeft,
+            2 => StructAnchor::Center,
+            3 => StructAnchor::TopCenter,
+            4 => StructAnchor::TopLeft,
             _ => return None,
         })
     }

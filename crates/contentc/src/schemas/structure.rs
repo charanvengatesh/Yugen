@@ -243,6 +243,7 @@ pub fn schema() -> Schema {
                          `floating` are scanned as COLUMNS (the row is derived from the ground \
                          line); the rest are scanned on a 2D lattice and gated on depth.",
                     )
+                    .alias("StructPlace")
                     .map(PLACE)
                     .required()
                     .hot(vec![table(
@@ -343,6 +344,7 @@ pub fn schema() -> Schema {
                 "anchor".into(),
                 Field::new("enum(bottom_center|bottom_left|center|top_center|top_left)")
                     .doc("Which template cell the placement origin names.")
+                    .alias("StructAnchor")
                     .map(ANCHOR)
                     // ANCHOR.bottom_center
                     .default_int(0)

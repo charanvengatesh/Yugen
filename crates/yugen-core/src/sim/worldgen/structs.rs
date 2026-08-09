@@ -59,85 +59,46 @@ pub use yugen_data::structs::{
     Sflag, StructBands, StructDef,
 };
 
-// --- Codes mirrored from crates/contentc/src/schemas/structure.rs -------------
-// The schema maps these enums to numbers so the placement loop compares
-// integers. The values are load-bearing on both sides; they are written out here
-// rather than imported because `contentc` is the compiler and must not be
-// dragged into the game.
+// --- The compiled vocabularies ----------------------------------------------
+//
+// All three are GENERATED and used to be written out here by hand, under a
+// comment conceding the values were "load-bearing on both sides". They were.
+// See `contentc`'s `collect_enums` for the opt-in: naming a mapped enum is how
+// a schema says the game meets this one as a number.
 
-/// Where in the world a template may stand.
+pub use yugen_data::structs::{StructAnchor as Anchor, StructMark as Mark, StructPlace as Place};
+
+/// Where in the world a template may stand, defaulting to the surface.
 ///
-/// The TypeScript named only the four codes it compared against and left 3 and 4
-/// as bare shifts in a bitmask; a real enum costs nothing here and makes
-/// `(1 << 3) | (1 << 4)` legible as "underground or cavern".
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Place {
-    Surface = 0,
-    Shore = 1,
-    Floating = 2,
-    Underground = 3,
-    Cavern = 4,
-    Underworld = 5,
+/// The generated `from_code` returns `None` for a code this build lacks;
+/// `Surface` is the right answer to that here because it is the schema's own
+/// default and the one class that cannot place a template underground — an
+/// unknown placement class must not be able to bury a cabin.
+#[inline]
+fn place_of(code: u8) -> Place {
+    Place::from_code(code).unwrap_or(Place::Surface)
 }
 
-impl Place {
-    /// The code the compiled `STRUCT_PLACE` table holds.
-    ///
-    /// Total: an unknown code reads as [`Place::Surface`], which is the schema's
-    /// own default and the one class that cannot place a template underground.
-    #[inline]
-    fn from_code(c: u8) -> Place {
-        match c {
-            1 => Place::Shore,
-            2 => Place::Floating,
-            3 => Place::Underground,
-            4 => Place::Cavern,
-            5 => Place::Underworld,
-            _ => Place::Surface,
-        }
-    }
-
-    /// This class's bit in a placement mask.
-    #[inline]
-    fn bit(self) -> u32 {
-        1 << self as u32
-    }
+/// This class's bit in a placement mask.
+///
+/// A free function rather than a method, because the enum is generated now and
+/// this is the game's idea rather than the compiler's. The TypeScript named only
+/// the four codes it compared against and left 3 and 4 as bare shifts; a real
+/// enum makes `(1 << 3) | (1 << 4)` legible as "underground or cavern".
+#[inline]
+fn place_bit(p: Place) -> u32 {
+    1 << (p as u8) as u32
 }
 
-/// Which cell of the template the placement origin refers to. `bottom_center` is
-/// the default because almost everything is authored standing on the ground and
-/// the ground line is the one coordinate placement actually derives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Anchor {
-    BottomCenter = 0,
-    BottomLeft = 1,
-    Center = 2,
-    TopCenter = 3,
-    TopLeft = 4,
+/// Which cell of the template the origin names, defaulting to `bottom_center`.
+///
+/// The schema's own default, and the one almost everything is authored against:
+/// templates stand on the ground, and the ground line is the one coordinate
+/// placement actually derives.
+#[inline]
+fn anchor_of(code: u8) -> Anchor {
+    Anchor::from_code(code).unwrap_or(Anchor::BottomCenter)
 }
-
-impl Anchor {
-    /// The code the compiled `STRUCT_ANCHOR` table holds. Total, defaulting to
-    /// the schema's own default.
-    #[inline]
-    fn from_code(c: u8) -> Anchor {
-        match c {
-            1 => Anchor::BottomLeft,
-            2 => Anchor::Center,
-            3 => Anchor::TopCenter,
-            4 => Anchor::TopLeft,
-            _ => Anchor::BottomCenter,
-        }
-    }
-}
-
-// `StructMark` is GENERATED, and used to be written out here by hand. See
-// `features.rs` for the argument and `contentc`'s `collect_enums` for the
-// opt-in: naming a mapped enum is how a schema says the game meets this one as
-// a number.
-pub use yugen_data::structs::StructMark as Mark;
 
 /// What a later pass should do with this cell, defaulting to just masonry.
 ///
@@ -355,8 +316,8 @@ fn build(def: &'static StructDef) -> Option<Template> {
     Some(Template {
         id: def.id,
         code: def.code,
-        place: Place::from_code(def.place),
-        anchor: Anchor::from_code(def.anchor),
+        place: place_of(def.place),
+        anchor: anchor_of(def.anchor),
         w: w as i32,
         h: h as i32,
         max_h: h as i32 + rep_rows * (rep_max - 1),
@@ -701,7 +662,7 @@ fn pick_template(
     let mut eligible = [false; STRUCT_COUNT];
     let mut total = 0.0;
     for (i, t) in list.iter().enumerate() {
-        let ok = (place_mask & t.place.bit()) != 0
+        let ok = (place_mask & place_bit(t.place)) != 0
             && (t.bands.is_empty() || t.bands.intersects(band))
             && depth >= t.min_depth
             && depth <= t.max_depth
@@ -974,11 +935,11 @@ pub fn resolve_column_site<Q: SiteQuery + ?Sized>(q: &mut Q, ox: i32) -> Option<
     let base = q.surface_at(ox);
     // Which placement classes this column can host at all. A shore template needs
     // the beach band; nothing at all is built on the sea floor.
-    let mut place_mask = Place::Floating.bit();
+    let mut place_mask = place_bit(Place::Floating);
     if base <= scale.row(SEA_LEVEL_Y) {
-        place_mask |= Place::Surface.bit();
+        place_mask |= place_bit(Place::Surface);
         if shore_weight_at(base, scale) >= 0.6 {
-            place_mask |= Place::Shore.bit();
+            place_mask |= place_bit(Place::Shore);
         }
     }
 
@@ -1032,9 +993,9 @@ pub fn resolve_lattice_site<Q: SiteQuery + ?Sized>(
     // The underworld is its own world: templates authored for it are the only
     // ones allowed down there, and none of them are allowed above it.
     let place_mask = if depth >= UNDERWORLD_DEPTH {
-        Place::Underworld.bit()
+        place_bit(Place::Underworld)
     } else {
-        Place::Underground.bit() | Place::Cavern.bit()
+        place_bit(Place::Underground) | place_bit(Place::Cavern)
     };
 
     let col = q.profile_at(ox);

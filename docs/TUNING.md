@@ -677,15 +677,15 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `COL_STRIDE` (private) | `112` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 511 |
-| `COL_PHASE` (private) | `53` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 512 |
-| `COL_DENSITY` (private) | `0.5` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 513 |
-| `SUB_STRIDE_X` (private) | `88` |  | 515 |
-| `SUB_STRIDE_Y` (private) | `64` |  | 516 |
-| `SUB_PHASE_X` (private) | `29` |  | 517 |
-| `SUB_PHASE_Y` (private) | `37` |  | 518 |
-| `SUB_DENSITY` (private) | `0.24` |  | 519 |
-| `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 521 |
+| `COL_STRIDE` (private) | `112` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 472 |
+| `COL_PHASE` (private) | `53` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 473 |
+| `COL_DENSITY` (private) | `0.5` | Deliberately out of phase with the lattices in decor/structures.rs (96/41 and 72x56 at 17,23): two landmark passes that shared an origin grid would build on top of each other every time both fired. | 474 |
+| `SUB_STRIDE_X` (private) | `88` |  | 476 |
+| `SUB_STRIDE_Y` (private) | `64` |  | 477 |
+| `SUB_PHASE_X` (private) | `29` |  | 478 |
+| `SUB_PHASE_Y` (private) | `37` |  | 479 |
+| `SUB_DENSITY` (private) | `0.24` |  | 480 |
+| `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 482 |
 
 ### `crates/yugen-render/src/ambience/scan.rs`
 
