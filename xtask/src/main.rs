@@ -7,6 +7,7 @@
 //! cargo xtask tuning --check exit 1 if it is stale, undocumented or shadowed
 //! cargo xtask font           rebake the typeface from content/fonts/
 //! cargo xtask font --check   exit 1 if the baked glyph table is stale
+//! cargo xtask layout         exit 1 if content/ and content/LAYOUT.toml disagree
 //! ```
 //!
 //! # Why a binary and not a shell script
@@ -21,6 +22,7 @@
 
 mod check;
 mod font;
+mod layout;
 mod tuning;
 
 use std::path::{Path, PathBuf};
@@ -78,6 +80,17 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // No `--check`: there is nothing to write. See `layout`'s header.
+        Some("layout") => match layout::run(&root) {
+            Ok(summary) => {
+                println!("{summary}");
+                ExitCode::SUCCESS
+            }
+            Err(report) => {
+                eprint!("{report}");
+                ExitCode::FAILURE
+            }
+        },
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
             ExitCode::SUCCESS
@@ -100,6 +113,7 @@ fn usage() -> String {
          \x20 tuning --check  fail if docs/TUNING.md is stale\n\
          \x20 font            rebake the typeface from content/fonts/\n\
          \x20 font --check    fail if the baked glyph table is stale\n\
+         \x20 layout          fail if content/ and content/LAYOUT.toml disagree\n\
          \n\
          gates, in the order `check` runs them:\n",
     );

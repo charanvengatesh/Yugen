@@ -29,11 +29,27 @@ pub struct Kind {
 }
 
 pub fn scan(content_dir: &Path) -> Result<Vec<Kind>, String> {
+    // Not every directory under `content/` is a kind: `fonts/` is raw assets
+    // read by `cargo xtask font`, and counting it produced a row reading
+    // `content/fonts/ | 0 | 0 | 0` — a category that does not exist, indexed as
+    // if it were empty. The set comes from `content/LAYOUT.toml` rather than a
+    // constant here, because "what is a kind" is exactly what that file is for
+    // and a second copy of the answer would be free to drift from the first.
+    let root = content_dir
+        .parent()
+        .ok_or_else(|| "content/: no parent directory".to_string())?;
+    let not_a_kind = crate::layout::not_a_kind(root)?;
+
     let mut dirs: Vec<_> = std::fs::read_dir(content_dir)
         .map_err(|e| format!("content/: {e}"))?
         .filter_map(Result::ok)
         .filter(|e| e.path().is_dir())
         .map(|e| e.path())
+        .filter(|p| {
+            !p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| not_a_kind.contains(n))
+        })
         .collect();
     dirs.sort();
 

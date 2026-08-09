@@ -28,6 +28,7 @@ use std::process::{Command, ExitCode};
 use std::time::{Duration, Instant};
 
 use crate::font;
+use crate::layout;
 use crate::tuning;
 
 /// One gate: a name to invoke it by, a line saying what it proves, and the work.
@@ -49,6 +50,8 @@ enum Body {
     Tuning,
     /// The glyph table, run in this process. See [`crate::font`].
     Font,
+    /// `content/LAYOUT.toml` against `content/`. See [`crate::layout`].
+    Layout,
 }
 
 /// The gate list from `CLAUDE.md`, plus the tuning index, cheapest first.
@@ -71,6 +74,11 @@ pub const GATES: &[Gate] = &[
         name: "font",
         what: "the baked glyph table matches content/fonts/",
         body: Body::Font,
+    },
+    Gate {
+        name: "layout",
+        what: "every content file is claimed by content/LAYOUT.toml",
+        body: Body::Layout,
     },
     Gate {
         name: "content",
@@ -107,6 +115,7 @@ impl Gate {
             Body::Cargo(args) => format!("cargo {}", args.join(" ")),
             Body::Tuning => "cargo xtask tuning --check".to_string(),
             Body::Font => "cargo xtask font --check".to_string(),
+            Body::Layout => "cargo xtask layout".to_string(),
         }
     }
 
@@ -149,6 +158,16 @@ impl Gate {
                 Err(report) => {
                     eprint!("{report}");
                     Err("the baked glyph table is stale".to_string())
+                }
+            },
+            Body::Layout => match layout::run(root) {
+                Ok(summary) => {
+                    println!("{summary}");
+                    Ok(())
+                }
+                Err(report) => {
+                    eprint!("{report}");
+                    Err("content/ does not match its filing manifest".to_string())
                 }
             },
         }

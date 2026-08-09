@@ -18,7 +18,6 @@ what the sweep can and cannot see.
 | Directory | Files | Records | Distinct fields |
 |---|---|---|---|
 | `content/blocks/` | 8 | 61 | 41 |
-| `content/fonts/` | 0 | 0 | 0 |
 | `content/items/` | 8 | 87 | 32 |
 | `content/mobs/` | 3 | 20 | 52 |
 | `content/sprites/` | 2 | 88 | 13 |
