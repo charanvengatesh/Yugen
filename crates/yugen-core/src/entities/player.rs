@@ -71,17 +71,17 @@ use crate::config::{
     JUMP_SPEED, LIQUID_DRAG, LIQUID_GRAVITY_SCALE, MAX_AIR_JUMPS, MAX_FALL_SPEED, MAX_HEALTH,
     MAX_RUN_SPEED, MELEE_REACH_FIST, MELEE_REACH_WEAPON, MOVE_ACCEL, PLAYER_H, PLAYER_W,
     PUNCH_DAMAGE, PUNCH_KNOCKBACK, PUNCH_SWING_TIME, SHOT_KNOCKBACK, SHOT_SPEED_DEFAULT,
-    STEP_UP_MAX, STEP_UP_REARM, STEP_UP_SMOOTH, STICKY_JUMP_SCALE, STICKY_MAX_SPEED, SWIM_ACCEL,
-    SWIM_ACCEL_H, SWIM_BUOYANCY, SWIM_EXIT_SUBMERSION, SWIM_MAX_DOWN, SWIM_MAX_SPEED_H,
-    SWIM_MAX_UP, SWIM_OUT_BOOST, SWIM_SINK_ACCEL, SWIM_SUBMERGE_MIN, SWING_POSE_MAX,
-    SWING_WINDOW_FRAC, SWING_WINDOW_MAX, TILE_SIZE, WALL_JUMP_LOCK, WALL_JUMP_PUSH,
-    WALL_SLIDE_SPEED, cell_at, scaled,
+    STEP_UP_MAX, STEP_UP_REARM, STEP_UP_SMOOTH, STICKY_JUMP_SCALE, STICKY_MAX_SPEED,
+    SUFFOCATION_DPS, SUFFOCATION_GRACE, SWIM_ACCEL, SWIM_ACCEL_H, SWIM_BUOYANCY,
+    SWIM_EXIT_SUBMERSION, SWIM_MAX_DOWN, SWIM_MAX_SPEED_H, SWIM_MAX_UP, SWIM_OUT_BOOST,
+    SWIM_SINK_ACCEL, SWIM_SUBMERGE_MIN, SWING_POSE_MAX, SWING_WINDOW_FRAC, SWING_WINDOW_MAX,
+    TILE_SIZE, WALL_JUMP_LOCK, WALL_JUMP_PUSH, WALL_SLIDE_SPEED, cell_at, scaled,
 };
 use crate::entities::projectiles::{SHOT_STYLE_ARROW, ShotSpec};
 use crate::input::Intent;
 use crate::physics::collision::{
-    Aabb, NO_ONE_WAY, for_each_overlapped_cell, move_horizontal_stepped, one_way_under_feet,
-    resolve_axis,
+    Aabb, NO_ONE_WAY, box_overlaps_solid, for_each_overlapped_cell, move_horizontal_stepped,
+    one_way_under_feet, resolve_axis,
 };
 use crate::sim::coords::WorldCell;
 use crate::sim::grid::CellGrid;
@@ -302,6 +302,19 @@ const PUNCH_TIME: f32 = 0.24;
 const HURT_TIME: f32 = 0.3;
 /// … and the minimum gap between repeat hurt events.
 const HURT_REPEAT: f32 = 0.45;
+
+/// Height of the band tested for burial, measured DOWN from the top of the box.
+///
+/// A third of the body: the head and shoulders. Expressed as a fraction of
+/// [`PLAYER_H`] rather than a cell count so it stays the head at any
+/// `BODY_SCALE` — at the shipped scale it is the top two cells of six.
+///
+/// The two failures it sits between. Testing the WHOLE box means shin-deep in a
+/// slump counts as drowning in it, and this is a game where you wade through
+/// loose grain constantly. Testing a single cell at the crown means a one-cell
+/// void anywhere in the dune saves you, which turns a collapse into a coin
+/// flip on where the gaps landed.
+const HEAD_BAND: f32 = PLAYER_H / 3.0;
 
 /// The speed of descent that counts as a real landing rather than a stride over
 /// a bump. Running over 1-cell rubble briefly clears `on_ground`, and that must
@@ -575,6 +588,10 @@ pub struct Player {
     punch_timer: f32,
     hurt_timer: f32,
     hurt_cooldown: f32,
+    /// Seconds the head has been CONTINUOUSLY inside solid matter, zero the
+    /// moment it is not. Drives both halves of `update_suffocation` — see
+    /// [`Player::buried`] and [`Player::choking`].
+    choke_t: f32,
     wall_grace: f32,
     prev_in_liquid: bool,
     events: VecDeque<PlayerEvent>,
@@ -642,6 +659,7 @@ impl Player {
             punch_timer: 0.0,
             hurt_timer: 0.0,
             hurt_cooldown: 0.0,
+            choke_t: 0.0,
             wall_grace: 0.0,
             prev_in_liquid: false,
             events: VecDeque::new(),
@@ -667,6 +685,25 @@ impl Player {
     #[inline]
     pub fn dead(&self) -> bool {
         self.health <= 0.0
+    }
+
+    /// The head is inside solid matter AT ALL, grace window or not.
+    ///
+    /// Separate from [`Self::choking`] because the two answer different
+    /// questions: this one is geometry and is true on the first step the dune
+    /// lands, the other is harm and waits out [`SUFFOCATION_GRACE`]. A HUD
+    /// warning wants this; a health bar wants the other.
+    #[inline]
+    pub fn buried(&self) -> bool {
+        self.choke_t > 0.0
+    }
+
+    /// The head is buried AND the grace window has closed — the body is
+    /// actually losing health to it. What the HUD and the sprite read, so that
+    /// a gasping figure and a draining bar always agree.
+    #[inline]
+    pub fn choking(&self) -> bool {
+        self.choke_t > SUFFOCATION_GRACE
     }
 
     /// The dash is off cooldown.
@@ -1058,6 +1095,10 @@ impl Player {
         self.punch_timer = 0.0;
         self.hurt_timer = 0.0;
         self.hurt_cooldown = 0.0;
+        // A burial belongs to the life that was buried. Carrying it across a
+        // respawn would hand the new body a spent grace window and start it
+        // choking on open air.
+        self.choke_t = 0.0;
         self.wall_grace = 0.0;
         self.prev_in_liquid = false;
         self.events.clear();
@@ -1081,6 +1122,12 @@ impl Player {
         }
         self.start_dash(intent);
         self.sense_environment(grid);
+        // Sensed here rather than beside the hazard scan in `overlap_effects`,
+        // because the burial is a fact about the world the body is STANDING in
+        // and the hazards are a fact about where the move ended. Reading it
+        // pre-move also means `buried()` is answerable by anything the rest of
+        // the step calls.
+        self.update_suffocation(dt, grid);
         self.update_climb(intent, grid);
         self.update_drop_through(intent, grid);
         self.apply_horizontal(dt, intent);
@@ -1481,6 +1528,42 @@ impl Player {
     }
 
     fn integrate_and_collide(&mut self, dt: f32, grid: &CellGrid) {
+        // A body the world has closed over is PINNED, and this is the branch
+        // that makes suffocation reachable at all.
+        //
+        // `resolve_axis` is written for a body that is about to ENTER a solid,
+        // and its clamp is "the nearest blocking face on the side you are
+        // moving toward". Hand it a body that is ALREADY inside one and the
+        // arithmetic still runs: `resolve_y` finds the topmost solid row in the
+        // span — the cap sitting on the head — and returns `bound - body.h`,
+        // which places the feet on top of the cap. So a player under a
+        // collapsing dune was silently teleported up to stand on the sand that
+        // buried them, on the very step it landed. That is the eject this
+        // replaces: the world used to lift you out, and now it does not.
+        //
+        // Both axes, not just y. `resolve_x` has the same shape — the nearest
+        // solid column on the side of travel is the body's OWN column when it
+        // is engulfed, so a clamp meant to stop a body at a wall instead shunts
+        // it a full body-width sideways.
+        //
+        // Being pinned is the harsher of the two readings available (the other
+        // lets you wriggle out toward whatever face happens to be clear) and it
+        // is chosen deliberately: packed grain does not let you stroll out of
+        // it, and a buried player with an escape that costs nothing has no
+        // reason to ever learn what a shovel is for. Digging is the way out.
+        //
+        // `on_ground` is deliberately left where it was. A pinned body is not
+        // falling, and flipping it would put the figure in the air pose while
+        // it stands buried to the shoulders; a jump pressed against the pin is
+        // swallowed anyway, because the velocity it writes is zeroed here on
+        // the very next step before anything can integrate it.
+        if self.buried() {
+            self.vx = 0.0;
+            self.vy = 0.0;
+            self.conveyor_vx = 0.0;
+            return;
+        }
+
         let was_grounded = self.on_ground;
         // Resolve X (with conveyor carry folded in), then Y, against solid cells.
         let body = self.aabb();
@@ -1642,6 +1725,66 @@ impl Player {
                 self.hurt_timer = HURT_TIME;
                 self.emit(PlayerEvent::Hurt);
             }
+        }
+    }
+
+    /// The world closing over your head.
+    ///
+    /// This is a falling-sand game, so a body can end up inside solid matter
+    /// without ever having MOVED into it: a dune slumps, a ceiling is mined from
+    /// above, a bucket of grain is poured down a shaft. Axis resolution cannot
+    /// undo any of it — the resolver only stops you ENTERING a solid — so being
+    /// engulfed is a state the game has to answer for on its own.
+    ///
+    /// The answer is NOT the one the creatures get. [`unbury`] lifts a mob a
+    /// cell at a time and recycles it if that fails, because a creature
+    /// vibrating inside a rock is a bug the player can neither see nor fix. A
+    /// buried player is the exact opposite: they can see what happened, and
+    /// they are holding a shovel. So the world does not move them. It takes
+    /// their air, and digging out is the play.
+    ///
+    /// [`unbury`]: crate::entities::mobs::brain
+    ///
+    /// The drain is health at [`SUFFOCATION_DPS`] once the burial outlasts
+    /// [`SUFFOCATION_GRACE`], on the same rate-limited flinch as lava so a
+    /// continuous drain reads as repeated harm rather than one endless stutter.
+    ///
+    /// **There is deliberately no gate on the step-up, because the step-up
+    /// cannot rescue a capped body in the first place.**
+    /// [`move_horizontal_stepped`] raises the box straight up, so a solid cap
+    /// sitting in the body's OWN top band rises with it and stays overlapped —
+    /// clearing it would take a lift taller than the whole body, and
+    /// [`STEP_UP_MAX`] is two cells against six. What step-up does clear is
+    /// grain around the FEET, which is a body wading through a drift and
+    /// exactly the case it was written for. Gating that on `buried()` would
+    /// break striding through loose sand to fix a hole that is not there.
+    /// `a_capped_body_cannot_step_up_out_of_its_own_grave` pins the claim.
+    fn update_suffocation(&mut self, dt: f32, grid: &CellGrid) {
+        // The same exemption `overlap_effects` makes, for the same reason: an
+        // untouchable body does not SENSE the world closing on it, rather than
+        // sensing it and subtracting zero. Flying through rock is what the mode
+        // is for, and a creative player pinned by a step-up gate they cannot
+        // see would be the whole mode quietly failing.
+        if self.untouchable {
+            self.choke_t = 0.0;
+            return;
+        }
+
+        let head = Aabb::new(self.x, self.y, PLAYER_W, HEAD_BAND);
+        if !box_overlaps_solid(grid, head) {
+            self.choke_t = 0.0;
+            return;
+        }
+
+        self.choke_t += dt;
+        if self.choke_t <= SUFFOCATION_GRACE {
+            return;
+        }
+        self.health -= SUFFOCATION_DPS * dt;
+        if self.hurt_cooldown <= 0.0 {
+            self.hurt_cooldown = HURT_REPEAT;
+            self.hurt_timer = HURT_TIME;
+            self.emit(PlayerEvent::Hurt);
         }
     }
 
@@ -2261,6 +2404,189 @@ mod tests {
         p.reset();
         assert_eq!(p.health, MAX_HEALTH);
         assert!(p.untouchable, "the respawn revoked a mode it does not own");
+    }
+
+    /// A body standing on a floor with a solid cap `cap_cells` thick pressed
+    /// down over its head, and open air above that. The shape a slumping dune
+    /// leaves behind, and the one geometry where a step-up might plausibly be
+    /// thought to lift the player clear.
+    fn capped(cap_cells: i32) -> (Player, CellGrid) {
+        let mut g = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+        let mut p = Player::new(SPAWN);
+        p.x = 100.0;
+        p.y = 100.0;
+        let top = cell_at(p.y);
+        let floor = cell_at(p.y + PLAYER_H);
+        for cx in 0..crate::config::WINDOW_COLS {
+            for cy in top..top + cap_cells {
+                g.set(cx, cy, block::STONE);
+            }
+            g.set(cx, floor, block::STONE);
+        }
+        p.on_ground = true;
+        (p, g)
+    }
+
+    /// One fixed step at the rate the rest of the suite uses.
+    const STEP: f32 = 1.0 / 120.0;
+
+    #[test]
+    fn a_capped_head_chokes_once_the_grace_window_closes() {
+        let (mut p, g) = capped(2);
+
+        // Inside the grace window the burial is REAL but free: this is the
+        // frame budget ordinary digging spends, and charging for it would make
+        // a shovel feel like a hazard.
+        let graced = (SUFFOCATION_GRACE / STEP) as usize;
+        for _ in 0..graced {
+            p.update_suffocation(STEP, &g);
+        }
+        assert!(p.buried(), "the fixture did not bury the head at all");
+        assert!(!p.choking(), "the grace window did not hold");
+        assert_eq!(p.health, MAX_HEALTH, "ordinary digging was charged for");
+
+        // Past it, the bar moves.
+        for _ in 0..120 {
+            p.update_suffocation(STEP, &g);
+        }
+        assert!(p.choking());
+        assert!(
+            p.health < MAX_HEALTH,
+            "a body sealed in rock for a second lost nothing"
+        );
+    }
+
+    #[test]
+    fn breaking_free_hands_the_grace_window_back_whole() {
+        // The grace belongs to a BURIAL, not to a life. A player who scraped
+        // through one collapse must not start the next one already choking.
+        let (mut p, g) = capped(2);
+        let air = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+
+        for _ in 0..(SUFFOCATION_GRACE / STEP) as usize {
+            p.update_suffocation(STEP, &g);
+        }
+        p.update_suffocation(STEP, &air);
+        assert!(!p.buried(), "one clear step did not end the burial");
+
+        for _ in 0..(SUFFOCATION_GRACE / STEP) as usize {
+            p.update_suffocation(STEP, &g);
+        }
+        assert!(!p.choking(), "the second burial inherited a spent window");
+        assert_eq!(p.health, MAX_HEALTH);
+    }
+
+    #[test]
+    fn grain_around_the_ankles_is_not_a_burial() {
+        // The band is the head and shoulders, not the whole box. Wading through
+        // a drift is most of what this game's terrain IS, and a body that
+        // choked shin-deep in loose sand would be choking constantly.
+        let mut g = CellGrid::new(crate::config::WINDOW_COLS, crate::config::WINDOW_ROWS);
+        let mut p = Player::new(SPAWN);
+        p.x = 100.0;
+        p.y = 100.0;
+        let feet = cell_at(p.y + PLAYER_H) - 1;
+        for cx in 0..crate::config::WINDOW_COLS {
+            for cy in feet..=feet + 1 {
+                g.set(cx, cy, block::SAND);
+            }
+        }
+
+        for _ in 0..600 {
+            p.update_suffocation(STEP, &g);
+        }
+        assert!(!p.buried());
+        assert_eq!(p.health, MAX_HEALTH);
+    }
+
+    #[test]
+    fn an_untouchable_body_does_not_choke() {
+        // Flying through rock is what the mode is FOR, so an untouchable body
+        // does not sense the cap rather than sensing it and subtracting zero —
+        // the same line `overlap_effects` takes, and for the same reason.
+        let (mut p, g) = capped(2);
+        p.untouchable = true;
+
+        for _ in 0..2_000 {
+            p.update_suffocation(STEP, &g);
+        }
+        assert_eq!(p.health, MAX_HEALTH);
+        assert!(!p.buried(), "the timer accrued behind the truce");
+        assert!(!p.choking());
+    }
+
+    #[test]
+    fn the_world_does_not_lift_a_buried_body_out_of_its_own_grave() {
+        // The regression this whole mechanic is built on. `resolve_y` clamps to
+        // the nearest blocking face on the side of travel, and for an engulfed
+        // body that face is the cap ON ITS HEAD — so a falling player was
+        // returned `bound - body.h` and teleported up to STAND on the sand that
+        // had just buried them, on the step it landed. Suffocation is
+        // unreachable while that holds, no matter what the drain says.
+        //
+        // Held under a direction key throughout, because `resolve_x` has the
+        // same shape on the horizontal and would shunt the body a full width
+        // sideways out of the pile.
+        for cap in 1..=3 {
+            let (mut p, g) = capped(cap);
+            let (start_x, start_y) = (p.x, p.y);
+            let mut pool = NoProjectiles;
+            let mut kit = Loadout::new(&mut pool);
+            let intent = Intent {
+                dir_x: 1.0,
+                ..Intent::default()
+            };
+            for _ in 0..240 {
+                p.step(STEP, intent, &g, &mut kit);
+            }
+            assert_eq!(
+                (p.x, p.y),
+                (start_x, start_y),
+                "cap {cap}: the body moved ({:+.1}, {:+.1}) out of a sealed \
+                 grave — the resolver is still ejecting it",
+                p.x - start_x,
+                p.y - start_y,
+            );
+            assert!(
+                p.choking(),
+                "cap {cap}: two seconds sealed in rock and it is not choking"
+            );
+            assert!(
+                p.health < MAX_HEALTH,
+                "cap {cap}: two seconds sealed in rock and it cost nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn digging_the_cap_out_ends_the_burial_and_hands_movement_back() {
+        // The other half of the pin: it must RELEASE. A body that stayed frozen
+        // after the sand above it was mined would be a soft lock, and the
+        // player would have no way to tell it from a hang.
+        let (mut p, mut g) = capped(2);
+        let mut pool = NoProjectiles;
+        let mut kit = Loadout::new(&mut pool);
+        let intent = Intent {
+            dir_x: 1.0,
+            ..Intent::default()
+        };
+        for _ in 0..120 {
+            p.step(STEP, intent, &g, &mut kit);
+        }
+        assert!(p.choking() && p.x == 100.0, "the fixture did not pin it");
+
+        // Clear the cap — what a shovel does, one cell at a time.
+        let top = cell_at(p.y);
+        for cx in 0..crate::config::WINDOW_COLS {
+            for cy in top..top + 2 {
+                g.set(cx, cy, block::EMPTY);
+            }
+        }
+        for _ in 0..120 {
+            p.step(STEP, intent, &g, &mut kit);
+        }
+        assert!(!p.buried(), "the burial outlived the sand");
+        assert!(p.x > 100.0, "the pin never released");
     }
 
     #[test]

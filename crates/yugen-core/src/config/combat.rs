@@ -89,3 +89,32 @@ pub const SHOT_SPEED_DEFAULT: f32 = scaled(620.0);
 
 /// Impulse a projectile hit puts into what it hits, before any armour resistance.
 pub const SHOT_KNOCKBACK: f32 = scaled(190.0);
+
+// ---------------------------------------------------------------------------
+// Suffocation
+// ---------------------------------------------------------------------------
+
+/// Health per second drained while the player's head is inside solid matter.
+///
+/// Read against [`MAX_HEALTH`]: a full bar is a bit over eight seconds of
+/// burial. That is the window to turn round and dig, and it is short enough
+/// that a body already hurt when the dune came down is in real trouble.
+///
+/// Deliberately far gentler than lava (220/s, dead in under half a second),
+/// because lava is a place you chose to stand and a collapse is a place that
+/// came to you. The ratio is the reference game's: a tenth of the bar per
+/// second, ten seconds from full, which is the pace that makes digging out the
+/// obvious move rather than a gamble.
+pub const SUFFOCATION_DPS: f32 = 12.0;
+
+/// Seconds the head may sit inside a solid before [`SUFFOCATION_DPS`] starts.
+///
+/// A step-up onto rubble, a slump settling around the shoulders, and the frame
+/// a mined cell takes to clear all put the head momentarily inside matter. With
+/// no grace window the player takes chip damage for ordinary digging, which
+/// reads as the game being broken rather than the world being dangerous.
+///
+/// It refills the instant the head is clear: the grace belongs to a BURIAL, not
+/// to a life. Otherwise a player who scraped through one collapse would start
+/// the next one already choking.
+pub const SUFFOCATION_GRACE: f32 = 0.4;
