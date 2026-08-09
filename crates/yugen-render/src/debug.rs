@@ -362,18 +362,25 @@ struct Sources<'w> {
 fn toggle(
     keys: Res<ButtonInput<KeyCode>>,
     mut shown: ResMut<DebugOverlay>,
-    mut settings: ResMut<crate::settings::Settings>,
+    // `Option`, because this module's header promises "add it or do not;
+    // nothing else depends on it" and a hard `ResMut` would panic in any host
+    // that installs `DebugPlugin` without `SettingsPlugin`. Without settings
+    // the key still works; it just does not persist.
+    settings: Option<ResMut<crate::settings::Settings>>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.debug) {
         return;
     }
+    let mut settings = settings;
     // BOTH, and they must stay equal. `settings::apply` pushes the preference
     // into [`DebugOverlay`] whenever `Settings` changes, so a key press that
     // moved only the resource would be silently undone by the next time the
     // player touched any other option. Writing both also means F3 survives a
     // restart, which is the behaviour somebody who leaves the panel up wants.
     shown.0 = !shown.0;
-    settings.debug_overlay = shown.0;
+    if let Some(settings) = settings.as_mut() {
+        settings.debug_overlay = shown.0;
+    }
 }
 
 /// Fill the readout from the live world.

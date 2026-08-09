@@ -436,6 +436,17 @@ struct Applied<'w, 's> {
 /// behaviour every build before this one had.
 const AUTO_ZOOM: f32 = 2.0;
 
+/// Where [`apply`] runs, so anything that READS a preference's effect can order
+/// itself after it.
+///
+/// Needed because `apply` and `ui::compose` were both in `Update` with no edge
+/// between them, and Bevy is free to run them either way round. The visible
+/// symptom was a preference taking a frame to appear — harmless for fullscreen,
+/// wrong for the debug overlay, which a test asserts is on screen the frame it
+/// is switched on.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ApplySettings;
+
 /// Installs [`Settings`] and keeps the file in step with it.
 pub struct SettingsPlugin;
 
@@ -450,8 +461,13 @@ impl Plugin for SettingsPlugin {
             // `PostStartup`, so the resources it writes into exist, and then on
             // every change. `resource_changed` covers the `PostStartup` run
             // too, because a freshly inserted resource counts as changed.
-            .add_systems(PostStartup, apply)
-            .add_systems(Update, apply.run_if(resource_changed::<Settings>))
+            .add_systems(PostStartup, apply.in_set(ApplySettings))
+            .add_systems(
+                Update,
+                apply
+                    .in_set(ApplySettings)
+                    .run_if(resource_changed::<Settings>),
+            )
             .add_systems(Last, store);
     }
 }

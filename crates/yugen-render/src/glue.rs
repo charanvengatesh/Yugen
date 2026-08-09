@@ -37,7 +37,9 @@ use crate::ui::layout::Region;
 use crate::ui::menu::{self, Action, Control, Nav, Slide};
 use crate::ui::{IconAtlas, Icons, RunAge, UiScreen};
 use crate::world::{SimSet, SimWorld, WorldFocus, WorldSave, build_world_saved, restore_run};
+use crate::worldselect::{AUTO_NAME, WorldPicker, fresh_seed};
 use yugen_core::config::View;
+use yugen_core::sim::save::{create_world, delete_world};
 
 /// Lets the HUD draw a baked sprite without knowing what one is.
 ///
@@ -73,20 +75,14 @@ impl Plugin for GluePlugin {
             // `.after(InputSystems)` for the reason `input::gather_intent`
             // states: that set is what repopulates `just_pressed`, and this
             // reads it.
-            .init_resource::<Nav>()
+            .add_systems(PreUpdate, escape_key.after(bevy::input::InputSystems))
+            // After `escape_key`, so the frame that opens the pause card shows
+            // it rather than driving it with the press that opened it.
             .add_systems(
                 PreUpdate,
-                toggle_pause
-                    .after(bevy::input::InputSystems)
-                    .run_if(in_state(Scene::Playing)),
-            )
-            // After `toggle_pause`, so the frame that opens the pause card does
-            // not also drive the menu with the same Escape press.
-            .add_systems(
-                PreUpdate,
-                (root_the_menu, drive_menu)
+                (root_the_menu, drive_menu, mirror_worlds)
                     .chain()
-                    .after(toggle_pause)
+                    .after(escape_key)
                     .run_if(menu_is_up),
             )
             .add_systems(
@@ -440,6 +436,25 @@ fn give_starting_kit(inv: &mut Inventory) {
     inv.select_slot(0);
 }
 
+/// Keep [`menu::WorldRows`] in step with the picker.
+///
+/// Only when the picker changes, which is on entering the world list and after
+/// making or deleting one — so the clone is paid three times a session rather
+/// than sixty times a second.
+fn mirror_worlds(picker: Res<WorldPicker>, mut rows: ResMut<menu::WorldRows>) {
+    if !picker.is_changed() {
+        return;
+    }
+    rows.0 = picker
+        .worlds
+        .iter()
+        .map(|w| menu::WorldRow {
+            name: w.name.clone(),
+            seed: w.seed,
+        })
+        .collect();
+}
+
 /// Is a menu on screen at all?
 ///
 /// The title card always, and a paused world. Not the world list, which is its
@@ -492,16 +507,49 @@ fn drive_menu(
     target: Option<Res<LowResTarget>>,
     mut nav: ResMut<Nav>,
     mut settings: ResMut<Settings>,
+    mut picker: ResMut<WorldPicker>,
+    mut save: ResMut<WorldSave>,
     mut paused: ResMut<Paused>,
     mut next: ResMut<NextState<Scene>>,
     scene: Res<State<Scene>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let in_game = *scene.get() == Scene::Playing;
-    let rows = menu::page_rows(nav.top(), &settings, in_game);
+    let worlds: Vec<menu::WorldRow> = picker
+        .worlds
+        .iter()
+        .map(|w| menu::WorldRow {
+            name: w.name.clone(),
+            seed: w.seed,
+        })
+        .collect();
+    let rows = menu::page_rows(
+        nav.top(),
+        &menu::MenuCx {
+            settings: &settings,
+            in_game,
+            worlds: &worlds,
+            confirming: picker.confirming.then_some(picker.cursor),
+        },
+    );
     if rows.is_empty() {
         return;
     }
+    // Land the cursor somewhere it can act, before anything reads it.
+    //
+    // `Nav::push` starts a page at row 0, and row 0 is not always pressable: an
+    // empty world list opens on "No worlds yet", and the Controls page is
+    // fifteen bindings before its "Done". Pressing Enter then did nothing at
+    // all, which is exactly how the world list looked like a dead end. Done
+    // every frame rather than on push, because a page's rows change underneath
+    // the cursor — deleting the last world is the case that proves it.
+    if rows
+        .get(nav.focus())
+        .is_none_or(|r| !r.control.selectable())
+    {
+        nav.focus_on(menu::first_selectable(&rows));
+    }
+
     let bevy_keys = BevyKeys(&keys);
     let view = target.as_ref().map(|t| t.view);
 
@@ -568,6 +616,20 @@ fn drive_menu(
         }
     }
 
+    // --- Deleting -----------------------------------------------------------
+    //
+    // `X` on a world row asks; the row then becomes the confirmation and a
+    // press carries it out. Two steps, as `worldselect` always had, because
+    // this is the only irreversible thing a player can do from a menu.
+    if nav.top() == menu::Page::Worlds && keys.just_pressed(KeyCode::KeyX) {
+        let focus = nav.focus();
+        if focus < picker.worlds.len() {
+            picker.cursor = focus;
+            picker.confirming = true;
+        }
+        return;
+    }
+
     // --- Pressing -----------------------------------------------------------
     let clicked = pointer.is_some()
         && buttons.just_pressed(MouseButton::Left)
@@ -579,23 +641,20 @@ fn drive_menu(
     if pressed && let Some(action) = rows.get(nav.focus()).and_then(menu::activate) {
         do_menu_action(
             action,
-            &mut nav,
-            &mut settings,
-            &mut paused,
-            &mut next,
-            &mut exit,
+            &mut Menu {
+                nav: &mut nav,
+                settings: &mut settings,
+                paused: &mut paused,
+                picker: &mut picker,
+                save: &mut save,
+                next: &mut next,
+                exit: &mut exit,
+            },
         );
-        return;
     }
 
-    // --- Going back ---------------------------------------------------------
-    //
-    // Escape pops the stack, and at the ROOT it means whatever that root is
-    // for: leaving the pause card resumes, and there is nothing to leave on the
-    // title card. That single rule is why the stack is a stack.
-    if bevy_keys.any_pressed(KEYS.pause) && !nav.pop() && nav.top() == menu::Page::Pause {
-        paused.0 = false;
-    }
+    // Going back is `escape_key`'s, and deliberately not also this system's —
+    // see its header for what happened when both read the key.
 }
 
 /// Where the focused row was drawn, for the slider drag.
@@ -609,54 +668,146 @@ fn drag_rect(view: View, page: menu::Page, len: usize, focus: usize) -> Region {
 /// Split out so the navigation and the world actions can be tested through one
 /// entry point — `menu::apply_to_settings` covers the settings half purely, and
 /// this is the half that needs the app.
-fn do_menu_action(
-    action: Action,
-    nav: &mut Nav,
-    settings: &mut Settings,
-    paused: &mut Paused,
-    next: &mut NextState<Scene>,
-    exit: &mut MessageWriter<AppExit>,
-) {
-    if menu::apply_to_settings(action, settings) {
+/// Everything [`do_menu_action`] can reach. Bundled to stay inside clippy's
+/// argument budget, the way `debug::Sources` and `settings::Applied` are.
+struct Menu<'a, 'w> {
+    nav: &'a mut Nav,
+    settings: &'a mut Settings,
+    paused: &'a mut Paused,
+    picker: &'a mut WorldPicker,
+    save: &'a mut WorldSave,
+    next: &'a mut NextState<Scene>,
+    exit: &'a mut MessageWriter<'w, AppExit>,
+}
+
+/// Carry out one menu [`Action`].
+fn do_menu_action(action: Action, m: &mut Menu) {
+    if menu::apply_to_settings(action, m.settings) {
         return;
     }
     match action {
-        Action::Open(page) => nav.push(page),
-        Action::Back => {
-            nav.pop();
+        Action::Open(page) => {
+            // The world list is read off the disk on the way in, so a world
+            // made or deleted in another run shows up without a restart.
+            if page == menu::Page::Worlds {
+                m.picker.refresh();
+                m.picker.confirming = false;
+            }
+            m.nav.push(page);
         }
-        // The title card asks WHICH world before starting one, exactly as it
-        // did before there were menus. See `confirm_advances_the_scene`.
-        Action::Play => next.set(Scene::WorldSelect),
-        Action::Resume => paused.0 = false,
-        // `autosave` runs in `Last` and is gated on a save directory, so the
-        // world is already on disk by the time this lands; there is nothing to
-        // flush here beyond leaving the scene.
+        Action::Back => {
+            m.nav.pop();
+        }
+        Action::Resume => *m.paused = Paused(false),
+        Action::NewWorld => {
+            let name = format!("{AUTO_NAME} {}", m.picker.worlds.len() + 1);
+            let root = m.picker.root.clone();
+            match create_world(root, &name, fresh_seed()) {
+                Ok(made) => {
+                    m.picker.refresh();
+                    // Land on what was just made, wherever the recency sort put
+                    // it, so the next press plays it.
+                    m.picker.cursor = m
+                        .picker
+                        .worlds
+                        .iter()
+                        .position(|w| w.dir == made.dir)
+                        .unwrap_or(0);
+                    m.nav.focus_on(m.picker.cursor);
+                    m.picker.error = None;
+                }
+                Err(e) => m.picker.error = Some(format!("could not create: {e}")),
+            }
+        }
+        Action::PlayWorld(i) => {
+            let Some(world) = m.picker.worlds.get(i) else {
+                return;
+            };
+            m.picker.cursor = i;
+            m.save.seed = world.seed;
+            m.save.dir = Some(world.dir.clone());
+            m.picker.confirming = false;
+            m.nav.reset(menu::Page::Title);
+            m.next.set(Scene::Playing);
+        }
+        Action::DeleteWorld(i) => {
+            // Only ever reached from a row that already asked once — the row
+            // itself is the confirmation, so by here the answer is yes.
+            let Some(world) = m.picker.worlds.get(i).cloned() else {
+                m.picker.confirming = false;
+                return;
+            };
+            let root = m.picker.root.clone();
+            match delete_world(root, &world) {
+                Ok(()) => {
+                    m.picker.refresh();
+                    m.picker.error = None;
+                }
+                Err(e) => m.picker.error = Some(format!("could not delete: {e}")),
+            }
+            m.picker.confirming = false;
+            m.nav.focus_on(0);
+        }
         Action::Quit => {
-            paused.0 = false;
-            nav.reset(menu::Page::Title);
-            next.set(Scene::Menu);
+            *m.paused = Paused(false);
+            m.nav.reset(menu::Page::Title);
+            m.next.set(Scene::Menu);
         }
         Action::Exit => {
-            exit.write(AppExit::Success);
+            m.exit.write(AppExit::Success);
         }
-        // Handled by `apply_to_settings` above; listed so a new variant is a
-        // compile error here rather than a button that silently does nothing.
         Action::Flip(_) | Action::Step(_) => {}
     }
 }
 
-/// `Esc` stops the world without leaving it.
+/// `Esc`: open the pause card, go back a page, or resume.
 ///
-/// Gated on `Scene::Playing`, so it cannot be reached from a card. Pausing the
-/// title screen would put up a card over a card, and the only way out of the
-/// inner one would be the key that had just been shown not to work.
+/// # Why this is one system and not two
 ///
-/// See `scenes::Paused` for why this is a resource rather than a scene, and
-/// `ui::pause_at` for what the card says.
-fn toggle_pause(keys: Res<ButtonInput<KeyCode>>, mut paused: ResMut<Paused>) {
-    if BevyKeys(&keys).any_pressed(KEYS.pause) {
-        paused.0 = !paused.0;
+/// It was two, and the two fought over the same key press. `toggle_pause` set
+/// `Paused` in `PreUpdate`, which made `menu_is_up` true, which let `drive_menu`
+/// run LATER IN THE SAME FRAME and see the very same `just_pressed` Escape — so
+/// it popped the stack it had just been given, found the root, and resumed.
+/// Pressing Escape opened the pause card and closed it before a frame was
+/// drawn, and the only visible symptom was that pause did not work at all.
+///
+/// Two systems reading one key and both acting on it is the bug. There is one
+/// reader now, and the whole meaning of Escape is the match below:
+///
+///   - playing, not paused  -> open the pause card
+///   - paused, above the root -> go back a page
+///   - paused, at the root  -> resume
+///   - on the title card    -> go back a page, or nothing at the root
+///
+/// `drive_menu` no longer looks at `KEYS.pause` at all.
+fn escape_key(
+    keys: Res<ButtonInput<KeyCode>>,
+    scene: Res<State<Scene>>,
+    mut paused: ResMut<Paused>,
+    mut nav: ResMut<Nav>,
+) {
+    if !BevyKeys(&keys).any_pressed(KEYS.pause) {
+        return;
+    }
+    match scene.get() {
+        Scene::Playing => {
+            if !paused.0 {
+                paused.0 = true;
+                // Rooted here rather than left wherever the last menu was, so
+                // Escape always opens ON the pause card.
+                nav.reset(menu::Page::Pause);
+            } else if !nav.pop() {
+                paused.0 = false;
+            }
+        }
+        // The title card has nowhere to go back to from its root, and `pop`
+        // says so by returning false, which is exactly the right amount of
+        // nothing to do.
+        Scene::Menu => {
+            nav.pop();
+        }
+        // `worldselect` owns its own keys, and the death card has one action.
+        Scene::WorldSelect | Scene::GameOver => {}
     }
 }
 

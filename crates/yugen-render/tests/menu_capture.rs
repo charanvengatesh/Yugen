@@ -66,6 +66,7 @@ fn photograph_every_menu_page() {
         (Page::Interface, "interface.png", "Control Hints"),
         (Page::World, "world.png", "Day Length"),
         (Page::Controls, "controls.png", "Dash"),
+        (Page::Worlds, "worlds.png", "Create New World"),
     ] {
         app.world_mut().resource_mut::<Nav>().push(page);
         app.update();

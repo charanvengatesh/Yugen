@@ -2232,6 +2232,10 @@ struct HudSources<'w> {
     run_age: Res<'w, RunAge>,
     /// The menu stack.
     nav: Res<'w, menu::Nav>,
+    /// The world list, as the menu needs it. Rebuilt by `glue::mirror_worlds`
+    /// rather than here, because `compose` must not allocate a `String` per
+    /// world per frame for a page that is usually not even open.
+    worlds: Res<'w, menu::WorldRows>,
     /// What the options pages show.
     settings: Res<'w, crate::settings::Settings>,
     /// How recently the player was hurt.
@@ -2274,6 +2278,8 @@ impl Plugin for UiPlugin {
         app.init_resource::<UiScreen>()
             .init_resource::<Toast>()
             .init_resource::<RunAge>()
+            .init_resource::<menu::Nav>()
+            .init_resource::<menu::WorldRows>()
             .init_resource::<DamageFlash>()
             .init_resource::<Icons>()
             .init_resource::<UiFrame>()
@@ -2284,7 +2290,9 @@ impl Plugin for UiPlugin {
                 (
                     tick_toast,
                     watch_health,
-                    compose.run_if(resource_exists::<Tool>.and_then(resource_exists::<Pack>)),
+                    compose
+                        .after(crate::settings::ApplySettings)
+                        .run_if(resource_exists::<Tool>.and_then(resource_exists::<Pack>)),
                     paint.run_if(resource_exists::<FontAtlas>),
                 )
                     .chain(),
@@ -2374,6 +2382,8 @@ fn compose(
         nav: &sources.nav,
         settings: &sources.settings,
         in_game: *sources.screen == UiScreen::Playing,
+        worlds: &sources.worlds.0,
+        confirming: sources.picker.confirming.then_some(sources.picker.cursor),
         flash: sources.flash.alpha(),
         hints: match sources.settings.hints {
             crate::settings::HintMode::Always => 1.0,

@@ -127,14 +127,18 @@ use crate::world::{SimSet, SimWorld};
 
 /// Slots in the pool, and therefore sprite entities the plugin spawns.
 ///
-/// Scale `count` by a `0.0..=1.0` budget, keeping at least one whenever the
-/// budget is not zero.
+/// Scale `count` by a `0.0..=1.0` budget, keeping at least one whenever there
+/// was something to scale and the budget is not zero.
 ///
 /// At least one, because an effect that fires at 10% should still be visible —
 /// a dig that emits nothing reads as the dig having failed, which is a worse
 /// lie than a thin puff of dust.
 fn js_budget(count: usize, budget: f32) -> usize {
-    if budget <= 0.0 {
+    // Nothing in, nothing out. Without this the `.max(1)` below turns an
+    // `emit(.., 0, ..)` — which several call sites make when a computed count
+    // rounds to nothing — into one particle, so a lowered setting would
+    // *create* effects that a full one did not have.
+    if count == 0 || budget <= 0.0 {
         return 0;
     }
     ((count as f32 * budget.clamp(0.0, 1.0)).round() as usize).max(1)

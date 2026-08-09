@@ -81,6 +81,10 @@ pub struct PageCx<'a> {
     /// Whether a world exists behind the menu. Changes the shape of a page,
     /// never a value on one.
     pub in_game: bool,
+    /// The saved worlds, for `Page::Worlds`.
+    pub worlds: &'a [super::menu::WorldRow],
+    /// Which world is one press from deletion, if any.
+    pub confirming: Option<usize>,
     /// How brightly the health bar is flashing, `0.0..=1.0`.
     pub flash: f32,
     /// How opaque the control hints are, after the player's preference and the
@@ -133,7 +137,15 @@ impl Layer {
             },
             Layer::Craft => crate::craftscreen::screen(cx.crafting, cx.view),
             Layer::Menu => {
-                let rows = super::menu::page_rows(cx.nav.top(), cx.settings, cx.in_game);
+                let rows = super::menu::page_rows(
+                    cx.nav.top(),
+                    &super::menu::MenuCx {
+                        settings: cx.settings,
+                        in_game: cx.in_game,
+                        worlds: cx.worlds,
+                        confirming: cx.confirming,
+                    },
+                );
                 super::menu::screen(cx.nav.top(), &rows, cx.nav.focus(), cx.in_game, cx.view)
             }
             Layer::WorldSelect => crate::worldselect::screen(cx.picker, cx.view),
