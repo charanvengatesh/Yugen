@@ -1,9 +1,8 @@
 //! Authoring tools for `content/`.
 //!
-//! The editor this crate exists for — a mouse-driven pixel and SFX tool — is not
-//! here yet. What is here is the part everything else depends on and the part
-//! that can be wrong silently: putting an edited record back into a file
-//! without destroying the file around it.
+//! The editor this crate exists for is a mouse-driven pixel and SFX tool. Its
+//! binary is `src/bin/yugen-editor.rs`; everything the binary stands on is here,
+//! because the library is where the parts that can be wrong SILENTLY live.
 //!
 //! `content/FORMAT.md` §9 is the contract, and its first clause is the one that
 //! decides the design: **never round-trip a file through a TOML serialiser.** A
@@ -15,7 +14,22 @@
 //! producing a diff that looks like "the whole file changed" and cannot be
 //! reviewed.
 //!
-//! So the rule is textual: find the record's byte range, replace exactly that,
-//! leave every other byte alone. That is what [`splice`] does.
+//! So the rule is textual: find the range, replace exactly that, leave every
+//! other byte alone. It is applied at two scales, and both are needed:
+//!
+//! - [`splice`] replaces a whole RECORD, protecting the file around it. That is
+//!   the granularity for adding a record or rewriting one wholesale.
+//! - [`field`] replaces one FIELD inside a record, protecting the record around
+//!   it. That is the granularity a pixel editor needs, because a real record has
+//!   prose between its sequences and a redraw must not take it.
+//!
+//! The rest is reading, which is safe: [`sprite`] parses a record into something
+//! drawable and [`raster`] turns a frame's digits into RGBA. Neither ever writes.
 
+pub mod app;
+pub mod field;
+pub mod raster;
+pub mod sound;
 pub mod splice;
+pub mod sprite;
+pub mod synth;

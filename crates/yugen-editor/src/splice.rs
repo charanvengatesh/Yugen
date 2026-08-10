@@ -60,13 +60,41 @@ impl std::fmt::Display for SpliceError {
 
 impl std::error::Error for SpliceError {}
 
+/// Which lines are CODE rather than the inside of a `'''` body.
+///
+/// Every scanner in this crate is line-based, and a line-based scanner that does
+/// not know about literal bodies will read art as structure. FORMAT.md §5 makes
+/// a body's contents arbitrary text — a structure template's legend is whatever
+/// characters that structure chose — so nothing stops a body line from looking
+/// exactly like `[stone]`. Reading one as a record header would cut a record in
+/// half in the middle of its own art, and the resulting splice would be
+/// syntactically fine and semantically shredded.
+///
+/// The rule is TOML's: `'''` toggles, and a line may open and close in one go
+/// (`x = '''y'''`), so occurrences are counted rather than matched. The opening
+/// and closing lines are both CODE — the delimiter belongs to the key, not to
+/// the art — which is why the toggle is applied after the line is classified.
+pub(crate) fn code_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = Vec::with_capacity(lines.len());
+    let mut in_body = false;
+    for line in lines {
+        // Classify first: a line holding a delimiter is the key's, not the art's.
+        mask.push(!in_body);
+        let toggles = line.matches("'''").count();
+        if toggles % 2 == 1 {
+            in_body = !in_body;
+        }
+    }
+    mask
+}
+
 /// True for a line that opens a TOP-LEVEL table: `[id]`, not `[a.b]` and not
 /// `[[a.b]]`.
 ///
 /// The dotted test is what keeps a record whole. A record's own sub-tables and
 /// table-arrays are dotted by construction — FORMAT.md §2 and §4 — so a bare
 /// name is the only thing that can start a new one.
-fn is_record_header(line: &str) -> Option<&str> {
+pub(crate) fn is_record_header(line: &str) -> Option<&str> {
     let s = line.trim_end();
     let inner = s.strip_prefix('[')?.strip_suffix(']')?;
     if inner.starts_with('[') || inner.contains('.') {
@@ -87,7 +115,11 @@ fn is_record_header(line: &str) -> Option<&str> {
 /// range invites slicing a multi-byte character in half.
 pub fn record_lines(text: &str, id: &str) -> Option<Range<usize>> {
     let lines: Vec<&str> = text.lines().collect();
-    let header = lines.iter().position(|l| is_record_header(l) == Some(id))?;
+    let code = code_mask(&lines);
+    let header = lines
+        .iter()
+        .enumerate()
+        .position(|(i, l)| code[i] && is_record_header(l) == Some(id))?;
 
     // Walk back over the record's own comment paragraph. A blank line stops it,
     // which is what keeps a file's opening banner out of its first record.
@@ -103,7 +135,7 @@ pub fn record_lines(text: &str, id: &str) -> Option<Range<usize>> {
 
     // Forward to the next top-level header, or the end.
     let mut end = header + 1;
-    while end < lines.len() && is_record_header(lines[end]).is_none() {
+    while end < lines.len() && !(code[end] && is_record_header(lines[end]).is_some()) {
         end += 1;
     }
     // Give back any trailing blank lines: they separate this record from the
@@ -117,8 +149,13 @@ pub fn record_lines(text: &str, id: &str) -> Option<Range<usize>> {
 
 /// Every top-level record id in the file, in order.
 pub fn record_ids(text: &str) -> Vec<String> {
-    text.lines()
-        .filter_map(is_record_header)
+    let lines: Vec<&str> = text.lines().collect();
+    let code = code_mask(&lines);
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| code[*i])
+        .filter_map(|(_, l)| is_record_header(l))
         .map(str::to_string)
         .collect()
 }
@@ -323,6 +360,32 @@ name = \"Sand\"\n\
         assert!(out.ends_with("name = \"Basalt\"\n"));
         let parsed: toml::Table = out.parse().expect("still TOML");
         assert_eq!(parsed.len(), 4);
+    }
+
+    #[test]
+    fn a_bracketed_line_inside_a_body_is_art_not_a_header() {
+        // FORMAT.md §5: a body's contents are arbitrary text, and a structure
+        // legend picks its own characters. Without the `'''` mask this scanner
+        // reads the middle row as `[sand]`, ends the record there, and splices
+        // over half a structure template.
+        let art = "\
+[vault]\n\
+body = '''\n\
+[stone]\n\
+[sand]\n\
+'''\n\
+name = \"Vault\"\n\
+\n\
+[sand]\n\
+name = \"Sand\"\n\
+";
+        assert_eq!(record_ids(art), vec!["vault", "sand"]);
+        let span = record_lines(art, "vault").expect("found");
+        assert_eq!(span, 0..6, "the record runs past its own art to `name`");
+        // And the real `[sand]` is still findable as its own record.
+        let out = replace_record(art, "sand", "[sand]\nname = \"Grit\"\n").expect("splices");
+        assert!(out.contains("[stone]\n[sand]\n'''"), "the art survived");
+        assert!(out.contains("Grit"));
     }
 
     #[test]

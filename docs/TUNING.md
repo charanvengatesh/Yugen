@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 291 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 653 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 658 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -687,6 +687,21 @@ only the exported surface is held to the rule.
 | `SUB_PHASE_Y` (private) | `37` |  | 479 |
 | `SUB_DENSITY` (private) | `0.24` |  | 480 |
 | `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 482 |
+
+### `crates/yugen-editor/src/app.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `UNDO_DEPTH` (private) | `64` | How many strokes can be taken back. | 48 |
+| `MAX_PAL` (private) | `10` | Palette indices `1`-`9` are the only ones a frame character can name, so the list tops out at ten entries including the transparent slot. | 53 |
+| `SCOPE_HEIGHT` (private) | `90.0` | How tall the waveform scope is drawn, in points. | 65 |
+
+### `crates/yugen-editor/src/synth.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SAMPLE_RATE` | `44_100` | Samples per second. | 25 |
+| `DECLICK` (private) | `SAMPLE_RATE as usize / 1000` | Forced fade on both ends, whatever the envelope says. | 33 |
 
 ### `crates/yugen-render/src/ambience/scan.rs`
 

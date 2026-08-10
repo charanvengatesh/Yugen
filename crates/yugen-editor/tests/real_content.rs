@@ -123,3 +123,109 @@ fn a_sprite_records_art_survives_being_spliced_over() {
     let out = replace_record(&text, "player", &lines[span].join("\n")).expect("splices");
     assert_eq!(out, text);
 }
+
+// ---------------------------------------------------------------------------
+// The field splice, and the raster, against the same real files
+// ---------------------------------------------------------------------------
+
+use yugen_editor::field::{replace_frames, replace_head_key};
+use yugen_editor::raster::raster;
+use yugen_editor::sprite::{art_ids, frames_body, read};
+
+/// Every record in `content/` that has art, as `(file, id)`.
+fn art_records() -> Vec<(PathBuf, String)> {
+    let mut out = Vec::new();
+    for path in content_files() {
+        let text = std::fs::read_to_string(&path).expect("readable");
+        for id in art_ids(&text) {
+            out.push((path.clone(), id));
+        }
+    }
+    out
+}
+
+#[test]
+fn rewriting_every_real_frames_body_with_itself_changes_nothing() {
+    // The same property the record splice is held to, one level finer. This is
+    // the one that matters for the editor: a redraw goes through
+    // `replace_frames`, and anything it gets wrong about where a sequence ends
+    // or where a `'''` body starts shows up here as a changed file.
+    let records = art_records();
+    assert!(
+        records.len() > 20,
+        "found only {} art records",
+        records.len()
+    );
+
+    let mut sequences = 0usize;
+    for (path, id) in &records {
+        let text = std::fs::read_to_string(path).expect("readable");
+        let sprite = read(&text, id).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+
+        for (i, seq) in sprite.seqs.iter().enumerate() {
+            let body = frames_body(&seq.frames);
+            let out = replace_frames(&text, id, &sprite.sub(), i, &body)
+                .unwrap_or_else(|e| panic!("{}: [{id}] seq {i}: {e}", path.display()));
+            assert_eq!(
+                out,
+                text,
+                "{}: rewriting [{id}] sequence {i} ({}) with itself changed the file",
+                path.display(),
+                seq.state
+            );
+            sequences += 1;
+        }
+    }
+    assert!(sequences > 60, "only walked {sequences} sequences");
+}
+
+#[test]
+fn every_real_frame_rasterises() {
+    // The editor draws every frame it opens, so a frame the raster refuses is a
+    // record the editor cannot show. There are none today, and this is what says
+    // so — including the grain-2 records, whose rows are `cellsW * grain` wide.
+    let mut frames = 0usize;
+    for (path, id) in art_records() {
+        let text = std::fs::read_to_string(&path).expect("readable");
+        let sprite = read(&text, &id).expect("reads");
+        let pal = sprite
+            .colours()
+            .unwrap_or_else(|e| panic!("{}: [{id}]: {e}", path.display()));
+
+        for seq in &sprite.seqs {
+            for frame in &seq.frames {
+                let px = raster(frame, &pal, sprite.texel_w(), sprite.texel_h())
+                    .unwrap_or_else(|e| panic!("{}: [{id}] {}: {e}", path.display(), seq.state));
+                assert_eq!(px.len(), (sprite.texel_w() * sprite.texel_h() * 4) as usize);
+                frames += 1;
+            }
+        }
+    }
+    assert!(frames > 100, "only rasterised {frames} frames");
+}
+
+#[test]
+fn rewriting_every_real_palette_with_itself_changes_nothing() {
+    // `pal` is the other thing the editor writes, and it is the head key that is
+    // hardest to find: it sits above a wall of comment explaining what each
+    // index is for, and on a mob it is spelled `art.pal`.
+    for (path, id) in art_records() {
+        let text = std::fs::read_to_string(&path).expect("readable");
+        let sprite = read(&text, &id).expect("reads");
+
+        let lines: Vec<&str> = text.lines().collect();
+        let head = yugen_editor::field::head_span(&text, &id).expect("has a head");
+        let key = sprite.pal_key();
+        let span = yugen_editor::field::key_span(&text, head, &key)
+            .unwrap_or_else(|| panic!("{}: [{id}] has no `{key}`", path.display()));
+
+        let out = replace_head_key(&text, &id, &key, lines[span.start])
+            .unwrap_or_else(|e| panic!("{}: [{id}]: {e}", path.display()));
+        assert_eq!(
+            out,
+            text,
+            "{}: rewriting [{id}]'s `{key}` with itself changed the file",
+            path.display()
+        );
+    }
+}

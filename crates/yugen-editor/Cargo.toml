@@ -4,11 +4,31 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Authoring tools for content/: the splice that edits a record without rewriting its file."
+description = "Authoring tools for content/: a pixel editor, and the splices that edit a record without rewriting its file."
 publish = false
 
-# Deliberately thin. The one dependency is the TOML front end `contentc` already
-# uses, and it is used to LOCATE records — never to write them. See
-# `src/splice.rs` for why a serializer is the wrong tool here.
 [dependencies]
+# The TOML front end `contentc` already uses. Used to LOCATE and READ records —
+# never to write them. See `src/splice.rs` for why a serializer is the wrong tool
+# for the write side.
 toml = "0.9"
+
+# The window. `eframe` and not Bevy, deliberately: this crate must not link
+# `yugen-render`, because the renderer bakes from COMPILED content and an editor
+# has to draw the file as it is being typed — before `contentc` has run, and
+# while it may not even be valid. Sharing a window stack with the game would buy
+# nothing and cost the whole engine.
+#
+# Pinned to 0.35 rather than 0.36 by the workspace `rust-version`: 0.36 wants
+# rustc 1.95. Default features, so the backend is wgpu — which the workspace
+# already builds for Bevy, so it is a cache hit rather than a second stack.
+eframe = "0.35"
+
+# The speaker. `playback` only — no decoders, because nothing here decodes: the
+# editor synthesises samples from the parameters on screen and hands them
+# straight to the mixer. The default features would pull in symphonia to read
+# file formats this crate never opens.
+#
+# rodio is what Bevy already plays audio through, so the version is matched to
+# the one in the lock and costs no second audio stack.
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
