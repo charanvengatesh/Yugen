@@ -21,6 +21,17 @@ gain = 0.14
 name = "Land"
 # The same event as a footstep with more of everything — the body arriving
 # rather than passing through.
+#
+# SILENT ON PURPOSE. `gain = 0.0` is a decision, not a slider left where it
+# fell, and it is written down here because it does not look like one: landing
+# fires on frames a footstep already covers, and a second impact under the tick
+# read as clutter rather than as weight. Kept as a record rather than deleted —
+# the event still exists, and the shape below is the one to turn back up when
+# the mix has room for it.
+#
+# A gain of zero is the only unambiguous way to author silence, so the
+# audibility guard in `yugen-render/src/sound/synth.rs` exempts exactly that and
+# nothing else. A sound with a gain and no output is still a bug.
 wave = "square"
 hz = 31.0
 hzTo = 20.0

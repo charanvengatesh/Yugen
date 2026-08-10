@@ -13,10 +13,11 @@
 //! [`crate::sound::SoundVolume`], where zero means no audio entities are
 //! spawned at all rather than muted ones being spawned.
 //!
-//! What it does not yet have is a ROW in [`crate::ui::menu`], so it is reachable
-//! by editing `options.txt` and not from inside the game. That is a gap in the
-//! menu rather than in this file, and it is named here because a setting a
-//! player cannot find is close enough to furniture to be worth saying out loud.
+//! It has its row now too — `Sound`, on the Options page itself rather than
+//! behind a fifth sub-page, because one slider does not earn a page. That
+//! closes the gap this paragraph used to name, and the rule it was named under
+//! cuts both ways: a setting a player cannot find is as close to furniture as a
+//! setting that does nothing.
 //!
 //! # Why a line file and not TOML
 //!

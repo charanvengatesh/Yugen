@@ -265,6 +265,7 @@ pub enum Step {
 pub enum Slide {
     Particles,
     Shake,
+    Volume,
     DayMinutes,
     Autosave,
 }
@@ -273,7 +274,7 @@ impl Slide {
     /// The value's range.
     fn range(self) -> (f32, f32) {
         match self {
-            Slide::Particles | Slide::Shake => (0.0, 1.0),
+            Slide::Particles | Slide::Shake | Slide::Volume => (0.0, 1.0),
             Slide::DayMinutes => Settings::DAY_MINUTES,
             Slide::Autosave => Settings::AUTOSAVE_S,
         }
@@ -285,6 +286,7 @@ impl Slide {
         let v = match self {
             Slide::Particles => s.particles,
             Slide::Shake => s.shake,
+            Slide::Volume => s.volume,
             Slide::DayMinutes => s.day_minutes,
             Slide::Autosave => s.autosave_s,
         };
@@ -298,6 +300,7 @@ impl Slide {
         match self {
             Slide::Particles => s.particles = v,
             Slide::Shake => s.shake = v,
+            Slide::Volume => s.volume = v,
             Slide::DayMinutes => s.day_minutes = v,
             Slide::Autosave => s.autosave_s = v,
         }
@@ -321,6 +324,10 @@ impl Slide {
                     percent(s.shake)
                 }
             }
+            // `Off` at zero is the literal truth here rather than a nicety:
+            // `sound::SoundVolume` at 0 spawns no audio entities at all, so the
+            // game is not playing anything quietly.
+            Slide::Volume => percent(s.volume),
             Slide::DayMinutes => format!("{:.0} min", s.day_minutes),
             Slide::Autosave => format!("{:.0}s", s.autosave_s),
         }
@@ -475,6 +482,11 @@ pub fn page_rows(page: Page, cx: &MenuCx) -> Vec<Row> {
             Row::press("Interface...", Action::Open(Page::Interface)),
             Row::press("World...", Action::Open(Page::World)),
             Row::press("Controls...", Action::Open(Page::Controls)),
+            // Directly here rather than behind a `Sound...` page, because there
+            // is exactly one audio setting and a page holding one slider is the
+            // furniture this menu's rule exists to keep out. The day a second
+            // one arrives — music, or a separate UI bus — it earns the page.
+            Row::slider("Sound", Slide::Volume, s),
             Row::press("Done", Action::Back),
         ],
         Page::Video => vec![
@@ -1215,6 +1227,7 @@ mod tests {
         for slide in [
             Slide::Particles,
             Slide::Shake,
+            Slide::Volume,
             Slide::DayMinutes,
             Slide::Autosave,
         ] {
@@ -1228,6 +1241,7 @@ mod tests {
             let got = match slide {
                 Slide::Particles => s.particles,
                 Slide::Shake => s.shake,
+                Slide::Volume => s.volume,
                 Slide::DayMinutes => s.day_minutes,
                 Slide::Autosave => s.autosave_s,
             };
@@ -1240,6 +1254,33 @@ mod tests {
         let mut s = Settings::default();
         Slide::Shake.set(&mut s, 0.0);
         assert_eq!(Slide::Shake.value(&s), "Off");
+
+        // `Off` on the volume row is the literal truth and not a nicety:
+        // `sound::SoundVolume` at zero spawns no audio entities at all, so
+        // nothing is being played quietly.
+        Slide::Volume.set(&mut s, 0.0);
+        assert_eq!(Slide::Volume.value(&s), "Off");
+    }
+
+    #[test]
+    fn the_volume_is_reachable_without_editing_options_txt() {
+        // The whole point of the row. `volume` persisted, clamped and applied
+        // for a while before this, and a player could only reach it by opening
+        // the settings file by hand — which is the same as not having it.
+        let row = rows(Page::Options)
+            .into_iter()
+            .find(|r| r.label == "Sound")
+            .expect("the Options page offers a Sound row");
+        assert!(
+            matches!(
+                row.control,
+                Control::Slider {
+                    of: Slide::Volume,
+                    ..
+                }
+            ),
+            "the Sound row is a slider on the volume"
+        );
     }
 
     // --- Layout -------------------------------------------------------------

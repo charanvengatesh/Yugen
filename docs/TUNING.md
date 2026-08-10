@@ -1052,7 +1052,7 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `AUTO_ZOOM` (private) | `2.0` | The zoom floor `RenderScale::Auto` means. | 474 |
+| `AUTO_ZOOM` (private) | `2.0` | The zoom floor `RenderScale::Auto` means. | 475 |
 
 ### `crates/yugen-render/src/shear.rs`
 
@@ -1144,12 +1144,12 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `ROW_W` (private) | `240` | Width of a menu row, in buffer px. | 649 |
-| `ROW_H` (private) | `18` | Height of a menu row. | 652 |
-| `ROW_GAP` (private) | `4` | Blank px between one row and the next. | 655 |
-| `HEAD_GAP` (private) | `12` | Blank px between the heading's descender and the first row. | 658 |
-| `SLIDER_W` (private) | `84` | Width of the bar in a slider row, in buffer px. | 684 |
-| `SLIDER_H` (private) | `5` | Height of that bar. | 687 |
+| `ROW_W` (private) | `240` | Width of a menu row, in buffer px. | 661 |
+| `ROW_H` (private) | `18` | Height of a menu row. | 664 |
+| `ROW_GAP` (private) | `4` | Blank px between one row and the next. | 667 |
+| `HEAD_GAP` (private) | `12` | Blank px between the heading's descender and the first row. | 670 |
+| `SLIDER_W` (private) | `84` | Width of the bar in a slider row, in buffer px. | 696 |
+| `SLIDER_H` (private) | `5` | Height of that bar. | 699 |
 
 ### `crates/yugen-render/src/ui/mod.rs`
 
