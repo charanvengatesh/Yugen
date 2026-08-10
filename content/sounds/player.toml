@@ -11,22 +11,24 @@ name = "Footstep"
 # Noise rather than a tone, because a footstep is a surface being disturbed and
 # not something ringing. The tiny sweep down is the weight landing.
 wave = "noise"
-hz = 220.0
-hzTo = 160.0
-seconds = 0.05
+hz = 20.0
+hzTo = 700.0
+seconds = 0.01
 release = 0.8
-gain = 0.25
+gain = 0.14
 
 [land]
 name = "Land"
 # The same event as a footstep with more of everything — the body arriving
 # rather than passing through.
-wave = "noise"
-hz = 180.0
-hzTo = 90.0
-seconds = 0.12
-release = 0.7
-gain = 0.45
+wave = "square"
+hz = 31.0
+hzTo = 20.0
+seconds = 0.055
+release = 0.43
+gain = 0.0
+attack = 0.03
+noise = 0.0
 
 [jump]
 name = "Jump"
@@ -39,7 +41,7 @@ seconds = 0.09
 attack = 0.05
 release = 0.6
 noise = 0.1
-gain = 0.3
+gain = 0.07
 
 [double_jump]
 name = "Double jump"
@@ -51,28 +53,29 @@ hzTo = 760.0
 seconds = 0.08
 attack = 0.05
 release = 0.6
-gain = 0.28
+gain = 0.08
 
 [dash]
 name = "Dash"
 # A sweep down through a lot of noise: air moving past, not a note.
-wave = "noise"
-hz = 900.0
-hzTo = 260.0
-seconds = 0.14
-attack = 0.02
-release = 0.75
-gain = 0.35
+wave = "sine"
+hz = 55.0
+hzTo = 300.0
+seconds = 0.13
+attack = 0.24
+release = 1.0
+gain = 0.44
+noise = 0.08
 
 [wall_jump]
 name = "Wall jump"
 # Between a jump and a scrape, which is what the move is.
 wave = "square"
-hz = 300.0
-hzTo = 430.0
-seconds = 0.08
+hz = 190.0
+hzTo = 190.0
+seconds = 0.035
 release = 0.65
-noise = 0.35
+noise = 0.1
 gain = 0.3
 
 [splash]

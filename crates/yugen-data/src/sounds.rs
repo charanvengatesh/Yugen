@@ -92,14 +92,14 @@ pub static SOUNDS: [SoundDef; 14] = [
         id: "dash",
         code: 0,
         name: "Dash",
-        wave: 4,
-        hz: 900.0,
-        hz_to: 260.0,
-        seconds: 0.14,
-        attack: 0.02,
-        release: 0.75,
-        noise: 0.0,
-        gain: 0.35,
+        wave: 2,
+        hz: 55.0,
+        hz_to: 300.0,
+        seconds: 0.13,
+        attack: 0.24,
+        release: 1.0,
+        noise: 0.08,
+        gain: 0.44,
     },
     SoundDef {
         id: "dig",
@@ -125,7 +125,7 @@ pub static SOUNDS: [SoundDef; 14] = [
         attack: 0.05,
         release: 0.6,
         noise: 0.0,
-        gain: 0.28,
+        gain: 0.08,
     },
     SoundDef {
         id: "hurt",
@@ -151,20 +151,20 @@ pub static SOUNDS: [SoundDef; 14] = [
         attack: 0.05,
         release: 0.6,
         noise: 0.1,
-        gain: 0.3,
+        gain: 0.07,
     },
     SoundDef {
         id: "land",
         code: 5,
         name: "Land",
-        wave: 4,
-        hz: 180.0,
-        hz_to: 90.0,
-        seconds: 0.12,
-        attack: 0.0,
-        release: 0.7,
+        wave: 0,
+        hz: 31.0,
+        hz_to: 20.0,
+        seconds: 0.055,
+        attack: 0.03,
+        release: 0.43,
         noise: 0.0,
-        gain: 0.45,
+        gain: 0.0,
     },
     SoundDef {
         id: "mob_die",
@@ -228,8 +228,8 @@ pub static SOUNDS: [SoundDef; 14] = [
         seconds: 0.07,
         attack: 0.0,
         release: 0.5,
-        noise: 0.5,
-        gain: 0.45,
+        noise: 0.08,
+        gain: 0.25,
     },
     SoundDef {
         id: "splash",
@@ -249,25 +249,25 @@ pub static SOUNDS: [SoundDef; 14] = [
         code: 12,
         name: "Footstep",
         wave: 4,
-        hz: 220.0,
-        hz_to: 160.0,
-        seconds: 0.05,
+        hz: 20.0,
+        hz_to: 700.0,
+        seconds: 0.01,
         attack: 0.0,
         release: 0.8,
         noise: 0.0,
-        gain: 0.25,
+        gain: 0.14,
     },
     SoundDef {
         id: "wall_jump",
         code: 13,
         name: "Wall jump",
         wave: 0,
-        hz: 300.0,
-        hz_to: 430.0,
-        seconds: 0.08,
+        hz: 190.0,
+        hz_to: 190.0,
+        seconds: 0.035,
         attack: 0.0,
         release: 0.65,
-        noise: 0.35,
+        noise: 0.1,
         gain: 0.3,
     },
 ];
@@ -300,42 +300,41 @@ pub const NEVER: u16 = 0xffff;
 // array read is far cheaper than a map hit plus a struct deref.
 
 /// Oscillator code.
-pub static SND_WAVE: [u8; 14] = [4, 4, 0, 1, 0, 4, 1, 1, 2, 3, 0, 4, 4, 0];
+pub static SND_WAVE: [u8; 14] = [2, 4, 0, 1, 0, 0, 1, 1, 2, 3, 0, 4, 4, 0];
 
 /// Starting pitch, Hz.
 pub static SND_HZ: [f32; 14] = [
-    900.0, 300.0, 480.0, 420.0, 320.0, 180.0, 480.0, 620.0, 520.0, 340.0, 200.0, 700.0, 220.0,
-    300.0,
+    55.0, 300.0, 480.0, 420.0, 320.0, 31.0, 480.0, 620.0, 520.0, 340.0, 200.0, 700.0, 20.0, 190.0,
 ];
 
 /// Ending pitch, Hz.
 pub static SND_HZ_TO: [f32; 14] = [
-    260.0, 200.0, 760.0, 120.0, 520.0, 90.0, 90.0, 260.0, 780.0, 300.0, 140.0, 240.0, 160.0, 430.0,
+    300.0, 200.0, 760.0, 120.0, 520.0, 20.0, 90.0, 260.0, 780.0, 300.0, 140.0, 240.0, 700.0, 190.0,
 ];
 
 /// Length in seconds.
 pub static SND_SECONDS: [f32; 14] = [
-    0.14, 0.04, 0.08, 0.22, 0.09, 0.12, 0.3, 0.11, 0.07, 0.05, 0.07, 0.18, 0.05, 0.08,
+    0.13, 0.04, 0.08, 0.22, 0.09, 0.055, 0.3, 0.11, 0.07, 0.05, 0.07, 0.18, 0.01, 0.035,
 ];
 
 /// Attack, as a fraction of the length.
 pub static SND_ATTACK: [f32; 14] = [
-    0.02, 0.0, 0.05, 0.0, 0.05, 0.0, 0.0, 0.0, 0.05, 0.0, 0.0, 0.03, 0.0, 0.0,
+    0.24, 0.0, 0.05, 0.0, 0.05, 0.03, 0.0, 0.0, 0.05, 0.0, 0.0, 0.03, 0.0, 0.0,
 ];
 
 /// Release, as a fraction of the length.
 pub static SND_RELEASE: [f32; 14] = [
-    0.75, 0.85, 0.6, 0.55, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.5, 0.8, 0.8, 0.65,
+    1.0, 0.85, 0.6, 0.55, 0.6, 0.43, 0.7, 0.6, 0.6, 0.7, 0.5, 0.8, 0.8, 0.65,
 ];
 
 /// Noise mix, 0..1.
 pub static SND_NOISE: [f32; 14] = [
-    0.0, 0.0, 0.0, 0.2, 0.1, 0.0, 0.35, 0.25, 0.0, 0.15, 0.5, 0.0, 0.0, 0.35,
+    0.08, 0.0, 0.0, 0.2, 0.1, 0.0, 0.35, 0.25, 0.0, 0.15, 0.08, 0.0, 0.0, 0.1,
 ];
 
 /// Per-sound gain, 0..1.
 pub static SND_GAIN: [f32; 14] = [
-    0.35, 0.2, 0.28, 0.6, 0.3, 0.45, 0.5, 0.4, 0.3, 0.22, 0.45, 0.4, 0.25, 0.3,
+    0.44, 0.2, 0.08, 0.6, 0.07, 0.0, 0.5, 0.4, 0.3, 0.22, 0.25, 0.4, 0.14, 0.3,
 ];
 
 /// Every flat table in this module, by name. For the gates, not the game.
