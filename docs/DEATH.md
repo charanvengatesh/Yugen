@@ -75,32 +75,42 @@ Three reasons this one and not another:
 
 ### Staged
 
-**1. Split "restart" from "respawn".** The one blocking change, and everything
-else waits on it. `start_a_run` currently does both jobs in one system on
-`OnEnter(Scene::Playing)`, and it rebuilds the world unconditionally because
-there was never a path that wanted the world kept. Split it: a *restart* (from
-the menu, a new seed) rebuilds; a *respawn* (from `GameOver`) resets the body
-and touches nothing else.
+**1. Split "restart" from "respawn". — DONE.** The one blocking change, and
+everything else waited on it. `start_a_run` did both jobs in one system on
+`OnEnter(Scene::Playing)` and rebuilt the world unconditionally, because there
+was never a path that wanted the world kept.
 
-Read `crate::scenes` first. It documents the trap this sits on — Bevy re-fires
-`OnEnter` when a state is `set` to the value it already holds — and
-`start_a_run`'s own comment explains why it deliberately runs on *every* entry
-to `Playing` rather than special-casing the first. Splitting it means taking on
-the case that comment was avoiding, so the new seam has to say which entry it is
-reacting to rather than inferring it.
+The seam is `scenes::Entry`, a resource the transition sets: a *restart* (menu,
+world picker, `--play`, every capture harness) rebuilds; a *respawn* (from
+`GameOver`) resets the body and drops arrows in flight, and touches nothing
+else. It is DECLARED rather than inferred from the scene being left, for the
+reason `crate::scenes` documents — Bevy re-fires `OnEnter` when a state is `set`
+to the value it already holds, so there is a legal entry whose previous scene is
+`Playing`, and a new entry point added later would otherwise inherit whichever
+branch its predecessor happened to land in.
 
-**2. Drop the pack at the death site.** In `death_ends_the_run`, before the
-transition: capture the body's `(x, y)`, walk the inventory into a `DropBag`
-(`items/drops.rs` — a count per `ItemCode`, which is exactly the shape needed),
-hand it to `WorldItems::spawn_bag(bag, x, y)`, then `Inventory::clear()`. Worn
-armour goes into the bag too, on the same argument that currently sends it to
-nothing.
+`Restart` is the default, which is the destructive reading: everything entering
+`Playing` without mentioning `Entry` gets exactly the behaviour it had before
+the split. `start_a_run` consumes the intent, so it belongs to one transition
+and cannot leak into the next.
 
-One decision to make here: whether the corpse gets the standard 180-second
-`LIFETIME` or its own longer one. 180 seconds is tuned for a stack of gravel
-knocked loose while mining, not for a run back across the map you just died
-crossing. It probably wants its own number, and that number is the difficulty
-dial for the whole model.
+**2. Drop the pack at the death site. — DONE.** `death_ends_the_run` walks the
+pack into a `DropBag`, hands it to `GroundItems::spawn_bag` at the body's
+coordinates, then clears the pack. Worn armour goes in too. The bag is spawned
+BEFORE the clear so a panic between the two cannot lose the pack into neither
+place, and the save is requested after both, so what reaches disk is the world
+as the death left it.
+
+Two things it deliberately does not do, both still open:
+
+- **The corpse takes the standard 180-second `LIFETIME`.** That number is tuned
+  for a stack of gravel knocked loose while mining, not for a run back across
+  the map you just died crossing. It probably wants its own, and that number is
+  the difficulty dial for the whole model — so it is left to be turned
+  deliberately rather than picked in passing.
+- **`RunState` still does not persist world items.** A corpse survives a
+  respawn, because the world now stays in memory, but not a quit and reload.
+  That is this document's remaining save work.
 
 **3. A respawn point that is not the worldgen spawn.** Today `Player::reset`
 goes to the `SpawnPoint` worldgen chose, held on the player as two floats. Make
