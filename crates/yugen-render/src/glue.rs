@@ -21,7 +21,7 @@ use yugen_core::input::{KEYS, KeyState};
 
 use yugen_core::config::STEP_DT;
 use yugen_core::entities::{HitFn, Loadout, NoTargets, PlayerEvent};
-use yugen_core::items::{Inventory, item_code_of};
+use yugen_core::items::{DropBag, Inventory, SLOT_COUNT, item_code_of};
 use yugen_core::sim::save::read_run;
 
 use crate::daynight::WorldClock;
@@ -289,24 +289,55 @@ fn death_ends_the_run(
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
     mut save: ResMut<SaveNow>,
+    mut pack: Option<ResMut<Pack>>,
+    mut ground: Option<ResMut<GroundItems>>,
 ) {
     if *scene.get() != Scene::Playing {
         return;
     }
-    if body.is_some_and(|b| b.dead()) {
-        // Ask for a save BEFORE the transition, so what reaches disk is the
-        // world as the death left it. `docs/SAVE.md` states the rule: death is
-        // the most durable moment in the game, and there is exactly one Quit.
-        // Without this a player learns they can rewind a death by killing the
-        // process, and once that is learnable it is the correct play — so the
-        // affordance is removed rather than policed.
-        //
-        // When `docs/DEATH.md` lands, the corpse bag is spawned and the pack
-        // cleared before this point, and the request needs no change: it will
-        // already be writing the post-death state.
-        save.request();
-        next.set(Scene::GameOver);
+    let Some(body) = body.filter(|b| b.dead()) else {
+        return;
+    };
+
+    // The corpse. `docs/DEATH.md`: dying drops everything you were carrying as
+    // stacks at the death site, and getting your kit back is a run INTO the
+    // place that killed you, against the stacks' own lifetime.
+    //
+    // `Inventory::clear`'s argument survives intact — you still lose the pack at
+    // the moment of death. What changes is that it is now somewhere rather than
+    // nowhere.
+    if let (Some(pack), Some(ground)) = (&mut pack, &mut ground) {
+        let mut bag = DropBag::new();
+        for slot in 0..SLOT_COUNT {
+            if let Some((code, n)) = pack.stack_at(slot) {
+                bag.add(code, u32::from(n));
+            }
+        }
+        // Worn armour goes in too, on the same argument that currently sends it
+        // to nothing: `clear` takes it off because a death is supposed to cost
+        // it, and a cost you can run back for is still a cost.
+        if let Some(worn) = pack.worn() {
+            bag.add(worn, 1);
+        }
+        // Spawned before the clear, so a panic between the two cannot lose the
+        // pack into neither place.
+        ground.spawn_bag(&mut bag, body.x, body.y);
+        pack.clear();
     }
+
+    // Ask for a save AFTER the bag and the clear, so what reaches disk is the
+    // world as the death left it — corpse included. `docs/SAVE.md` states the
+    // rule: death is the most durable moment in the game, and there is exactly
+    // one Quit. Without this a player learns they can rewind a death by killing
+    // the process, and once that is learnable it is the correct play — so the
+    // affordance is removed rather than policed.
+    //
+    // NOTE: `RunState` does not yet persist world items, so a corpse survives a
+    // respawn (the world stays in memory — see `scenes::Entry`) but not a quit
+    // and reload. That is `docs/DEATH.md`'s remaining save work, and it is the
+    // reason the bag is spawned here rather than reconstructed on load.
+    save.request();
+    next.set(Scene::GameOver);
 }
 
 /// Start a run, or continue one: see [`Entry`].
@@ -1006,6 +1037,122 @@ mod tests {
             NextState::Unchanged => None,
         };
         (next, *world.resource::<Entry>())
+    }
+
+    /// Kill a body carrying `kit`, and report what was left on the floor.
+    fn die_carrying(kit: &[(u16, u16)]) -> (World, f32, f32) {
+        let mut body = PlayerBody(Player::new(SpawnPoint { x: 40.0, y: 12.0 }));
+        body.health = 0.0;
+        let (x, y) = (body.x, body.y);
+
+        let mut pack = Pack(Inventory::new());
+        for (slot, (code, n)) in kit.iter().enumerate() {
+            pack.put_at(slot, *code, *n);
+        }
+
+        let mut world = World::new();
+        world.insert_resource(body);
+        world.insert_resource(pack);
+        world.insert_resource(GroundItems::default());
+        world.insert_resource(State::new(Scene::Playing));
+        world.insert_resource(NextState::<Scene>::default());
+        world.insert_resource(SaveNow::default());
+        world
+            .run_system_once(death_ends_the_run)
+            .expect("the system runs");
+        (world, x, y)
+    }
+
+    #[test]
+    fn dying_leaves_the_pack_on_the_ground_where_the_body_fell() {
+        // `docs/DEATH.md`'s whole model in one assertion: the pack is gone from
+        // the body and present in the world, at the coordinates it died on. A
+        // drop that landed anywhere else would be a retrieval run to the wrong
+        // place, which is worse than no corpse at all.
+        let kit = [(1u16, 3u16), (2, 1), (5, 20)];
+        let (world, x, y) = die_carrying(&kit);
+
+        assert!(
+            world.resource::<Pack>().stack_at(0).is_none(),
+            "the death did not cost the pack"
+        );
+        let ground = world.resource::<GroundItems>();
+        for (code, n) in kit {
+            let total: u32 = ground
+                .stacks()
+                .filter(|s| s.code == code)
+                .map(|s| u32::from(s.count))
+                .sum();
+            assert_eq!(total, u32::from(n), "item {code} did not reach the floor");
+        }
+        assert!(
+            ground
+                .stacks()
+                .all(|s| (s.x - x).abs() < 4.0 && (s.y - y).abs() < 4.0),
+            "a stack landed away from the death site"
+        );
+
+        // And the run still ends.
+        assert!(matches!(
+            world.resource::<NextState<Scene>>(),
+            NextState::Pending(Scene::GameOver) | NextState::PendingIfNeq(Scene::GameOver)
+        ));
+    }
+
+    #[test]
+    fn worn_armour_falls_with_everything_else() {
+        // `Inventory::clear` already took the armour off, on the argument that a
+        // death is supposed to cost it. It went nowhere. A cost you can run back
+        // for is still a cost, so it goes in the bag with the rest.
+        let mut body = PlayerBody(Player::new(SpawnPoint { x: 8.0, y: 8.0 }));
+        body.health = 0.0;
+        let mut pack = Pack(Inventory::new());
+        pack.put_at(0, 7, 1);
+        assert!(pack.equip(0), "the fixture did not manage to wear anything");
+        assert_eq!(pack.worn(), Some(7));
+
+        let mut world = World::new();
+        world.insert_resource(body);
+        world.insert_resource(pack);
+        world.insert_resource(GroundItems::default());
+        world.insert_resource(State::new(Scene::Playing));
+        world.insert_resource(NextState::<Scene>::default());
+        world.insert_resource(SaveNow::default());
+        world
+            .run_system_once(death_ends_the_run)
+            .expect("the system runs");
+
+        assert_eq!(world.resource::<Pack>().worn(), None);
+        assert_eq!(
+            world.resource::<GroundItems>().stacks().count(),
+            1,
+            "the armour did not reach the floor"
+        );
+    }
+
+    #[test]
+    fn a_living_body_drops_nothing() {
+        // The system runs every frame in `Playing`. If it ever stopped gating on
+        // `dead()`, it would empty the pack onto the floor continuously, and the
+        // first symptom would be an inventory that will not stay full.
+        let body = PlayerBody(Player::new(SpawnPoint { x: 8.0, y: 8.0 }));
+        assert!(!body.dead(), "the fixture body starts alive");
+        let mut pack = Pack(Inventory::new());
+        pack.put_at(0, 1, 5);
+
+        let mut world = World::new();
+        world.insert_resource(body);
+        world.insert_resource(pack);
+        world.insert_resource(GroundItems::default());
+        world.insert_resource(State::new(Scene::Playing));
+        world.insert_resource(NextState::<Scene>::default());
+        world.insert_resource(SaveNow::default());
+        world
+            .run_system_once(death_ends_the_run)
+            .expect("the system runs");
+
+        assert_eq!(world.resource::<Pack>().count_of(1), 5);
+        assert!(world.resource::<GroundItems>().is_empty());
     }
 
     #[test]
