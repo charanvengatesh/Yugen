@@ -112,7 +112,9 @@ pub struct ScenesPlugin;
 
 impl Plugin for ScenesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<Scene>().init_resource::<Paused>();
+        app.init_state::<Scene>()
+            .init_resource::<Paused>()
+            .init_resource::<Entry>();
     }
 }
 
@@ -135,6 +137,43 @@ pub struct Paused(pub bool);
 /// copying one recognisable thing.
 pub fn running(paused: Res<Paused>) -> bool {
     !paused.0
+}
+
+/// WHY the game is entering [`Scene::Playing`].
+///
+/// `glue::start_a_run` hangs off `OnEnter(Scene::Playing)`, and every entry used
+/// to mean the same thing: throw the world away and build a new one. That was
+/// true while the only ways in were the menu and the death card, and both wanted
+/// a fresh world. `docs/DEATH.md` breaks it — a respawn KEEPS the world, because
+/// the retrieval run is the mechanic and there is nothing to run back to if the
+/// tunnel you died in was regenerated underneath you.
+///
+/// So the entry declares itself. A resource and not a fourth [`Scene`] variant,
+/// for the reason that type's own note gives about `Paused`: another variant
+/// means another transition, and every transition into `Playing` re-fires the
+/// hook this is trying to teach.
+///
+/// It is also why the answer is not INFERRED from the scene being left. That
+/// reads naturally — "came from `GameOver`, so respawn" — and it is wrong twice
+/// over. `NextState::set` re-fires `OnEnter` when the scene does not change at
+/// all, so there is a legal entry whose previous scene is `Playing`; and a new
+/// entry point added later would silently inherit whichever branch its
+/// predecessor happened to land in. Saying it outright costs one word at each of
+/// the two call sites and cannot be got wrong by accident.
+///
+/// [`Entry::Restart`] is the default deliberately, even though it is the
+/// destructive reading. A caller that forgets to speak gets the behaviour that
+/// was correct before this type existed, which is loud and recoverable; a
+/// forgotten `Restart` would leave the previous run's world standing under a new
+/// game, which is neither.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Entry {
+    /// A new run: build the world, reset the body, grant the starting kit.
+    #[default]
+    Restart,
+    /// The same run, continued after a death. Reset the body and leave the world
+    /// — every tunnel, every rearranged dune — as the death left it.
+    Respawn,
 }
 
 #[cfg(test)]

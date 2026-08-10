@@ -30,7 +30,7 @@ use crate::items::{GroundItems, Pack};
 use crate::lowres::LowResTarget;
 use crate::mobs::Creatures;
 use crate::player::{ArrowPool, Juice, JuiceState, PlayerBody, PlayerSet, spend_step_events};
-use crate::scenes::{Paused, Scene};
+use crate::scenes::{Entry, Paused, Scene};
 use crate::settings::Settings;
 use crate::sprite::SpriteAtlases;
 use crate::ui::layout::Region;
@@ -309,21 +309,32 @@ fn death_ends_the_run(
     }
 }
 
-/// Start a run: fresh world, body back at the spawn, nothing left over.
+/// Start a run, or continue one: see [`Entry`].
 ///
-/// This is `Game.loadLevel` plus the `reset` calls around it, and it runs on
-/// EVERY entry to [`Scene::Playing`] — the first one out of the menu as well as
-/// each restart. That is deliberate: a restart and a first start should produce
-/// the same world, and a special case for "the first one" is a second code path
-/// that only ever runs once and so is never really tested.
+/// This is `Game.loadLevel` plus the `reset` calls around it, and it still runs
+/// on EVERY entry to [`Scene::Playing`]. What it no longer does is mean the same
+/// thing every time.
 ///
-/// It is safe to run on the first entry because everything it clears is already
-/// empty then, and the world it replaces was built moments earlier from the same
-/// seed.
+/// A [`Entry::Restart`] is what this function always was: regenerate the world,
+/// reset the body, clear everything loose, grant the starting kit, and then put
+/// back whatever the save file holds. The first entry out of the menu and a
+/// restart take the same path deliberately — a special case for "the first one"
+/// is a second code path that only ever runs once and so is never really tested,
+/// and it is safe because everything it clears is already empty then.
 ///
-/// The world is REGENERATED rather than repaired, so a restart discards the
-/// player's excavation — see [`build_world`]. That is the original's behaviour,
-/// which allocated a fresh `CellGrid` in `loadLevel`.
+/// A [`Entry::Respawn`] is `docs/DEATH.md`: the body comes back and the WORLD
+/// DOES NOT MOVE. No regenerate, no ground clear, no starting kit, no restore
+/// from disk — the world in memory is already the one the player died in, and it
+/// is the thing they are being sent back for. Reading the save here would be
+/// worse than pointless: it would reload the state written a moment earlier by
+/// `death_ends_the_run` and undo nothing, at the cost of pretending the two paths
+/// are the same.
+///
+/// The restart path REGENERATES rather than repairs, so it discards the player's
+/// excavation — see [`build_world`]. That is the original's behaviour, which
+/// allocated a fresh `CellGrid` in `loadLevel`. It is now the behaviour of
+/// starting a new run rather than of dying, which is the whole point of the
+/// split.
 ///
 /// `OnEnter` and not a system that watches the state: Bevy re-fires `OnEnter`
 /// when a state is `set` to the value it already holds, which would rebuild the
@@ -349,13 +360,41 @@ fn start_a_run(
     mut run: RunState,
     mut paused: ResMut<Paused>,
     mut age: ResMut<RunAge>,
+    mut entry: ResMut<Entry>,
 ) {
-    // A new run starts unpaused, with its clock at zero so the control hints
-    // are back at full. Restarting from the death card must not inherit the
-    // faded hints of the run that just ended, and a run that began while the
-    // pause card was up would resume into a stopped world.
+    // Read once and put back to the default in the same breath. The intent
+    // belongs to ONE transition: leaving `Respawn` set would make the next
+    // entry — a quit to the menu and a new game — silently keep the dead run's
+    // world. Consuming it means a caller that forgets to speak gets `Restart`,
+    // which is the safe reading. See `Entry`.
+    let entering = std::mem::take(&mut *entry);
+
+    // Either way the run is unpaused, with its hint clock back at full: a
+    // restart must not inherit the faded hints of the run that just ended, and
+    // an entry made while the pause card was up would resume into a stopped
+    // world. A respawn wants both for the same reasons.
     *paused = Paused(false);
     *age = RunAge(0.0);
+
+    if entering == Entry::Respawn {
+        // Everything below this point either rebuilds the world or clears
+        // something standing in it, and a respawn wants none of it. The body is
+        // the only thing that comes back.
+        if let Some(body) = &mut run.body {
+            body.reset();
+            *focus = WorldFocus {
+                x: body.x,
+                y: body.y,
+            };
+        }
+        if let Some(arrows) = &mut run.arrows {
+            // Arrows belong to the life that fired them, and that life is over
+            // — the same argument the restart path makes below, and the one
+            // reset a respawn does share.
+            arrows.clear();
+        }
+        return;
+    }
 
     let RunState {
         body,
@@ -854,6 +893,7 @@ fn confirm_advances_the_scene(
     keys: Res<ButtonInput<KeyCode>>,
     scene: Res<State<Scene>>,
     mut next: ResMut<NextState<Scene>>,
+    mut entry: ResMut<Entry>,
 ) {
     if !BevyKeys(&keys).any_pressed(KEYS.confirm) {
         return;
@@ -868,7 +908,14 @@ fn confirm_advances_the_scene(
         // on it. This must not also act, or pressing Enter on "Singleplayer"
         // would advance the scene twice.
         Scene::Menu => {}
-        Scene::GameOver => next.set(Scene::Playing),
+        Scene::GameOver => {
+            // The one place in the tree that says `Respawn`. Everything else
+            // entering `Playing` — the world picker, `--play`, every capture
+            // harness — leaves the default alone and gets a rebuilt world, which
+            // is what each of them wants. See `scenes::Entry`.
+            *entry = Entry::Respawn;
+            next.set(Scene::Playing);
+        }
         // `WorldSelect` reads confirm itself — see `crate::worldselect` — and
         // this must not also act on it, or picking a world would start the
         // PREVIOUS one on the same keypress.
@@ -914,6 +961,7 @@ fn follow_scene(scene: Res<State<Scene>>, mut screen: ResMut<UiScreen>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
     use yugen_core::entities::player::Player;
     use yugen_core::interact::BuildTool;
     use yugen_core::sim::worldgen::SpawnPoint;
@@ -938,6 +986,65 @@ mod tests {
             };
             assert_eq!(got, want, "{scene:?} maps to the wrong screen");
         }
+    }
+
+    /// Press confirm in `scene`, and report what it asked for.
+    fn confirm_from(scene: Scene) -> (Option<Scene>, Entry) {
+        let mut world = World::new();
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::Enter);
+        world.insert_resource(keys);
+        world.insert_resource(State::new(scene));
+        world.insert_resource(NextState::<Scene>::default());
+        world.insert_resource(Entry::default());
+        world
+            .run_system_once(confirm_advances_the_scene)
+            .expect("the system runs");
+
+        let next = match world.resource::<NextState<Scene>>() {
+            NextState::Pending(s) | NextState::PendingIfNeq(s) => Some(*s),
+            NextState::Unchanged => None,
+        };
+        (next, *world.resource::<Entry>())
+    }
+
+    #[test]
+    fn only_the_death_card_asks_for_a_respawn() {
+        // The whole of `docs/DEATH.md` step 1 rests on exactly one transition
+        // declaring itself. If a second one ever starts saying `Respawn`, it
+        // will keep a world that its caller expected to be rebuilt — and that
+        // failure is invisible until somebody notices their old tunnels under a
+        // new game.
+        assert_eq!(
+            confirm_from(Scene::GameOver),
+            (Some(Scene::Playing), Entry::Respawn)
+        );
+
+        // And every other scene neither advances on confirm nor touches the
+        // intent. `Menu` and `WorldSelect` are handled by their own modules, and
+        // `Playing` has nothing to confirm.
+        for scene in [Scene::Menu, Scene::WorldSelect, Scene::Playing] {
+            let (next, entry) = confirm_from(scene);
+            assert_eq!(next, None, "{scene:?} advanced the scene on confirm");
+            assert_eq!(entry, Entry::Restart, "{scene:?} asked for a respawn");
+        }
+    }
+
+    #[test]
+    fn an_entry_that_says_nothing_rebuilds_the_world() {
+        // The default is the DESTRUCTIVE reading on purpose. Eleven capture
+        // harnesses, `--play` and the world picker all set `Playing` without
+        // mentioning `Entry`, and every one of them wants a fresh world. A
+        // caller that forgets gets the behaviour that was correct before the
+        // split; the opposite default would leave a dead run's world standing
+        // under a new game, which nothing would report.
+        assert_eq!(Entry::default(), Entry::Restart);
+
+        // `start_a_run` consumes it with `mem::take`, so the intent belongs to
+        // one transition and cannot leak into the next entry.
+        let mut entry = Entry::Respawn;
+        assert_eq!(std::mem::take(&mut entry), Entry::Respawn);
+        assert_eq!(entry, Entry::Restart, "the intent was not consumed");
     }
 
     #[test]
