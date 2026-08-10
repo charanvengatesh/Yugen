@@ -75,10 +75,14 @@ const DECLICK: usize = SAMPLE_RATE as usize / 1000;
 ///
 /// `hold` is the number of times the phase has wrapped, and it is what gives
 /// noise a PITCH: a new random value per cycle rather than per sample, so a
-/// noise sound sweeping 900 Hz down to 260 audibly falls. Without it `hz` and
-/// `hzTo` are dead fields on every noise sound, which is most of them — and
-/// `content/sounds/` authors sweeps on `dash`, `land` and `splash` that would
-/// have done nothing at all.
+/// noise sound that sweeps audibly moves. Without it `hz` and `hzTo` are dead
+/// fields on every noise sound, which is most of them, and the sweeps authored
+/// across `content/sounds/` would do nothing at all.
+///
+/// No particular record is named here on purpose. This comment used to cite
+/// `dash` falling from 900 Hz to 260; `dash` has since been retuned to rise from
+/// 55, and a doc comment that quotes content is a doc comment that goes quietly
+/// wrong the first time somebody turns a knob.
 #[inline]
 fn osc(wave: SoundWave, phase: f32, hold: u32) -> f32 {
     match wave {
@@ -139,27 +143,72 @@ fn declick(n: usize, total: usize) -> f32 {
     rise.min(fall)
 }
 
-/// Render the sound with this code, or `None` if there is no such sound.
+/// One sound's numbers, lifted out of the compiled tables.
 ///
-/// The pitch sweeps linearly from `hz` to `hzTo` across the length. Linear and
-/// not exponential: the sweeps here are short and shallow, the difference is
-/// inaudible at these lengths, and a linear ramp is the one a person tuning
-/// two numbers in a TOML file will predict correctly.
+/// This exists so the synthesiser can be driven by something other than a code.
+/// [`render`] looks a code up in `yugen-data` and calls [`render_params`], and
+/// the split matters for two callers that are not the game:
+///
+/// - the pin test at the bottom of this file, which has to render a FIXED case
+///   that no content record supplies, so that `yugen-editor`'s second copy of
+///   this algorithm can be held to the same samples;
+/// - `crates/yugen-editor`, which tunes sounds that have never been compiled and
+///   therefore have no code to look up at all.
+///
+/// The editor cannot link this crate — it would be linking Bevy to turn eight
+/// floats into a `Vec<f32>` — so it carries its own copy of the struct and the
+/// loop. What it must not carry is its own ANSWER, which is what the pin is for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Params {
+    pub wave: SoundWave,
+    pub hz: f32,
+    pub hz_to: f32,
+    pub seconds: f32,
+    pub attack: f32,
+    pub release: f32,
+    pub noise: f32,
+    pub gain: f32,
+}
+
+/// Render the sound with this code, or `None` if there is no such sound.
 pub fn render(code: u16) -> Option<Pcm> {
     let i = code as usize;
     if i >= SOUND_COUNT {
         return None;
     }
-    let wave = SoundWave::from_code(SND_WAVE[i])?;
-    let seconds = SND_SECONDS[i];
+    Some(render_params(&Params {
+        wave: SoundWave::from_code(SND_WAVE[i])?,
+        hz: SND_HZ[i],
+        hz_to: SND_HZ_TO[i],
+        seconds: SND_SECONDS[i],
+        attack: SND_ATTACK[i],
+        release: SND_RELEASE[i],
+        noise: SND_NOISE[i],
+        gain: SND_GAIN[i],
+    }))
+}
+
+/// Render these parameters to samples. The synthesiser itself.
+///
+/// The pitch sweeps linearly from `hz` to `hz_to` across the length. Linear and
+/// not exponential: the sweeps here are short and shallow, the difference is
+/// inaudible at these lengths, and a linear ramp is the one a person tuning
+/// two numbers in a TOML file will predict correctly.
+pub fn render_params(p: &Params) -> Pcm {
+    let Params {
+        wave,
+        hz,
+        hz_to,
+        seconds,
+        attack,
+        release,
+        noise: noise_mix,
+        gain,
+    } = *p;
     let total = (seconds * SAMPLE_RATE as f32) as usize;
     if total == 0 {
-        return Some(Vec::new());
+        return Vec::new();
     }
-
-    let (hz, hz_to) = (SND_HZ[i], SND_HZ_TO[i]);
-    let (attack, release) = (SND_ATTACK[i], SND_RELEASE[i]);
-    let (noise_mix, gain) = (SND_NOISE[i], SND_GAIN[i]);
 
     let mut out = Vec::with_capacity(total);
     // Phase is accumulated rather than computed from the sample index, because
@@ -189,7 +238,7 @@ pub fn render(code: u16) -> Option<Pcm> {
         let ends = declick(n, total);
         out.push((s * envelope(t, attack, release) * ends * gain).clamp(-1.0, 1.0));
     }
-    Some(out)
+    out
 }
 
 /// Every sound in the bank, indexed by code.
@@ -208,17 +257,58 @@ mod tests {
     use super::*;
     use yugen_data::sounds::sound;
 
+    /// Loudest sample, ignoring sign. What "audible" is measured with.
+    fn peak_of(pcm: &[f32]) -> f32 {
+        pcm.iter().fold(0.0f32, |a, s| a.max(s.abs()))
+    }
+
     #[test]
     fn every_authored_sound_renders_to_audible_samples() {
         // The bank as a whole, so a sound authored with a combination that
         // silently produces nothing is caught by existing rather than by
         // somebody noticing it never plays.
+        //
+        // `gain = 0` is exempt, and the exemption is a principle rather than a
+        // name: it is the ONE way to author silence that is unambiguous. Every
+        // other route to an inaudible sound — a length rounding to no samples, an
+        // envelope that never opens, a noise mix cancelling a tone — is a
+        // combination nobody meant, and those are exactly what this catches. A
+        // record with a gain and no sound is a bug; a record with no gain is a
+        // decision. `content/sounds/player.toml`'s `land` is the decision.
         for code in 0..SOUND_COUNT as u16 {
             let pcm = render(code).expect("a code in range renders");
             assert!(!pcm.is_empty(), "sound {code} rendered no samples");
             let peak = pcm.iter().fold(0.0f32, |a, s| a.max(s.abs()));
+            if SND_GAIN[code as usize] == 0.0 {
+                assert_eq!(peak, 0.0, "sound {code} has no gain but is not silent");
+                continue;
+            }
             assert!(peak > 0.05, "sound {code} is inaudible: peak {peak}");
         }
+    }
+
+    #[test]
+    fn the_silence_exemption_only_covers_a_gain_of_zero() {
+        // The exemption above is the only hole in the audibility guard, so this
+        // states its edges. A sound that is quiet is still a sound; only an
+        // explicit zero opts out, and it opts out by being ACTUALLY silent
+        // rather than by being skipped.
+        let quiet = Params {
+            gain: 0.01,
+            ..pin_case()
+        };
+        assert!(peak_of(&render_params(&quiet)) > 0.0, "0.01 still sounds");
+
+        let silent = Params {
+            gain: 0.0,
+            ..pin_case()
+        };
+        let pcm = render_params(&silent);
+        assert!(
+            !pcm.is_empty(),
+            "silence is still the right NUMBER of samples"
+        );
+        assert_eq!(peak_of(&pcm), 0.0);
     }
 
     #[test]
@@ -275,21 +365,131 @@ mod tests {
         assert_eq!(envelope(1.0, 0.8, 0.8), 0.0);
     }
 
+    /// The case `yugen-editor` is pinned to. See `tests/pin/README.md`.
+    ///
+    /// Deliberately not any record in `content/sounds/`: a pin tied to authored
+    /// content would break every time somebody retuned a footstep, which trains
+    /// people to bless it without reading, and a golden nobody reads is not a
+    /// pin. Fixed numbers instead, chosen to touch every branch — a real
+    /// oscillator rather than pure noise, a sweep that rises, both ends of the
+    /// envelope, and a noise mix so BOTH noise paths run.
+    fn pin_case() -> Params {
+        Params {
+            wave: SoundWave::Triangle,
+            hz: 300.0,
+            hz_to: 900.0,
+            seconds: 0.02,
+            attack: 0.3,
+            release: 0.4,
+            noise: 0.25,
+            gain: 0.8,
+        }
+    }
+
+    #[test]
+    fn the_synth_matches_the_pin_that_yugen_editor_is_held_to() {
+        let pcm = render_params(&pin_case());
+        assert_eq!(pcm.len(), 882, "0.02 s at 44100");
+        crate::pin::check("sound_synth.hex", &crate::pin::samples_to_bytes(&pcm));
+    }
+
+    #[test]
+    fn the_pin_case_covers_what_the_synth_decides() {
+        // A golden nobody reads can quietly stop covering what it was written
+        // for, so the properties the case was chosen for are asserted here.
+        let pcm = render_params(&pin_case());
+        assert!(pcm[0].abs() < 0.05, "the de-click ramp opens it");
+        assert!(pcm[pcm.len() - 1].abs() < 0.05, "and closes it");
+        assert!(
+            pcm.iter().fold(0.0f32, |a, s| a.max(s.abs())) > 0.3,
+            "the plateau is audible"
+        );
+        assert!(
+            pcm.iter().all(|s| (-1.0..=1.0).contains(s)),
+            "nothing clips"
+        );
+
+        // The sweep RISES here, unlike every sound in the bank, so a synth that
+        // silently ran the ramp backwards would still pass the `dash` test.
+        //
+        // Counted on a noise-free copy of the same case, because zero crossings
+        // cannot see the sweep through the mix: at 25% noise over 0.02 s the
+        // grit contributes far more sign changes than six-to-eighteen cycles of
+        // triangle do, and the count measures the noise instead. The mix stays
+        // in the PIN itself — it is exactly the branch coverage the golden wants
+        // — and only this one property is read off the quieter twin.
+        let clean = render_params(&Params {
+            noise: 0.0,
+            ..pin_case()
+        });
+        let third = clean.len() / 3;
+        let crossings = |w: &[f32]| w.windows(2).filter(|p| p[0] * p[1] < 0.0).count();
+        let (early, late) = (
+            crossings(&clean[..third]),
+            crossings(&clean[clean.len() - third..]),
+        );
+        assert!(late > early, "the pitch did not rise: {early} then {late}");
+    }
+
+    #[test]
+    fn rendering_a_code_and_rendering_its_parameters_are_the_same_thing() {
+        // `render` is now a table lookup in front of `render_params`, and the
+        // split is only safe while the lookup passes every field through.
+        let i = sound::DIG as usize;
+        let direct = render_params(&Params {
+            wave: SoundWave::from_code(SND_WAVE[i]).expect("a real wave"),
+            hz: SND_HZ[i],
+            hz_to: SND_HZ_TO[i],
+            seconds: SND_SECONDS[i],
+            attack: SND_ATTACK[i],
+            release: SND_RELEASE[i],
+            noise: SND_NOISE[i],
+            gain: SND_GAIN[i],
+        });
+        assert_eq!(render(sound::DIG), Some(direct));
+    }
+
     #[test]
     fn a_swept_sound_really_changes_pitch() {
-        // `dash` sweeps 900 Hz down to 260. Counting zero crossings in the first
-        // and last thirds is a blunt frequency estimate and exactly blunt enough
-        // to catch the sweep being dropped, which is what a refactor would do to
-        // it.
-        let pcm = render(sound::DASH).expect("renders");
+        // Counting zero crossings in the first and last thirds is a blunt
+        // frequency estimate, and exactly blunt enough to catch the sweep being
+        // dropped — which is what a refactor of the phase accumulator would do.
+        //
+        // The DIRECTION is read from the record rather than written down here.
+        // This test used to say "`dash` sweeps 900 Hz down to 260" and assert a
+        // fall, which made it a test of that record's tuning as much as of the
+        // synthesiser: the day `dash` was retuned to rise, it failed while
+        // nothing was wrong with the code under test. Content is allowed to
+        // change its mind about a sweep; the synthesiser is not allowed to
+        // ignore one.
+        //
+        // The widest sweep in the bank is used because the estimate is coarse,
+        // and a two-hertz sweep would not move the count.
+        let (code, hz, hz_to) = (0..SOUND_COUNT)
+            .map(|i| (i as u16, SND_HZ[i], SND_HZ_TO[i]))
+            .max_by(|a, b| (a.1 - a.2).abs().total_cmp(&(b.1 - b.2).abs()))
+            .expect("the bank is not empty");
+        assert!(
+            (hz - hz_to).abs() > 50.0,
+            "no sound in the bank sweeps far enough to measure: {hz} -> {hz_to}"
+        );
+
+        let pcm = render(code).expect("renders");
         let third = pcm.len() / 3;
         let crossings = |w: &[f32]| w.windows(2).filter(|p| p[0] * p[1] < 0.0).count();
         let early = crossings(&pcm[..third]);
         let late = crossings(&pcm[pcm.len() - third..]);
-        assert!(
-            early > late,
-            "the pitch did not fall: {early} crossings early, {late} late"
-        );
+        if hz_to > hz {
+            assert!(
+                late > early,
+                "sound {code} should rise: {early} then {late}"
+            );
+        } else {
+            assert!(
+                early > late,
+                "sound {code} should fall: {early} then {late}"
+            );
+        }
     }
 
     #[test]

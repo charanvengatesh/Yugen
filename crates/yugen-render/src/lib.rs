@@ -66,6 +66,11 @@ pub mod light;
 pub mod lowres;
 pub mod mobs;
 pub mod particles;
+/// The goldens in `tests/pin/` that hold `yugen-editor`'s second copy of the
+/// rasteriser and the synthesiser to this crate's answers. Test-only — see
+/// `tests/pin/README.md` for why those two algorithms exist twice.
+#[cfg(test)]
+mod pin;
 pub mod player;
 pub mod player_art;
 pub mod scene;

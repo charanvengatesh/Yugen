@@ -541,3 +541,49 @@ pub(super) fn build_ids(
     }
     Ok(ids)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The case `yugen-editor` is pinned to. See `tests/pin/README.md`.
+    ///
+    /// Chosen to exercise everything the rasteriser decides: both spellings of
+    /// transparent (`.` and `0`), three live palette indices, and a colour in
+    /// every corner so a row/column transposition cannot pass.
+    const PIN_FRAME: [&str; 4] = [".01.", "1230", "3.21", ".11."];
+    const PIN_PAL: [[u8; 3]; 4] = [
+        [0, 0, 0],
+        [0x1b, 0x12, 0x20],
+        [0x3e, 0xc8, 0xb4],
+        [0xff, 0xcf, 0x5c],
+    ];
+
+    #[test]
+    fn the_raster_matches_the_pin_that_yugen_editor_is_held_to() {
+        let frame: Frame = PIN_FRAME.to_vec();
+        let got = bake_frame(&frame, &PIN_PAL, 4, 4, "pin").expect("the pin case rasterises");
+        assert_eq!(got.len(), 4 * 4 * 4);
+        crate::pin::check("sprite_raster.hex", &got);
+    }
+
+    #[test]
+    fn the_pin_case_covers_what_the_rasteriser_decides() {
+        // A golden nobody reads is a golden that can silently stop covering the
+        // thing it was written for, so the properties the case was chosen for
+        // are asserted here rather than left in a comment.
+        let frame: Frame = PIN_FRAME.to_vec();
+        let px = bake_frame(&frame, &PIN_PAL, 4, 4, "pin").expect("rasterises");
+        let alpha = |x: usize, y: usize| px[(y * 4 + x) * 4 + 3];
+        assert_eq!(alpha(0, 0), 0, "`.` is transparent");
+        assert_eq!(alpha(1, 0), 0, "`0` is transparent too");
+        assert_eq!(alpha(2, 0), 255, "and a digit is not");
+        // Every live index appears, so a palette lookup that dropped one shows.
+        for (idx, &c) in PIN_PAL.iter().enumerate().skip(1) {
+            assert!(
+                px.chunks_exact(4).any(|p| p[..3] == c && p[3] == 255),
+                "index {idx} is not in the picture"
+            );
+        }
+    }
+}
