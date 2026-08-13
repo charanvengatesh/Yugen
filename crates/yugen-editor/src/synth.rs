@@ -87,6 +87,14 @@ pub struct Params {
     /// White noise mixed over the oscillator, 0..1.
     pub noise: f32,
     pub gain: f32,
+    /// Pitch wobble depth, as a fraction of the current pitch. 0 is none.
+    pub vibrato: f32,
+    /// Wobble rate in Hz. 0 with a non-zero depth is still no vibrato.
+    pub vibrato_hz: f32,
+    /// How often the envelope and sweep restart, in Hz. 0 plays once.
+    pub repeat_hz: f32,
+    /// One-pole low-pass cutoff in Hz. **0 is bypass, not silence.**
+    pub lowpass: f32,
 }
 
 impl Default for Params {
@@ -100,6 +108,10 @@ impl Default for Params {
             release: 0.5,
             noise: 0.0,
             gain: 0.7,
+            vibrato: 0.0,
+            vibrato_hz: 0.0,
+            repeat_hz: 0.0,
+            lowpass: 0.0,
         }
     }
 }
@@ -191,9 +203,29 @@ pub fn render(p: &Params) -> Pcm {
     // behind the cursor instead of continuing it, which clicks at every step.
     let mut phase = 0.0f32;
     let mut hold = 0u32;
+    let mut lp = 0.0f32;
     for n in 0..total {
         let t = n as f32 / total as f32;
-        let f = p.hz + (p.hz_to - p.hz) * t;
+
+        // Explicit branches, not identity arithmetic — the renderer's copy is
+        // normative and its header explains why the difference is not academic:
+        // a multiply by one and a filter coefficient of one are the same
+        // synthesiser in algebra and different floats, and the pin this file is
+        // held to would notice.
+        let t_env = if p.repeat_hz > 0.0 {
+            let len = ((SAMPLE_RATE as f32 / p.repeat_hz) as usize).max(1);
+            (n % len) as f32 / len as f32
+        } else {
+            t
+        };
+
+        let swept = p.hz + (p.hz_to - p.hz) * t_env;
+        let f = if p.vibrato > 0.0 && p.vibrato_hz > 0.0 {
+            let w = std::f32::consts::TAU * p.vibrato_hz * n as f32 / SAMPLE_RATE as f32;
+            swept * (1.0 + p.vibrato * w.sin())
+        } else {
+            swept
+        };
         phase += f / SAMPLE_RATE as f32;
         while phase >= 1.0 {
             phase -= 1.0;
@@ -206,8 +238,17 @@ pub fn render(p: &Params) -> Pcm {
         // second voice.
         let s = tone * (1.0 - p.noise) + noise_at(n as u32) * p.noise;
 
+        let s = if p.lowpass > 0.0 {
+            let dt = 1.0 / SAMPLE_RATE as f32;
+            let rc = 1.0 / (std::f32::consts::TAU * p.lowpass);
+            lp += (dt / (rc + dt)) * (s - lp);
+            lp
+        } else {
+            s
+        };
+
         let ends = declick(n, total);
-        out.push((s * envelope(t, p.attack, p.release) * ends * p.gain).clamp(-1.0, 1.0));
+        out.push((s * envelope(t_env, p.attack, p.release) * ends * p.gain).clamp(-1.0, 1.0));
     }
     out
 }
@@ -234,6 +275,7 @@ mod tests {
             release: 0.85,
             noise: 0.0,
             gain: 0.2,
+            ..Params::default()
         }
     }
 

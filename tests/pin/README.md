@@ -6,7 +6,7 @@ drifting apart.
 | authority | copy | what it does |
 |---|---|---|
 | `yugen-render/src/sprite/baked.rs::bake_frame` | `yugen-editor/src/raster.rs::raster` | frame digits to RGBA |
-| `yugen-render/src/sound/synth.rs::render_params` | `yugen-editor/src/synth.rs::render` | eight floats to samples |
+| `yugen-render/src/sound/synth.rs::render_params` | `yugen-editor/src/synth.rs::render` | twelve floats to samples |
 
 ## Why they are written twice
 
@@ -33,7 +33,23 @@ the one the game does, and nothing would say so.
 
 - `sprite_raster.hex` — RGBA8 of one 4x4 frame, row-major.
   Written by `yugen-render/src/sprite/baked.rs`, read by both.
-- `sound_synth.hex` — the raw `f32` bits of one 0.02 s sound, in order.
+- `sound_synth.hex` — the raw `f32` bits of one 0.02 s sound, in order, with
+  every shaping field OFF.
+
+  This one carries more than agreement between two crates. It was blessed when
+  the synthesiser had eight parameters, and it has not been re-blessed since —
+  so it is also the evidence that adding vibrato, repeat and a low-pass left all
+  fourteen shipped sounds bit-identical. **Re-blessing it would spend that.** If
+  it goes red, the question is not "what is the new value", it is "what did I
+  just change about every sound in the game".
+
+- `sound_synth_shaped.hex` — the same 0.02 s case with all four shaping fields
+  switched on.
+
+  A second file rather than a change to the first, for exactly the reason above.
+  This is the one that proves the editor's preview of a wobble is the wobble the
+  game plays; the first proves the wobble did not leak into sounds that never
+  asked for one.
   Written by `yugen-render/src/sound/synth.rs`, read by both.
 
 The cases themselves are declared identically in both crates rather than parsed

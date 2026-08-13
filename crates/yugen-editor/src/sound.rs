@@ -97,6 +97,15 @@ impl std::error::Error for SoundError {}
 pub const HZ_RANGE: (f32, f32) = (20.0, 8000.0);
 /// Total length. Short: this is feedback, not music.
 pub const SECONDS_RANGE: (f32, f32) = (0.01, 2.0);
+/// Vibrato rate. Below half a hertz nothing finishes a cycle inside a sound
+/// this short; above forty it stops being a wobble and becomes a timbre.
+pub const VIBRATO_HZ_RANGE: (f32, f32) = (0.5, 40.0);
+/// How often the envelope and sweep restart.
+pub const REPEAT_RANGE: (f32, f32) = (0.5, 60.0);
+/// One-pole cutoff. **A slider at its minimum is 20 Hz, not bypass** — bypass is
+/// the value 0, which is off the bottom of the range and is what the field
+/// defaults to.
+pub const LOWPASS_RANGE: (f32, f32) = (20.0, 20000.0);
 
 impl Sound {
     /// The keys whose values differ from what was read, as `key = value` lines.
@@ -118,6 +127,10 @@ impl Sound {
             ("release", p.release, o.release),
             ("noise", p.noise, o.noise),
             ("gain", p.gain, o.gain),
+            ("vibrato", p.vibrato, o.vibrato),
+            ("vibratoHz", p.vibrato_hz, o.vibrato_hz),
+            ("repeatHz", p.repeat_hz, o.repeat_hz),
+            ("lowpass", p.lowpass, o.lowpass),
         ] {
             if new != old {
                 out.insert(key, format!("{key} = {}", float(new)));
@@ -204,6 +217,13 @@ pub fn read(text: &str, id: &str) -> Result<Sound, SoundError> {
         release: num("release").unwrap_or(0.5),
         noise: num("noise").unwrap_or(0.0),
         gain: num("gain").unwrap_or(0.7),
+        // All four shaping fields default to 0, and 0 means off. A record that
+        // does not mention them is a record from before they existed, and it
+        // has to render exactly as it did then.
+        vibrato: num("vibrato").unwrap_or(0.0),
+        vibrato_hz: num("vibratoHz").unwrap_or(0.0),
+        repeat_hz: num("repeatHz").unwrap_or(0.0),
+        lowpass: num("lowpass").unwrap_or(0.0),
     };
 
     Ok(Sound {

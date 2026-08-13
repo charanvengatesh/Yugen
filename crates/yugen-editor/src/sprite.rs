@@ -198,6 +198,35 @@ fn as_u32(v: Option<&toml::Value>) -> Option<u32> {
     v?.as_integer()?.try_into().ok()
 }
 
+/// A mob's collision box in cells, or `None` for a record that has no body.
+///
+/// # Why an art tool reads a field that is not art
+///
+/// Because a resize can author a record the game refuses to start on, and
+/// nothing between here and there would catch it.
+///
+/// `MobDef::build` derives the art's offset from the difference between the two
+/// boxes, and it **asserts** rather than errors: the horizontal difference must
+/// be even (the overhang is centred, so an odd one has no answer) and the art
+/// must be at least as large as the body on both axes. Those are panics at load,
+/// on whatever machine is running the game.
+///
+/// `contentc` will not catch it either — it validates each field's own range and
+/// has no opinion about two fields agreeing. So the editor is the last place
+/// this can be a message next to a button instead of a crash, and reading two
+/// integers is the whole price.
+///
+/// Standalone sprites have no body box and get `None`; the player's box lives in
+/// `config/physics.rs` as code, not in the record.
+pub fn body_cells(text: &str, id: &str) -> Option<(u32, u32)> {
+    let table: toml::Table = text.parse().ok()?;
+    let record = table.get(id)?;
+    Some((
+        as_u32(record.get("bodyCellsW"))?,
+        as_u32(record.get("bodyCellsH"))?,
+    ))
+}
+
 /// Read one record's art.
 pub fn read(text: &str, id: &str) -> Result<Sprite, ReadError> {
     let table: toml::Table = text.parse().map_err(|e| ReadError::Toml(format!("{e}")))?;

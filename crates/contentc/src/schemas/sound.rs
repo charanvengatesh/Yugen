@@ -192,6 +192,116 @@ pub fn schema() -> Schema {
                         |d, _ctx| Some(d.num("gain")),
                     )]),
             ),
+            // ---- SHAPING -------------------------------------------------
+            //
+            // Four fields appended, never interleaved: field order drives
+            // default-callback visibility and emission order, so inserting one
+            // above `gain` would renumber nothing but would reorder the emitted
+            // struct for no reason.
+            //
+            // EVERY ONE DEFAULTS TO ZERO AND ZERO MEANS OFF. That is not a
+            // stylistic choice, it is the acceptance criterion for the whole
+            // change: fourteen sounds exist and none of them author any of
+            // these, so if a default here were audible, all fourteen would have
+            // moved on the day this landed. `tests/pin/sound_synth.hex` is what
+            // says they did not.
+            //
+            // The zeros sit OUTSIDE the ranges below, which is safe and
+            // deliberate: `check` runs only on a value somebody actually wrote,
+            // so an omitted key takes its default unvalidated. `hzTo` already
+            // relies on the same asymmetry. The reading is "0 is off, and if you
+            // write a number, write a real one".
+            (
+                "vibrato".into(),
+                Field::new("chance")
+                    .doc(
+                        "Pitch wobble depth, as a fraction of the current pitch. 0 is none. \
+                         A little is life in a held tone; a lot is a siren.",
+                    )
+                    .default_float(0.0)
+                    .hot(vec![table(
+                        "SND_VIBRATO",
+                        ArrayKind::F32,
+                        0.0,
+                        "Vibrato depth, 0..1.",
+                        |d, _ctx| Some(d.num("vibrato")),
+                    )]),
+            ),
+            (
+                "vibratoHz".into(),
+                Field::new("float")
+                    .doc(
+                        "How fast the wobble is, in cycles per second. 0 with a non-zero \
+                         depth is still no vibrato — both have to be set for either to do \
+                         anything, which is why neither is required.",
+                    )
+                    .default_float(0.0)
+                    .check(|v| {
+                        let n = v.as_num().unwrap_or(0.0);
+                        if (0.5..=40.0).contains(&n) {
+                            None
+                        } else {
+                            Some("must be 0.5..40 Hz".to_string())
+                        }
+                    })
+                    .hot(vec![table(
+                        "SND_VIBRATO_HZ",
+                        ArrayKind::F32,
+                        0.0,
+                        "Vibrato rate in Hz, 0 for none.",
+                        |d, _ctx| Some(d.num("vibratoHz")),
+                    )]),
+            ),
+            (
+                "repeatHz".into(),
+                Field::new("float")
+                    .doc(
+                        "How often the envelope and the pitch sweep restart, in cycles per \
+                         second. 0 plays once. This is what turns one sweep into a stutter \
+                         without authoring a second sound.",
+                    )
+                    .default_float(0.0)
+                    .check(|v| {
+                        let n = v.as_num().unwrap_or(0.0);
+                        if (0.5..=60.0).contains(&n) {
+                            None
+                        } else {
+                            Some("must be 0.5..60 Hz".to_string())
+                        }
+                    })
+                    .hot(vec![table(
+                        "SND_REPEAT_HZ",
+                        ArrayKind::F32,
+                        0.0,
+                        "Restart rate in Hz, 0 to play once.",
+                        |d, _ctx| Some(d.num("repeatHz")),
+                    )]),
+            ),
+            (
+                "lowpass".into(),
+                Field::new("float")
+                    .doc(
+                        "One-pole low-pass cutoff in Hz. 0 is BYPASS — not a cutoff of \
+                         zero, which would be silence. Takes the edge off a saw or a noise \
+                         burst without dropping its gain.",
+                    )
+                    .default_float(0.0)
+                    .check(|v| {
+                        let n = v.as_num().unwrap_or(0.0);
+                        if (20.0..=20000.0).contains(&n) {
+                            None
+                        } else {
+                            Some("must be 20..20000 Hz".to_string())
+                        }
+                    })
+                    .hot(vec![table(
+                        "SND_LOWPASS",
+                        ArrayKind::F32,
+                        0.0,
+                        "Low-pass cutoff in Hz, 0 to bypass.",
+                        |d, _ctx| Some(d.num("lowpass")),
+                    )]),
+            ),
         ],
 
         tables: vec![],

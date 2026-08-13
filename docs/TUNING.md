@@ -11,7 +11,7 @@ what the sweep can and cannot see.
 |---|---|---|---|
 | 1 — content | `content/` | 291 records | one THING: a block, a mob, an item |
 | 2 — config | `crates/yugen-core/src/config/` | 102 constants | the WHOLE GAME: geometry, physics, worldgen |
-| 3 — module | `crates/*/src/**` | 658 constants | ONE ALGORITHM, beside the code it explains |
+| 3 — module | `crates/*/src/**` | 664 constants | ONE ALGORITHM, beside the code it explains |
 
 ## Tier 1 — content
 
@@ -688,13 +688,26 @@ only the exported surface is held to the rule.
 | `SUB_DENSITY` (private) | `0.24` |  | 480 |
 | `SUB_MIN_DEPTH` (private) | `40` | Nothing is buried shallower than this — a "buried" ruin in the topsoil is not. | 482 |
 
-### `crates/yugen-editor/src/app.rs`
+### `crates/yugen-editor/src/doc.rs`
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `UNDO_DEPTH` (private) | `64` | How many strokes can be taken back. | 48 |
-| `MAX_PAL` (private) | `10` | Palette indices `1`-`9` are the only ones a frame character can name, so the list tops out at ten entries including the transparent slot. | 53 |
-| `SCOPE_HEIGHT` (private) | `90.0` | How tall the waveform scope is drawn, in points. | 65 |
+| `UNDO_DEPTH` (private) | `64` | How many strokes can be taken back. | 29 |
+
+### `crates/yugen-editor/src/procgen/palette.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MAX_STEPS` | `9` | The ceiling on generated ramps. | 26 |
+| `RAMP_SHADOW_SATURATION` (private) | `0.38` | What saturation a ramp's darkest step is pulled toward. | 194 |
+
+### `crates/yugen-editor/src/procgen/sprite.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `GENERATED_HUE_SHIFT` (private) | `5.0` | Degrees of hue a generated ramp turns per step. | 198 |
+| `SMOOTH_PASSES` (private) | `2` | How many cellular passes the noise gets. | 204 |
+| `SMOOTH_THRESHOLD` (private) | `4` | How many filled neighbours a texel needs to be filled after a pass. | 210 |
 
 ### `crates/yugen-editor/src/synth.rs`
 
@@ -702,6 +715,24 @@ only the exported surface is held to the rule.
 |---|---|---|---|
 | `SAMPLE_RATE` | `44_100` | Samples per second. | 25 |
 | `DECLICK` (private) | `SAMPLE_RATE as usize / 1000` | Forced fade on both ends, whatever the envelope says. | 33 |
+
+### `crates/yugen-editor/src/ui/gensfx.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `HISTORY` (private) | `32` | How many rolls are kept. | 58 |
+
+### `crates/yugen-editor/src/ui/palette.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MAX_PAL` (private) | `10` | Palette indices `1`-`9` are the only ones a frame character can name, so the list tops out at ten entries including the transparent slot. | 12 |
+
+### `crates/yugen-editor/src/ui/scope.rs`
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `SCOPE_HEIGHT` (private) | `90.0` | How tall the waveform scope is drawn, in points. | 19 |
 
 ### `crates/yugen-render/src/ambience/scan.rs`
 
@@ -1106,8 +1137,8 @@ only the exported surface is held to the rule.
 
 | Constant | Value | Meaning | Line |
 |---|---|---|---|
-| `SAMPLE_RATE` | `44_100` | Samples per second everything here is rendered at. | 38 |
-| `DECLICK` (private) | `SAMPLE_RATE as usize / 1000` | Samples of fade forced onto both ends, whatever the envelope says. | 72 |
+| `SAMPLE_RATE` | `44_100` | Samples per second everything here is rendered at. | 49 |
+| `DECLICK` (private) | `SAMPLE_RATE as usize / 1000` | Samples of fade forced onto both ends, whatever the envelope says. | 83 |
 
 ### `crates/yugen-render/src/sprite/vocab.rs`
 

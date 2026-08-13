@@ -62,6 +62,18 @@ use crate::value::Value;
 /// ```
 const MODES: &[&str] = &["hold", "loop", "once", "phase", "ambient"];
 
+/// How many tinted copies of a sprite can be baked.
+///
+/// This is `yugen-render`'s `VARIANT_TINT.len()`, restated. It cannot be
+/// imported — `contentc` runs before and independently of the renderer, and
+/// depending on it would make the content compiler depend on Bevy — so it is a
+/// number written twice, and `the_variant_ceiling_is_the_tint_tables_length`
+/// below is what says so out loud.
+///
+/// Content says HOW MANY, code says WHICH TINTS. Authoring more than the code
+/// has tints for used to compile clean and panic the game at `PreStartup`.
+const MAX_VARIANTS: f64 = 3.0;
+
 fn cells(v: &Value) -> Option<String> {
     let n = v.as_num().unwrap_or(0.0);
     if (1.0..=64.0).contains(&n) {
@@ -203,11 +215,19 @@ pub fn sprite_art_fields(opts: SpriteArtOpts) -> Vec<(String, Field)> {
                 )
                 .default_int(1)
                 .check(|v| {
+                    // The ceiling is the TINT TABLE's length, not a round number.
+                    // Content says how many variants; code says which tints, and
+                    // `yugen-render`'s `VARIANT_TINT` has three. `BakedSprite::new`
+                    // refuses anything above that — but it refuses at `PreStartup`,
+                    // which is a panic on a machine running the game rather than an
+                    // error on the machine authoring it. This is where that belongs.
                     let n = v.as_num().unwrap_or(0.0);
-                    if (1.0..=16.0).contains(&n) {
+                    if (1.0..=MAX_VARIANTS).contains(&n) {
                         None
                     } else {
-                        Some("must be 1..16".to_string())
+                        Some(format!(
+                            "must be 1..{MAX_VARIANTS:.0} — the tint table has that many entries"
+                        ))
                     }
                 }),
         ),
@@ -337,5 +357,47 @@ pub fn schema() -> Schema {
             ("cellsH".into(), "1".into()),
             ("pal".into(), "[\".\", \"#ff00ff\"]".into()),
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `variants` field's own validator, pulled back out of the schema.
+    fn variants_check(n: i64) -> Option<String> {
+        let fields = sprite_art_fields(SpriteArtOpts {
+            prefix: "",
+            states: ANIM_STATES,
+            ts_alias: "AnimState",
+            ts_element: "SpriteSeq",
+            default_state: Some("idle"),
+        });
+        let (_, field) = fields
+            .iter()
+            .find(|(k, _)| k == "variants")
+            .expect("the sprite schema has a `variants` field");
+        (field.check.as_ref().expect("it is checked"))(&Value::Int(n))
+    }
+
+    #[test]
+    fn the_variant_ceiling_is_the_tint_tables_length() {
+        // `yugen-render`'s `VARIANT_TINT` has three entries and `BakedSprite::new`
+        // errors above that — but it errors at `PreStartup`, where the bake turns
+        // it into a panic. Before this check existed, `variants = 4` compiled
+        // clean and took the game down on somebody else's machine.
+        //
+        // The number is written twice because `contentc` cannot depend on the
+        // renderer without depending on Bevy. If `VARIANT_TINT` ever grows,
+        // `MAX_VARIANTS` is the other half to move.
+        for n in 1..=3 {
+            assert_eq!(variants_check(n), None, "{n} variants should be authorable");
+        }
+        for n in [0, 4, 16] {
+            assert!(
+                variants_check(n).is_some(),
+                "{n} variants should be a compile error, not a panic at load"
+            );
+        }
     }
 }

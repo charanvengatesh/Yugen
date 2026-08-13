@@ -68,11 +68,16 @@ the player's gold into gravel. So the status bar says what to run instead:
 cargo run -p contentc
 ```
 
-Adding a **new** record is also not here yet — `splice::append_record` exists and
-nothing in the UI calls it. That is deliberate for now: §0 says a new record goes
-in the file `content/LAYOUT.toml` names for it, and when no row claims it the
-right move is to add a file and a row, which is a human decision. A tool that
-guessed would be guessing about filing.
+It does not create FILES. Records, yes — `New…` appends one to a file you pick
+from the list it already found. But the list is the point: §0 says a new record
+goes in the file `content/LAYOUT.toml` names for it, and a file no row claims
+fails the layout gate. Adding a row is a decision about how content is
+organised, and a dialog that guessed would be guessing about filing.
+
+The id is checked against every record in the **kind directory**, not just the
+target file: `contentc` concatenates all of `content/mobs/`, so two files there
+cannot both hold a `grubling`, and a per-file check would create a record that
+compiles nowhere.
 
 ## The canvas and the cell grid
 
@@ -94,12 +99,76 @@ wrong bytes, because the renderer bakes from *compiled* content and an editor ha
 to draw the file as it is being typed, before `contentc` has run and while it may
 not even be valid.
 
-The honest statement of the risk: **nothing yet proves the two agree.** The rules
-are small and have not changed since the TypeScript original, but that is a
-reason to expect agreement, not a mechanism that enforces it. The mechanism would
-be a shared golden fixture both crates rasterise and compare against, and it is
-not written. Until it is, `bake_frame` is normative and `raster.rs` is the copy
-that follows it.
+That risk used to be unmanaged, and this paragraph used to say so. It is managed
+now: `tests/pin/` holds goldens both crates render and compare against, so the
+copy cannot drift from the original without a test going red. `bake_frame` and
+`yugen-render`'s `render_params` are still normative — the editor's versions are
+the copies — but "normative" is now enforced rather than merely asserted. See
+`tests/pin/README.md`.
+
+## Generating instead of starting from nothing
+
+The right-hand panel of an art record has four sections, and everything in them
+is undoable (`⌘Z`) because a generator replaces a whole frame — far more than a
+stroke does.
+
+**Generate** rolls a whole silhouette from a seed, shown in hex and editable. The
+seed is the entire input, so those four bytes are the drawing: type one back in
+and you get it again, and a record created from a roll carries its seed in the
+comment.
+
+The pipeline is fitted against a reference sheet rather than guessed. Its
+characters fill about 0.62 of their 8x8 and are bottom-weighted — they stand on
+the ground. An earlier version filled 0.25 and was vertically symmetric, which
+made every roll a small thing floating in a large box. What fixed it was not the
+obvious knob: the cellular smoothing counted below-the-grid as empty, so it
+eroded the feet. Counting the cell directly below as ground support does all of
+it, and a per-row density bias that looked necessary turned out to earn nothing
+once that was right, so it is not in the code.
+
+**Operators** are `Frame -> Frame` and every one of them preserves the grid.
+That invariant is why they can be buttons: a frame one row short is a record
+whose art and whose `cellsH` disagree, which `contentc` compiles happily and the
+renderer answers with a panic at `PreStartup`. `rotate ⟳` is the exception that
+proves it — it refuses a non-square grid rather than resizing, which is why the
+8x8 rule makes it total.
+
+**Colours** generates ramps. Saturation moves only at the shadow end, toward a
+middle value: measured off the reference, a saturated red loses 0.57 of its
+saturation going dark while a near-grey *gains* 0.09, and one rule produces both.
+Highlights hold their saturation, because a chalky highlight is the loudest tell
+that a ramp was generated. `snap to reference` moves every colour to its nearest
+of 64 reference colours — nearest in HSL with lightness weighted heaviest,
+because lightness carries the form of an 8x8 drawing and hue does not.
+
+**Animate** derives frames from the one on screen. `walk` is the interesting one:
+at eight texels there is no limb to swing, so what reads as walking is *contact*
+— which foot is down. It alternates runs of the bottom row, and a creature with
+one unbroken bottom row gets a hop instead, which is the honest reading of
+something with no legs.
+
+## Resizing, and the two guards
+
+`Resize…` is the only edit that moves `cellsW`/`cellsH`. It says what the change
+would cost before you make it, naming every frame that would lose ink, and it
+defaults to padding rather than scaling: padding leaves a creature
+pixel-identical and scaling draws it at twice the size of the box the player can
+actually hit.
+
+Two of its checks disable the button rather than warn, because they guard
+assertions in `MobDef::build` that fire as **panics at load**: art may never be
+smaller than the body box, and the width difference must be even. `contentc`
+validates neither, so this is the last place they can be a message next to a
+button.
+
+`yugen-fit` does the same thing from the command line, through the same code, for
+when the answer is "all of them":
+
+```text
+cargo run -p yugen-editor --bin yugen-fit -- --to 8x8 --dry-run content/mobs/*.toml
+```
+
+It refuses by default to run any resize that loses ink.
 
 ## Sounds
 
@@ -112,6 +181,30 @@ the space bar synthesises the current parameters and sends them to the speaker.
 renderer's tests prove range, decoding and wiring; they do not prove a footstep
 sounds like a footstep. That question needed ears and a knob, and this is the
 knob.
+
+Under the eight is a **Shaping** fold with four more — vibrato depth and rate, a
+repeat rate, and a one-pole low-pass. Every one is off at 0, and off is an
+explicit branch in the synthesiser rather than an identity multiply. That
+distinction is the whole reason the fourteen sounds that predate these fields
+still render bit-identically: a multiply by one and a filter coefficient of one
+are the same synthesiser in algebra and different floats.
+
+## Rolling a sound
+
+A sound record's panel has categories — pickup, jump, hurt, blip, explosion,
+laser, powerup. Each is a **region of the parameter space**, not a preset: press
+one twice and get two different pickups that are both recognisably pickups.
+
+`mutate` jitters what is loaded by a fraction of each field's range, and small is
+the useful end — a roll finds the neighbourhood and a mutation finds the house. A
+field that is OFF stays off, because "near this sound" should not mean "near this
+sound plus a wobble".
+
+Every roll is kept in a list you can audition without loading, because the roll
+button's failure mode is not producing a bad sound — it is producing a good one
+and then producing another. **None of it is persisted.** This editor writes
+content files and nothing else; a favourite worth keeping becomes a record, which
+is what `New…` is for.
 
 Above the knobs is a scope drawing the samples the speaker is being handed —
 not a picture of the parameters. The envelope clamp, the millisecond de-click

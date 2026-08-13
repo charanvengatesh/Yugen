@@ -7,6 +7,13 @@ license.workspace = true
 description = "Authoring tools for content/: a pixel editor, and the splices that edit a record without rewriting its file."
 publish = false
 
+# This crate ships two binaries — the window, and `yugen-fit`, which does a
+# resize from the command line. Two is enough to make `cargo run -p yugen-editor`
+# ambiguous, and that spelling is the one `docs/EDITOR.md` documents and the one
+# anybody who has used this tool already has in their shell history. The window
+# is what "run the editor" means; the batch tool is a thing you ask for by name.
+default-run = "yugen-editor"
+
 [dependencies]
 # The TOML front end `contentc` already uses. Used to LOCATE and READ records —
 # never to write them. See `src/splice.rs` for why a serializer is the wrong tool

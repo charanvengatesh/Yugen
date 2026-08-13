@@ -66,6 +66,21 @@ pub struct SoundDef {
     pub noise: f32,
     /// Per-sound volume, before the player's own setting.
     pub gain: f32,
+    /// Pitch wobble depth, as a fraction of the current pitch. 0 is none. A
+    /// little is life in a held tone; a lot is a siren.
+    pub vibrato: f32,
+    /// How fast the wobble is, in cycles per second. 0 with a non-zero depth is
+    /// still no vibrato — both have to be set for either to do anything, which
+    /// is why neither is required.
+    pub vibrato_hz: f32,
+    /// How often the envelope and the pitch sweep restart, in cycles per second.
+    /// 0 plays once. This is what turns one sweep into a stutter without
+    /// authoring a second sound.
+    pub repeat_hz: f32,
+    /// One-pole low-pass cutoff in Hz. 0 is BYPASS — not a cutoff of zero,
+    /// which would be silence. Takes the edge off a saw or a noise burst without
+    /// dropping its gain.
+    pub lowpass: f32,
 }
 
 /// Authoring ids, index == code.
@@ -100,6 +115,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 1.0,
         noise: 0.08,
         gain: 0.44,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "dig",
@@ -113,6 +132,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.85,
         noise: 0.0,
         gain: 0.2,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "double_jump",
@@ -126,6 +149,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.6,
         noise: 0.0,
         gain: 0.08,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "hurt",
@@ -139,6 +166,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.55,
         noise: 0.2,
         gain: 0.6,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "jump",
@@ -152,6 +183,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.6,
         noise: 0.1,
         gain: 0.07,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "land",
@@ -165,6 +200,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.43,
         noise: 0.0,
         gain: 0.0,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "mob_die",
@@ -178,6 +217,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.7,
         noise: 0.35,
         gain: 0.5,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "mob_hurt",
@@ -191,6 +234,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.6,
         noise: 0.25,
         gain: 0.4,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "pickup",
@@ -204,6 +251,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.6,
         noise: 0.0,
         gain: 0.3,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "place",
@@ -217,6 +268,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.7,
         noise: 0.15,
         gain: 0.22,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "player_hit",
@@ -230,6 +285,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.5,
         noise: 0.08,
         gain: 0.25,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "splash",
@@ -243,6 +302,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.8,
         noise: 0.0,
         gain: 0.4,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "step",
@@ -256,6 +319,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.8,
         noise: 0.0,
         gain: 0.14,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
     SoundDef {
         id: "wall_jump",
@@ -269,6 +336,10 @@ pub static SOUNDS: [SoundDef; 14] = [
         release: 0.65,
         noise: 0.1,
         gain: 0.3,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
     },
 ];
 
@@ -337,6 +408,26 @@ pub static SND_GAIN: [f32; 14] = [
     0.44, 0.2, 0.08, 0.6, 0.07, 0.0, 0.5, 0.4, 0.3, 0.22, 0.25, 0.4, 0.14, 0.3,
 ];
 
+/// Vibrato depth, 0..1.
+pub static SND_VIBRATO: [f32; 14] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+];
+
+/// Vibrato rate in Hz, 0 for none.
+pub static SND_VIBRATO_HZ: [f32; 14] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+];
+
+/// Restart rate in Hz, 0 to play once.
+pub static SND_REPEAT_HZ: [f32; 14] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+];
+
+/// Low-pass cutoff in Hz, 0 to bypass.
+pub static SND_LOWPASS: [f32; 14] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+];
+
 /// Every flat table in this module, by name. For the gates, not the game.
 pub static SOUND_TABLES: &[(&str, crate::Table)] = &[
     ("SND_WAVE", crate::Table::U8(&SND_WAVE)),
@@ -347,6 +438,10 @@ pub static SOUND_TABLES: &[(&str, crate::Table)] = &[
     ("SND_RELEASE", crate::Table::F32(&SND_RELEASE)),
     ("SND_NOISE", crate::Table::F32(&SND_NOISE)),
     ("SND_GAIN", crate::Table::F32(&SND_GAIN)),
+    ("SND_VIBRATO", crate::Table::F32(&SND_VIBRATO)),
+    ("SND_VIBRATO_HZ", crate::Table::F32(&SND_VIBRATO_HZ)),
+    ("SND_REPEAT_HZ", crate::Table::F32(&SND_REPEAT_HZ)),
+    ("SND_LOWPASS", crate::Table::F32(&SND_LOWPASS)),
 ];
 
 /// Authoring id -> code, by name. For the gates, not the game.

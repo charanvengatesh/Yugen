@@ -422,19 +422,42 @@ mod tests {
 
     /// The picture hangs off the body box by the pad, never centred on it.
     ///
-    /// Every creature in today's bestiary draws exactly its own hitbox — every
-    /// pad is zero — so this is asserted against a def with the overhang written
-    /// in. That is not a weaker test than one over real content: it is the only
-    /// one there is until a creature grows horns, and the day one does, this says
-    /// what has to happen. The first half asserts the state of the bestiary so
-    /// that day is visible rather than silent.
+    /// This used to assert that every pad in the bestiary was ZERO, because it
+    /// was: every creature was authored on a grid exactly its own hitbox. The
+    /// 8x8 migration ended that — every creature is now drawn on the same 8x8
+    /// canvas whatever its body is — so the claim has moved from "there is no
+    /// overhang" to the thing that was always the real invariant: **wherever
+    /// there is an overhang, it is split evenly across and carried entirely on
+    /// top.**
+    ///
+    /// That is strictly stronger than the old assertion. The old one held
+    /// vacuously — with every pad zero, an `art_origin` that centred vertically
+    /// and one that planted the feet were indistinguishable. Now they are not,
+    /// and this says which one is right against twenty real creatures instead of
+    /// against one synthetic def.
     #[test]
     fn the_art_hangs_off_the_body_box_by_the_published_pad() {
         for def in MOB_DEFS.iter() {
+            assert!(
+                def.art_pad_x_px >= 0.0 && def.art_pad_top_px >= 0.0,
+                "{}: art is smaller than its body box ({}, {})",
+                def.id,
+                def.art_pad_x_px,
+                def.art_pad_top_px
+            );
+            // Centred across: the same overhang on each side.
             assert_eq!(
-                (def.art_pad_x_px, def.art_pad_top_px),
-                (0.0, 0.0),
-                "{} now overhangs its hitbox — assert against it directly",
+                def.art_w_px,
+                def.w_px + 2.0 * def.art_pad_x_px,
+                "{}: the horizontal overhang is not centred",
+                def.id
+            );
+            // Feet planted: the whole vertical surplus sits above the art, so
+            // the art's bottom row is the body's bottom row.
+            assert_eq!(
+                def.art_h_px,
+                def.h_px + def.art_pad_top_px,
+                "{}: the vertical overhang is not all on top",
                 def.id
             );
         }

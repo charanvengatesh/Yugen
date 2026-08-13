@@ -103,6 +103,26 @@ fn pin_case() -> Params {
         release: 0.4,
         noise: 0.25,
         gain: 0.8,
+        vibrato: 0.0,
+        vibrato_hz: 0.0,
+        repeat_hz: 0.0,
+        lowpass: 0.0,
+    }
+}
+
+/// Must match `yugen-render/src/sound/synth.rs`'s `pin_case_shaped`.
+///
+/// Restated by hand rather than shared through a fixture format, for the reason
+/// `tests/pin/README.md` gives: a fixture both crates read would be a third
+/// thing that can be wrong, and the point of the pin is that the two
+/// implementations were written separately and still agree.
+fn pin_case_shaped() -> Params {
+    Params {
+        vibrato: 0.4,
+        vibrato_hz: 12.0,
+        repeat_hz: 30.0,
+        lowpass: 1200.0,
+        ..pin_case()
     }
 }
 
@@ -112,6 +132,18 @@ fn the_synth_agrees_with_the_one_that_plays_the_game() {
     assert_eq!(pcm.len(), 882, "0.02 s at 44100");
     let got: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
     check("sound_synth.hex", &got);
+}
+
+#[test]
+fn the_shaping_fields_agree_with_the_game_too() {
+    // The four fields added after the first pin. This is the half that proves
+    // the editor's preview of a vibrato is the vibrato the game plays; the
+    // unshaped pin above is the half that proves adding them changed nothing
+    // about the fourteen sounds that do not use them.
+    let pcm = synth::render(&pin_case_shaped());
+    assert_eq!(pcm.len(), 882, "0.02 s at 44100");
+    let got: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
+    check("sound_synth_shaped.hex", &got);
 }
 
 #[test]

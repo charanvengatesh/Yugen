@@ -189,6 +189,23 @@ Within a frame body: `.` and `0` are transparent, `1`-`9` index the palette, and
 each row must be exactly `cellsW` characters wide with exactly `cellsH` rows per
 frame. Art is authored facing right; left is a draw-time flip.
 
+**Every art record in this tree is 8x8.** Not a schema constraint — `cellsW` and
+`cellsH` accept 1..64, and a record that is not 8x8 compiles — but a rule the
+whole tree keeps, and `yugen-editor`'s test suite enforces against
+`content/`.
+
+It is worth a rule because it makes a class of operation TOTAL rather than
+conditional: a quarter turn is defined, a frame can be pasted from any record
+into any other, and a generator with a fixed footprint fits everything. None of
+that was true when the tree was 8x8 for eighty-seven icons, 8x10 for the player
+and five other shapes across the bestiary.
+
+It was not free. The creatures were padded — feet-anchored and centred, which is
+where both render hosts already place art relative to the body, so not one texel
+moved — but the player had to be redrawn, because nine of its thirty-two frames
+drew in the two rows the crop took. `content/sprites/player.toml`'s header is
+the account of what that cost.
+
 ## 6. Comments
 
 `#` to end of line, standard TOML. Comments are the most valuable thing in these

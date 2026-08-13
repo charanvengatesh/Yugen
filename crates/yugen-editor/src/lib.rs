@@ -25,11 +25,29 @@
 //!
 //! The rest is reading, which is safe: [`sprite`] parses a record into something
 //! drawable and [`raster`] turns a frame's digits into RGBA. Neither ever writes.
+//!
+//! # The three layers, and why they do not mix
+//!
+//! - [`app`] and [`doc`] own what is open and the four functions that touch the
+//!   disk. Every content write in this crate goes through `Editor::save`, which
+//!   is what makes the stale check and the temp-and-rename unforgettable.
+//! - [`ui`] draws. Panels mutate the open document and set the status; none of
+//!   them opens a file.
+//!
+//! The boundary that matters is the one the tests depend on: nothing outside
+//! [`ui`] imports `eframe`. A generator is a function from frames to frames and
+//! from parameters to parameters, so its determinism can be asserted in a test
+//! that never opens a window.
 
 pub mod app;
+pub mod doc;
 pub mod field;
+pub mod procgen;
 pub mod raster;
+pub mod rng;
 pub mod sound;
 pub mod splice;
 pub mod sprite;
 pub mod synth;
+pub mod template;
+pub mod ui;

@@ -202,6 +202,15 @@ Every body sprite carries a `grain`. Halving a record's grain while doubling its
 the player went from 4x5 cells at grain 2 to 8x10 at grain 1 and **not one
 character of art moved.**
 
+The height did not stay at 10. A later pass put every drawing in the game on one
+8x8 grid, and the player was the single record that had to give something up for
+it: the crop took two rows that nine of its thirty-two frames drew in, so its
+head was redrawn to fit the ears inside eight. The collision box did not move,
+which is the half that mattered — `player_art.rs` asserts exactly that, and the
+figure is now 1.33x the body's height where it was 1.67x. That is a drawing
+decision and not a physics one, which is the whole content of this document's
+argument about where the seam is.
+
 The cost is that no grain-2 record ships any more, which quietly disarmed the
 guard that pinned the grain mechanism (it sampled the frostmite). It now
 synthesises both grains itself. A guard a content edit can switch off is not

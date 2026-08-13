@@ -695,7 +695,7 @@ mod tests {
 
     #[test]
     fn the_shipped_art_grid_overhangs_a_collision_box_that_did_not_move() {
-        // The authored 4x5 against the unchanged 2x3 box.
+        // The authored 4x4 against the unchanged 2x3 box.
         //
         // This asserted both pads were ZERO for as long as the art was 2x3, and
         // it was the only test that went red when the character was redrawn —
@@ -705,7 +705,17 @@ mod tests {
         // is exactly where it was". A redraw that quietly moved the hitbox would
         // have passed the old assertion by shrinking back to 2x3; it cannot pass
         // this one.
-        // The authored grid is 4x5 cells around a 2x3 box; BODY_SCALE spreads
+        //
+        // The height moved once more, and deliberately: the art was 4x5 until
+        // the 8x8 pass made every drawing in the game share one grid. The player
+        // was the only record that had to LOSE anything for that — nine of its
+        // thirty-two frames drew in the two rows the crop took, and the head was
+        // redrawn to put the ears back inside eight. The box did not move, which
+        // is the half of this test that matters: the figure is now 1.33x the
+        // body's height instead of 1.67x, and that is a drawing decision, not a
+        // physics one.
+        //
+        // The authored grid is 4x4 cells around a 2x3 box; BODY_SCALE spreads
         // every one of those cells over BODY_SCALE of them, so each figure below
         // is the authored number times the body scale. Written that way on
         // purpose: the claim is about the SURPLUS around the box, and a literal
@@ -720,8 +730,8 @@ mod tests {
         );
         assert_eq!(
             grid.h_px,
-            5.0 * b * cell,
-            "art rect is 5 authored cells tall"
+            4.0 * b * cell,
+            "art rect is 4 authored cells tall"
         );
         assert_eq!(
             grid.pad_x_px,
@@ -730,8 +740,8 @@ mod tests {
         );
         assert_eq!(
             grid.pad_top_px,
-            2.0 * b * cell,
-            "ALL of the vertical surplus"
+            b * cell,
+            "ALL of the vertical surplus — one authored cell of headroom"
         );
 
         // The body is untouched, which is the whole point of the seam: content

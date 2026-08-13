@@ -10,12 +10,23 @@
 //!
 //! # The model
 //!
-//! One oscillator, one envelope, one optional noise mix. That is deliberately
-//! less than sfxr offers — no vibrato, no repeat, no phaser, no filters — and
-//! the missing pieces are missing because nothing in `content/sounds/` has
-//! wanted one yet. Each would arrive as a schema field and an arm here, and the
-//! rule that keeps this honest is the one the block schema uses: a knob nothing
-//! authored has ever set is a knob whose default is untested.
+//! One oscillator, one envelope, one optional noise mix, and four shaping
+//! fields on top: vibrato depth and rate, a repeat rate, and a one-pole
+//! low-pass. Still less than sfxr — no phaser, no resonance, no arpeggio — and
+//! the rest is still missing for the same reason: nothing in `content/sounds/`
+//! has wanted one.
+//!
+//! **Every shaping field defaults to zero and zero means off, as an explicit
+//! branch.** That is the rule the whole set was added under, and it is checkable
+//! rather than asserted: fourteen sounds shipped before any of them existed, and
+//! `tests/pin/sound_synth.hex` still matches without being re-blessed. Written
+//! as identity arithmetic instead — a multiply by one, a filter with a
+//! coefficient of one — it would have been the same synthesiser in algebra and
+//! a different one in floats.
+//!
+//! The rule the block schema uses still applies and cuts the other way: a knob
+//! nothing has authored is a knob whose default is untested. So
+//! `content/sounds/` now authors each of these at least once.
 //!
 //! # Why the noise is deterministic
 //!
@@ -26,8 +37,8 @@
 //! goes looking for it.
 
 use yugen_data::sounds::{
-    SND_ATTACK, SND_GAIN, SND_HZ, SND_HZ_TO, SND_NOISE, SND_RELEASE, SND_SECONDS, SND_WAVE,
-    SOUND_COUNT, SoundWave,
+    SND_ATTACK, SND_GAIN, SND_HZ, SND_HZ_TO, SND_LOWPASS, SND_NOISE, SND_RELEASE, SND_REPEAT_HZ,
+    SND_SECONDS, SND_VIBRATO, SND_VIBRATO_HZ, SND_WAVE, SOUND_COUNT, SoundWave,
 };
 
 /// Samples per second everything here is rendered at.
@@ -168,6 +179,14 @@ pub struct Params {
     pub release: f32,
     pub noise: f32,
     pub gain: f32,
+    /// Pitch wobble depth, as a fraction of the current pitch. 0 is none.
+    pub vibrato: f32,
+    /// Wobble rate in Hz. 0 with a non-zero depth is still no vibrato.
+    pub vibrato_hz: f32,
+    /// How often the envelope and sweep restart, in Hz. 0 plays once.
+    pub repeat_hz: f32,
+    /// One-pole low-pass cutoff in Hz. **0 is bypass, not silence.**
+    pub lowpass: f32,
 }
 
 /// Render the sound with this code, or `None` if there is no such sound.
@@ -185,6 +204,10 @@ pub fn render(code: u16) -> Option<Pcm> {
         release: SND_RELEASE[i],
         noise: SND_NOISE[i],
         gain: SND_GAIN[i],
+        vibrato: SND_VIBRATO[i],
+        vibrato_hz: SND_VIBRATO_HZ[i],
+        repeat_hz: SND_REPEAT_HZ[i],
+        lowpass: SND_LOWPASS[i],
     }))
 }
 
@@ -204,6 +227,10 @@ pub fn render_params(p: &Params) -> Pcm {
         release,
         noise: noise_mix,
         gain,
+        vibrato,
+        vibrato_hz,
+        repeat_hz,
+        lowpass,
     } = *p;
     let total = (seconds * SAMPLE_RATE as f32) as usize;
     if total == 0 {
@@ -217,9 +244,30 @@ pub fn render_params(p: &Params) -> Pcm {
     // audible as a click at every step of the sweep.
     let mut phase = 0.0f32;
     let mut hold = 0u32;
+    // One-pole state. Only read inside the `lowpass > 0.0` branch below.
+    let mut lp = 0.0f32;
     for n in 0..total {
         let t = n as f32 / total as f32;
-        let f = hz + (hz_to - hz) * t;
+
+        // Position within the current repetition. Every one of the three
+        // shaping fields below is an EXPLICIT branch rather than an identity
+        // multiply, because "0 changes nothing" has to be true of the bits and
+        // not merely of the arithmetic — `tests/pin/sound_synth.hex` is fourteen
+        // shipped sounds asserting exactly that.
+        let t_env = if repeat_hz > 0.0 {
+            let len = ((SAMPLE_RATE as f32 / repeat_hz) as usize).max(1);
+            (n % len) as f32 / len as f32
+        } else {
+            t
+        };
+
+        let swept = hz + (hz_to - hz) * t_env;
+        let f = if vibrato > 0.0 && vibrato_hz > 0.0 {
+            let w = std::f32::consts::TAU * vibrato_hz * n as f32 / SAMPLE_RATE as f32;
+            swept * (1.0 + vibrato * w.sin())
+        } else {
+            swept
+        };
         phase += f / SAMPLE_RATE as f32;
         // Count the wraps rather than flooring in place, so `hold` is the cycle
         // index the noise oscillator samples on. A sweep changes how often this
@@ -235,8 +283,26 @@ pub fn render_params(p: &Params) -> Pcm {
         // moved with the pitch would read as a second voice.
         let s = tone * (1.0 - noise_mix) + noise_at(n as u32) * noise_mix;
 
+        // A one-pole low-pass, or nothing at all. Writing this as
+        // `lp += alpha * (s - lp)` with `alpha == 1.0` would be the same filter
+        // in algebra and NOT the same float: the round-trip through the
+        // subtraction and the add loses the low bit, and fourteen goldens would
+        // move for a feature none of them use.
+        let s = if lowpass > 0.0 {
+            let dt = 1.0 / SAMPLE_RATE as f32;
+            let rc = 1.0 / (std::f32::consts::TAU * lowpass);
+            lp += (dt / (rc + dt)) * (s - lp);
+            lp
+        } else {
+            s
+        };
+
         let ends = declick(n, total);
-        out.push((s * envelope(t, attack, release) * ends * gain).clamp(-1.0, 1.0));
+        // The envelope follows the repetition, so a repeating sound is a train
+        // of complete envelopes rather than one envelope over a stutter. The
+        // de-click still measures against the WHOLE sound: it exists to stop the
+        // buffer's own edges popping, and the edges have not moved.
+        out.push((s * envelope(t_env, attack, release) * ends * gain).clamp(-1.0, 1.0));
     }
     out
 }
@@ -383,6 +449,28 @@ mod tests {
             release: 0.4,
             noise: 0.25,
             gain: 0.8,
+            // All four shaping fields off, because this pin's job is to prove
+            // they CHANGE NOTHING when they are. `pin_case_shaped` below is
+            // where they are all switched on.
+            vibrato: 0.0,
+            vibrato_hz: 0.0,
+            repeat_hz: 0.0,
+            lowpass: 0.0,
+        }
+    }
+
+    /// The same 0.02 s, with every shaping field switched on.
+    ///
+    /// A second pin rather than a change to the first. The first one's value is
+    /// that it has NOT moved since before these fields existed; folding them
+    /// into it would spend exactly the evidence it exists to carry.
+    fn pin_case_shaped() -> Params {
+        Params {
+            vibrato: 0.4,
+            vibrato_hz: 12.0,
+            repeat_hz: 30.0,
+            lowpass: 1200.0,
+            ..pin_case()
         }
     }
 
@@ -391,6 +479,70 @@ mod tests {
         let pcm = render_params(&pin_case());
         assert_eq!(pcm.len(), 882, "0.02 s at 44100");
         crate::pin::check("sound_synth.hex", &crate::pin::samples_to_bytes(&pcm));
+    }
+
+    #[test]
+    fn the_shaping_fields_match_their_own_pin() {
+        let pcm = render_params(&pin_case_shaped());
+        assert_eq!(pcm.len(), 882, "0.02 s at 44100");
+        crate::pin::check(
+            "sound_synth_shaped.hex",
+            &crate::pin::samples_to_bytes(&pcm),
+        );
+    }
+
+    #[test]
+    fn every_shaping_field_is_neutral_at_zero() {
+        // The acceptance criterion for the whole set, stated as a property
+        // rather than left to the golden. Turning a field ON must change the
+        // sound and leaving it at zero must change nothing — bit for bit, which
+        // is why each is an explicit branch in `render_params` rather than an
+        // identity multiply.
+        let base = render_params(&pin_case());
+        for (what, p) in [
+            (
+                "vibrato",
+                Params {
+                    vibrato: 0.4,
+                    vibrato_hz: 12.0,
+                    ..pin_case()
+                },
+            ),
+            (
+                "repeat",
+                Params {
+                    repeat_hz: 30.0,
+                    ..pin_case()
+                },
+            ),
+            (
+                "lowpass",
+                Params {
+                    lowpass: 1200.0,
+                    ..pin_case()
+                },
+            ),
+        ] {
+            assert_ne!(render_params(&p), base, "{what} switched on did nothing");
+        }
+        // And the two halves of vibrato are useless alone, which is why neither
+        // is required by the schema.
+        for half in [
+            Params {
+                vibrato: 0.4,
+                ..pin_case()
+            },
+            Params {
+                vibrato_hz: 12.0,
+                ..pin_case()
+            },
+        ] {
+            assert_eq!(
+                render_params(&half),
+                base,
+                "half a vibrato is not a vibrato"
+            );
+        }
     }
 
     #[test]
@@ -445,6 +597,10 @@ mod tests {
             release: SND_RELEASE[i],
             noise: SND_NOISE[i],
             gain: SND_GAIN[i],
+            vibrato: SND_VIBRATO[i],
+            vibrato_hz: SND_VIBRATO_HZ[i],
+            repeat_hz: SND_REPEAT_HZ[i],
+            lowpass: SND_LOWPASS[i],
         });
         assert_eq!(render(sound::DIG), Some(direct));
     }
